@@ -152,7 +152,7 @@
     <nav class="nav" id="nav">
       <a data-route="dashboard" class="active"><span class="ico">▦</span> Visão Geral</a>
       <a data-route="fluxo"><span class="ico">📈</span> Fluxo de Caixa</a>
-      <a data-route="dre"><span class="ico">📊</span> DRE</a>
+      <a data-route="dre" id="navDre"><span class="ico">📊</span> DRE</a>
       <a data-route="orcamento"><span class="ico">🎯</span> Orçamento</a>
       <div class="grp">Lançamentos</div>
       <a data-route="movimentos"><span class="ico">↕</span> Movimentos</a>
@@ -335,7 +335,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&VISAO!=="PJ")name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
@@ -670,6 +670,9 @@ const hideGate=()=>gate.classList.remove("show");
 let _booted=false;
 async function bootApp(){
   document.getElementById("verTag").textContent="v"+(window.APP_VERSION||"3.0");
+  /* Escopo: DRE é só do PJ; PF/Família usam Orçamento. Mesmo código, muda CONFIG.VISAO. */
+  {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=(VISAO==="PJ")?"":"none";
+   const _br=document.querySelector(".brand");if(_br&&VISAO!=="PJ")_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+VISAO+'</b>';}
   document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";}
   if(_booted)return;_booted=true;

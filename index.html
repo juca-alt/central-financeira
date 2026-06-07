@@ -104,7 +104,36 @@
   .cf td,.cf th{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .cf .h{text-align:left;position:sticky;left:0;background:var(--card);font-weight:600}
   .bar{height:7px;border-radius:4px;background:#eef0f3;overflow:hidden}.bar>i{display:block;height:100%}
-  @media(max-width:920px){.app{grid-template-columns:1fr}.side{position:static;height:auto}.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+  /* topbar mobile (escondida no desktop) */
+  .mtop{display:none}
+  @media(max-width:920px){
+    .mtop{display:flex;align-items:center;gap:12px;position:fixed;top:0;left:0;right:0;height:52px;background:#0b1220;color:#fff;padding:0 14px;z-index:70;box-shadow:0 1px 10px rgba(0,0,0,.25)}
+    .mtop-btn{background:transparent;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:4px 6px}
+    .mtop-brand{font-weight:700;font-size:15px}
+    .app{grid-template-columns:1fr}
+    .side{position:fixed;top:0;left:0;bottom:0;width:250px;height:100vh;transform:translateX(-100%);transition:transform .25s ease;z-index:90;box-shadow:0 0 50px rgba(0,0,0,.55)}
+    .side.open{transform:none}
+    .side-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:85;display:none}
+    .side-ov.show{display:block}
+    .main{padding:66px 14px 26px;max-width:100%}
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .grid2{grid-template-columns:1fr}
+    .panel{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .row h1{font-size:19px}
+  }
+  @media(max-width:460px){.kpis{grid-template-columns:1fr}}
+  /* seletor de perfil (sidebar) */
+  .profile{margin-top:8px;position:relative}
+  .profile-chip{display:flex;align-items:center;gap:9px;padding:8px;border-radius:10px;background:#16213a;cursor:pointer}
+  .profile-chip:hover{background:#1e2b47}
+  .profile-chip .av{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#3b5bdb,#7c3aed);display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:none}
+  .profile-chip .pn{font-size:12.5px;color:#fff;font-weight:600}
+  .profile-chip .ps{font-size:10.5px;color:#94a3b8}
+  .profile-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:95}
+  .profile-menu.open{display:block}
+  .profile-menu a{display:block;padding:8px 10px;border-radius:7px;color:#cbd5e1;font-size:12.5px;cursor:pointer;text-decoration:none}
+  .profile-menu a:hover{background:#1e293b;color:#fff}
+  .profile-menu a.cur{color:#fff;font-weight:600;background:#1e3a5f}
   /* ===== Login (auth gate) ===== */
   #gate{position:fixed;inset:0;z-index:9999;background:#0b1220;display:none;align-items:center;justify-content:center;padding:24px}
   #gate.show{display:flex}
@@ -145,8 +174,10 @@
     <div class="gate-toggle" id="gToggle">Primeiro acesso? <span>Criar minha senha</span></div>
   </form>
 </div>
+<header class="mtop"><button class="mtop-btn" id="navToggle" aria-label="Abrir menu">☰</button><span class="mtop-brand">Central Financeira</span></header>
+<div class="side-ov" id="sideOv"></div>
 <div class="app">
-  <aside class="side">
+  <aside class="side" id="sideNav">
     <div class="brand"><span class="dot">₿</span> Central Financeira</div>
     <div class="ver" id="verTag">v2.0</div>
     <nav class="nav" id="nav">
@@ -165,6 +196,7 @@
     </nav>
     <div class="spacer"></div>
     <div class="env" id="envBox"></div>
+    <div class="profile" id="profileBox" style="display:none"></div>
     <div class="logout" id="pwBtn" style="display:none">🔑 Alterar senha</div>
     <div class="logout" id="logoutBtn" style="display:none">Sair</div>
   </aside>
@@ -312,6 +344,8 @@ const bancoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>c.ativo!==false).m
 const cartaoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>/cart/i.test(c.nome)||c.tipo==="cartao").map(c=>c.nome),...DB.cartoes.map(c=>c.cartao)].filter(Boolean))];
 function catOptsByTipo(tipo){const out=[""];DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo)).forEach(p=>{out.push(p.nome);DB.categorias.filter(s=>s.parent_id===p.id).forEach(s=>out.push(p.nome+" › "+s.nome));});out.push("__new");return out;}
 const catOpts=()=>catOptsByTipo("").filter(o=>o!=="__new");
+/* grupos por tipo p/ optgroup (subcategorias aninhadas sob o pai) */
+function catGroupsByTipo(tipo){const tops=DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo));const withSubs=[],gerais=[];tops.forEach(p=>{const subs=DB.categorias.filter(s=>s.parent_id===p.id);if(subs.length)withSubs.push({parent:p.nome,items:[p.nome,...subs.map(s=>p.nome+" › "+s.nome)]});else gerais.push(p.nome);});return{withSubs,gerais};}
 function modal({title,fields,values={},extraHTML="",onSave,saveLabel="Salvar"}){
   const fldHTML=(fields||[]).map(f=>{const v=values[f.name]??f.default??"";
     if(f.type==="select")return `<div class="fld"><label>${esc(f.label)}</label><select data-n="${f.name}">${(f.options||[]).map(o=>{const val=typeof o==="object"?o.v:o,lab=typeof o==="object"?o.l:o;return`<option value="${esc(val)}" ${String(val)===String(v)?"selected":""}>${esc(lab||"—")}</option>`;}).join("")}</select></div>`;
@@ -360,8 +394,13 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
   document.body.appendChild(bg); const close=()=>bg.remove();
   bg.querySelector("#cancel").onclick=close; bg.addEventListener("click",e=>{if(e.target===bg)close();});
   let sentido=isEdit?m.sentido:"Saída";
-  const renderCat=()=>{const slot=bg.querySelector("#catSlot");const tipo=sentido==="Entrada"?"entrada":"saida";const opts=catOptsByTipo(tipo);
-    slot.innerHTML=`<select id="f_cat">${opts.map(o=>o==="__new"?`<option value="__new">＋ Nova categoria…</option>`:`<option value="${esc(o)}" ${o===m.categoria?"selected":""}>${esc(o||"—")}</option>`).join("")}</select>`;
+  const renderCat=()=>{const slot=bg.querySelector("#catSlot");const tipo=sentido==="Entrada"?"entrada":"saida";const g=catGroupsByTipo(tipo);
+    const sel=v=>v===m.categoria?"selected":"";
+    let html=`<select id="f_cat"><option value="" ${m.categoria?"":"selected"}>—</option>`;
+    if(g.gerais.length)html+=`<optgroup label="Categorias">${g.gerais.map(v=>`<option value="${esc(v)}" ${sel(v)}>${esc(v)}</option>`).join("")}</optgroup>`;
+    g.withSubs.forEach(grp=>{html+=`<optgroup label="${esc(grp.parent)}">`+grp.items.map((v,i)=>`<option value="${esc(v)}" ${sel(v)}>${i===0?esc(v):"› "+esc((v.split(" › ")[1]||v))}</option>`).join("")+`</optgroup>`;});
+    html+=`<option value="__new">＋ Nova categoria…</option></select>`;
+    slot.innerHTML=html;
     bg.querySelector("#f_cat").onchange=async e=>{if(e.target.value==="__new"){const nome=await promptCat(tipo);renderCat();if(nome){const s=bg.querySelector("#f_cat");if([...s.options].some(o=>o.value===nome))s.value=nome;}}};};
   const apply=()=>{bg.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.v===sentido));bg.querySelector("#single").style.display=sentido==="Transferência"?"none":"block";bg.querySelector("#transf").style.display=sentido==="Transferência"?"block":"none";if(sentido!=="Transferência")renderCat();};
   bg.querySelectorAll("#seg button").forEach(b=>b.onclick=()=>{sentido=b.dataset.v;apply();}); apply();
@@ -642,7 +681,22 @@ async function setGrupoDre(id,val){const c=DB.categorias.find(x=>x.id===id);if(!
 
 /* ===== Router + Init ===== */
 const ROUTES={dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,pagar:viewPagar,receber:viewReceber,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
-document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a)route(a.dataset.route);});
+document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a){route(a.dataset.route);closeDrawer();}});
+/* ===== Drawer mobile (sidebar off-canvas) ===== */
+function openDrawer(){document.getElementById("sideNav").classList.add("open");document.getElementById("sideOv").classList.add("show");}
+function closeDrawer(){const s=document.getElementById("sideNav"),o=document.getElementById("sideOv");if(s)s.classList.remove("open");if(o)o.classList.remove("show");}
+(function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
+/* ===== Seletor de perfil PJ ↔ PF ===== */
+function profileUrls(){const root=(VISAO==="PF")?new URL("../",location.href):new URL("./",location.href);return{PJ:root.href,PF:new URL("pf/",root).href};}
+function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";
+  const u=profileUrls();const ini=((email||VISAO||"?").trim()[0]||"?").toUpperCase();
+  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">Perfil ${esc(VISAO)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
+    `<div class="profile-menu" id="profMenu"><a data-url="${esc(u.PJ)}" class="${VISAO==="PJ"?"cur":""}">🏢 Pessoa Jurídica (PJ)</a><a data-url="${esc(u.PF)}" class="${VISAO==="PF"?"cur":""}">🏠 Pessoa Física (PF)</a></div>`;
+  const chip=pb.querySelector("#profChip"),menu=pb.querySelector("#profMenu");
+  chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
+  menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{const isCur=a.classList.contains("cur");if(isCur){menu.classList.remove("open");return;}location.href=a.dataset.url;});
+  document.addEventListener("click",()=>menu.classList.remove("open"));
+}
 /* ===== PWA: service worker + aviso de atualização ===== */
 (function(){
   if(!("serviceWorker" in navigator))return;
@@ -675,7 +729,8 @@ async function bootApp(){
   {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=(VISAO==="PJ")?"":"none";
    const _br=document.querySelector(".brand");if(_br&&VISAO!=="PJ")_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+VISAO+'</b>';}
   document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
-  if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";}
+  if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";
+    try{const{data}=await sb.auth.getSession();renderProfile(data&&data.session&&data.session.user&&data.session.user.email);}catch(e){renderProfile();}}
   if(_booted)return;_booted=true;
   try{DB=await loadData();const ys=yearsList();PERIOD.ano=ys[0]||new Date().getFullYear();PERIOD.mes=new Date().getMonth()+1;route("dashboard");}
   catch(e){document.getElementById("view").innerHTML=`<div class="panel"><h2>Erro ao carregar</h2><div class="sub">${esc(e.message)}</div></div>`;}

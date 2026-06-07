@@ -1,0 +1,36 @@
+name: Sync Organizze (Família) → Supabase
+
+# Manual por enquanto (workflow_dispatch). Depois de validar a 1ª run,
+# descomente o schedule pra rodar sozinho todo dia.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (só loga, NÃO insere)"
+        type: boolean
+        default: true
+      days:
+        description: "Quantos dias para trás"
+        default: "90"
+  # schedule:
+  #   - cron: "0 9 * * *"   # 09:00 UTC = 06:00 BRT
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Rodar sync
+        env:
+          ORGANIZZE_EMAIL: ${{ secrets.ORGANIZZE_EMAIL }}
+          ORGANIZZE_TOKEN: ${{ secrets.ORGANIZZE_TOKEN }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
+          CONTA_CORRENTE_ID: 9225d426-84a9-4b0b-a28b-d5fc23a3600d
+          CONTA_CARTAO_ID: a66c385d-24cc-458e-bd39-5b7f0986bbdc
+          DRY_RUN: ${{ inputs.dry_run }}
+          SYNC_DAYS: ${{ inputs.days }}
+        run: node scripts/sync-organizze.mjs

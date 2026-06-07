@@ -1,0 +1,31 @@
+/* Service worker — app-shell cache + atualização controlada.
+   Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo.
+   O app detecta o SW novo (estado "waiting") e mostra "Atualização disponível".
+   Quando o Gustavo clica em Atualizar, o app manda SKIP_WAITING e recarrega. */
+const CACHE = "cfin-pf-v3.0";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest",
+  "./icon-192.png", "./icon-512.png"];
+
+self.addEventListener("install", e => {
+  // NÃO faz skipWaiting automático: espera o usuário clicar em Atualizar.
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+});
+self.addEventListener("activate", e => {
+  e.waitUntil(caches.keys().then(ks =>
+    Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+});
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+self.addEventListener("fetch", e => {
+  const u = new URL(e.request.url);
+  if (u.hostname.includes("supabase") || u.hostname.includes("jsdelivr")) return; // dados: sempre rede
+  if (e.request.method !== "GET") return;
+  e.respondWith(
+    fetch(e.request).then(r => {
+      const cp = r.clone();
+      caches.open(CACHE).then(c => c.put(e.request, cp));
+      return r;
+    }).catch(() => caches.match(e.request).then(m => m || caches.match("./index.html")))
+  );
+});

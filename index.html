@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Central Financeira PJ</title>
+<title>Central Financeira</title>
 <!-- PWA -->
 <link rel="manifest" href="manifest.webmanifest" />
 <meta name="theme-color" content="#3b5bdb" />
@@ -184,6 +184,7 @@ const HAS_KEY=!!(window.CONFIG&&window.CONFIG.SUPABASE_ANON_KEY);
 const sb=HAS_KEY?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
 const MODE=HAS_KEY?"live":"demo";
 const VISAO=(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo deste app
+try{document.title="Central Financeira "+VISAO;}catch(e){}
 const VFILTER=[VISAO,"AMBOS"];                            // o que este app enxerga
 const fmtBRL=v=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtK=v=>Math.abs(v)>=1000?(v/1000).toFixed(1).replace(".0","")+"k":String(Math.round(v));

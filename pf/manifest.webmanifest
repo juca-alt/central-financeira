@@ -1,6 +1,6 @@
 {
-  "name": "Central Financeira PF",
-  "short_name": "Financeiro PF",
+  "name": "Central Financeira Família",
+  "short_name": "Financeiro Família",
   "description": "Gestão financeira da master franquia",
   "start_url": ".",
   "scope": "./",

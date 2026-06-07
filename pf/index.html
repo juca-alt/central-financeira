@@ -19,7 +19,7 @@
     SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZXFzaW9qdmZpcXJoZWN0cXVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDc1MTAsImV4cCI6MjA5NTQ4MzUxMH0.jm-hM4u5ULcsNAvWNOzpIjPTJ5pN2lbQm5KJcArYH1k",
     // ESCOPO deste app. Os apps-irmãos (PF, Família) herdam ESTA base,
     // mudando só esta linha para "PF" / "FAMILIA".
-    VISAO: "PF",
+    VISAO: "FAMILIA",
   };
   window.APP_VERSION = "3.0";
 </script>
@@ -216,7 +216,8 @@ const HAS_KEY=!!(window.CONFIG&&window.CONFIG.SUPABASE_ANON_KEY);
 const sb=HAS_KEY?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
 const MODE=HAS_KEY?"live":"demo";
 const VISAO=(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo deste app
-try{document.title="Central Financeira "+VISAO;}catch(e){}
+const VISAO_LABEL=({PJ:"PJ",PF:"Pessoa Física",FAMILIA:"Família"})[VISAO]||VISAO;
+try{document.title="Central Financeira "+VISAO_LABEL;}catch(e){}
 const VFILTER=[VISAO,"AMBOS"];                            // o que este app enxerga
 const fmtBRL=v=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtK=v=>Math.abs(v)>=1000?(v/1000).toFixed(1).replace(".0","")+"k":String(Math.round(v));
@@ -305,7 +306,7 @@ const DEMO=(()=>{
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
   const [contas,cats,mv,ct,pv,rg,gl]=await Promise.all([
-    sb.from("contas").select("id,nome,banco,tipo,ativo"),
+    sb.from("contas").select("id,nome,banco,tipo,ativo,visao").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
@@ -687,11 +688,11 @@ function openDrawer(){document.getElementById("sideNav").classList.add("open");d
 function closeDrawer(){const s=document.getElementById("sideNav"),o=document.getElementById("sideOv");if(s)s.classList.remove("open");if(o)o.classList.remove("show");}
 (function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
 /* ===== Seletor de perfil PJ ↔ PF ===== */
-function profileUrls(){const root=(VISAO==="PF")?new URL("../",location.href):new URL("./",location.href);return{PJ:root.href,PF:new URL("pf/",root).href};}
+function profileUrls(){const root=(VISAO!=="PJ")?new URL("../",location.href):new URL("./",location.href);return{PJ:root.href,FAMILIA:new URL("pf/",root).href};}
 function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";
   const u=profileUrls();const ini=((email||VISAO||"?").trim()[0]||"?").toUpperCase();
-  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">Perfil ${esc(VISAO)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
-    `<div class="profile-menu" id="profMenu"><a data-url="${esc(u.PJ)}" class="${VISAO==="PJ"?"cur":""}">🏢 Pessoa Jurídica (PJ)</a><a data-url="${esc(u.PF)}" class="${VISAO==="PF"?"cur":""}">🏠 Pessoa Física (PF)</a></div>`;
+  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">Perfil ${esc(VISAO_LABEL)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
+    `<div class="profile-menu" id="profMenu"><a data-url="${esc(u.PJ)}" class="${VISAO==="PJ"?"cur":""}">🏢 Pessoa Jurídica (PJ)</a><a data-url="${esc(u.FAMILIA)}" class="${VISAO!=="PJ"?"cur":""}">🏠 Financeiro Família</a></div>`;
   const chip=pb.querySelector("#profChip"),menu=pb.querySelector("#profMenu");
   chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
   menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{const isCur=a.classList.contains("cur");if(isCur){menu.classList.remove("open");return;}location.href=a.dataset.url;});
@@ -727,8 +728,8 @@ async function bootApp(){
   document.getElementById("verTag").textContent="v"+(window.APP_VERSION||"3.0");
   /* Escopo: DRE é só do PJ; PF/Família usam Orçamento. Mesmo código, muda CONFIG.VISAO. */
   {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=(VISAO==="PJ")?"":"none";
-   const _br=document.querySelector(".brand");if(_br&&VISAO!=="PJ")_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+VISAO+'</b>';}
-  document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
+   const _br=document.querySelector(".brand");if(_br&&VISAO!=="PJ")_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+VISAO_LABEL+'</b>';}
+  document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO_LABEL}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";
     try{const{data}=await sb.auth.getSession();renderProfile(data&&data.session&&data.session.user&&data.session.user.email);}catch(e){renderProfile();}}
   if(_booted)return;_booted=true;

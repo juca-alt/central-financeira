@@ -12,8 +12,8 @@ on:
       days:
         description: "Quantos dias para trás"
         default: "90"
-  # schedule:
-  #   - cron: "0 9 * * *"   # 09:00 UTC = 06:00 BRT
+  schedule:
+    - cron: "0 9 * * *"   # 09:00 UTC = 06:00 BRT
 
 jobs:
   sync:

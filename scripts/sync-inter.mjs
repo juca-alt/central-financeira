@@ -27,6 +27,7 @@ const KEY = process.env.INTER_KEY_B64 ? Buffer.from(process.env.INTER_KEY_B64, '
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const CONTA_ID = process.env.INTER_CONTA_ID;
+const OWNER = process.env.OWNER_USER_ID || null; // multi-inquilino: carimba o dono nas linhas gravadas (service_role ignora o default auth.uid())
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true') === 'true';
 const DAYS = Math.min(90, Number(process.env.SYNC_DAYS || 30));
 const VISAO = 'PJ';
@@ -164,6 +165,7 @@ async function main() {
       data, descricao_original: descricao, descricao_limpa: descricao,
       valor, sinal, conta_id: CONTA_ID, categoria_id: suggest(descricao),
       visao: VISAO, hash,
+      ...(OWNER ? { user_id: OWNER } : {}),
     });
   }
   console.log(`4) Novos a gravar: ${rows.length} (dedup pulou ${txs.length - rows.length})`);

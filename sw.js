@@ -2,8 +2,8 @@
    Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo.
    O app detecta o SW novo (estado "waiting") e mostra "Atualização disponível".
    Quando o Gustavo clica em Atualizar, o app manda SKIP_WAITING e recarrega. */
-const CACHE = "cfin-pj-v3.2";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest",
+const CACHE = "cfin-pj-v4.0";
+const SHELL = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
   "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {

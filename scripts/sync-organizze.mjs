@@ -15,6 +15,7 @@ const DRY_RUN = String(process.env.DRY_RUN ?? 'true') === 'true';
 const DAYS = Number(process.env.SYNC_DAYS || 90);
 const CONTA_CORRENTE = process.env.CONTA_CORRENTE_ID; // Conta Nubank Familia
 const CONTA_CARTAO   = process.env.CONTA_CARTAO_ID;   // Cartao Nubank Familia
+const OWNER = process.env.OWNER_USER_ID || null;      // multi-inquilino: carimba o dono (service_role ignora o default auth.uid())
 
 if (!ORG_EMAIL || !ORG_TOKEN || !SUPABASE_URL || !SERVICE_KEY) {
   console.error('Faltam variáveis de ambiente (ORGANIZZE_EMAIL/TOKEN, SUPABASE_URL/SERVICE_KEY).');
@@ -86,7 +87,7 @@ async function main() {
     if (catKeyToId.has(key)) return catKeyToId.get(key);
     if (DRY_RUN) { wouldCreateCats.add(`${nome} (${tipo})`); return null; }
     const [created] = await sbSend('POST', '/rest/v1/categorias',
-      [{ nome, tipo, visao: 'FAMILIA' }], 'return=representation');
+      [{ nome, tipo, visao: 'FAMILIA', ...(OWNER ? { user_id: OWNER } : {}) }], 'return=representation');
     catKeyToId.set(key, created.id);
     return created.id;
   }
@@ -133,6 +134,7 @@ async function main() {
       fonte: 'organizze',
       external_id: eid,
       hash: `organizze:${eid}`,
+      ...(OWNER ? { user_id: OWNER } : {}),
     });
   }
 

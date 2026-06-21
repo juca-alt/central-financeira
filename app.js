@@ -43,6 +43,7 @@ const SHELL_HTML = `
     </nav>
     <div class="spacer"></div>
     <div class="env" id="envBox"></div>
+    <div class="logout" id="forceUpd" title="Buscar a versão mais nova">🔄 Atualizar app</div>
     <div class="profile" id="profileBox" style="display:none"></div>
     <div class="logout" id="pwBtn" style="display:none">🔑 Alterar senha</div>
     <div class="logout" id="logoutBtn" style="display:none">Sair</div>
@@ -602,6 +603,20 @@ function renderProfile(email){const pb=document.getElementById("profileBox");if(
     }catch(e){}
   });
 })();
+
+/* ===== Botão manual "Atualizar app" — força buscar a versão mais nova ===== */
+async function checarAtualizacao(){
+  toast("Procurando atualização…");
+  try{
+    if("serviceWorker" in navigator){
+      const reg=await navigator.serviceWorker.getRegistration();
+      if(reg){ await reg.update(); if(reg.waiting){ reg.waiting.postMessage({type:"SKIP_WAITING"}); return; } } // SW novo → controllerchange recarrega
+    }
+  }catch(e){}
+  try{ if(window.caches){ const ks=await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); } }catch(e){} // sem SW esperando → limpa cache e recarrega fresco
+  location.reload();
+}
+(function(){const b=document.getElementById("forceUpd");if(b)b.onclick=checarAtualizacao;})();
 
 /* ===== Auth gate ===== */
 const gate=document.getElementById("gate");

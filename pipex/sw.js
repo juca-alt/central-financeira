@@ -1,13 +1,10 @@
-/* Service worker — app-shell cache + atualização controlada.
-   Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo.
-   O app detecta o SW novo (estado "waiting") e mostra "Atualização disponível".
-   Quando o Gustavo clica em Atualizar, o app manda SKIP_WAITING e recarrega. */
-const CACHE = "cfin-pj-v4.1";
-const SHELL = ["./", "./index.html", "./app.css", "./app.js", "./manifest.webmanifest",
-  "./icon-192.png", "./icon-512.png"];
+/* Service worker — app-shell cache + atualização controlada (perfil Pipe X).
+   Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo. */
+const CACHE = "cfin-pipex-v4.1";
+const SHELL = ["./", "./index.html", "../app.css", "../app.js", "./manifest.webmanifest",
+  "../icon-192.png", "../icon-512.png"];
 
 self.addEventListener("install", e => {
-  // NÃO faz skipWaiting automático: espera o usuário clicar em Atualizar.
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
 });
 self.addEventListener("activate", e => {

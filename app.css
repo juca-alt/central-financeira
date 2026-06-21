@@ -103,6 +103,8 @@
   .profile-chip .ps{font-size:10.5px;color:#94a3b8}
   .profile-menu{display:none;position:absolute;bottom:calc(100% + 6px);left:0;right:0;background:#0f172a;border:1px solid #1e293b;border-radius:10px;padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:95}
   .profile-menu.open{display:block}
+  .profile-menu .profile-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:#64748b;font-weight:700;padding:7px 10px 3px}
+  .profile-menu .profile-grp:first-child{padding-top:3px}
   .profile-menu a{display:block;padding:8px 10px;border-radius:7px;color:#cbd5e1;font-size:12.5px;cursor:pointer;text-decoration:none}
   .profile-menu a:hover{background:#1e293b;color:#fff}
   .profile-menu a.cur{color:#fff;font-weight:600;background:#1e3a5f}

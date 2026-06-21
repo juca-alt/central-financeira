@@ -65,8 +65,18 @@ const HAS_KEY=!!(window.CONFIG&&window.CONFIG.SUPABASE_ANON_KEY);
 const sb=HAS_KEY?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
 const MODE=HAS_KEY?"live":"demo";
 const VISAO=(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo deste app
-const VISAO_LABEL=({PJ:"PJ",PF:"Pessoa Física",FAMILIA:"Família"})[VISAO]||VISAO;
-try{document.title="Central Financeira "+VISAO_LABEL;}catch(e){}
+/* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (relativa à raiz). */
+const PROFILES=[
+  {code:"PJ",      label:"Outliers MFB", grupo:"Negócios", path:"",       icon:"🏢"},
+  {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢"},
+  {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢"},
+  {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠"},
+  {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑"},
+];
+const CUR_PROFILE=PROFILES.find(p=>p.code===VISAO)||{code:VISAO,label:VISAO,grupo:"Negócios",path:""};
+const VISAO_LABEL=CUR_PROFILE.label;
+const IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";        // DRE só p/ Negócios; Pessoal usa Orçamento
+try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}
 const VFILTER=[VISAO,"AMBOS"];                            // o que este app enxerga
 const fmtBRL=v=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtK=v=>Math.abs(v)>=1000?(v/1000).toFixed(1).replace(".0","")+"k":String(Math.round(v));
@@ -164,6 +174,9 @@ async function loadData(){
     sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia").in("visao",VFILTER).order("vencimento").limit(20000),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000)]);
+  /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
+  const enumNovo=[contas,cats,mv,ct,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
+  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[]};
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null}));
@@ -221,7 +234,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&VISAO!=="PJ")name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
@@ -559,11 +572,12 @@ function openDrawer(){document.getElementById("sideNav").classList.add("open");d
 function closeDrawer(){const s=document.getElementById("sideNav"),o=document.getElementById("sideOv");if(s)s.classList.remove("open");if(o)o.classList.remove("show");}
 (function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
 /* ===== Seletor de perfil PJ ↔ PF ===== */
-function profileUrls(){const root=(VISAO!=="PJ")?new URL("../",location.href):new URL("./",location.href);return{PJ:root.href,FAMILIA:new URL("pf/",root).href};}
+function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}
 function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";
   const u=profileUrls();const ini=((email||VISAO||"?").trim()[0]||"?").toUpperCase();
-  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">Perfil ${esc(VISAO_LABEL)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
-    `<div class="profile-menu" id="profMenu"><a data-url="${esc(u.PJ)}" class="${VISAO==="PJ"?"cur":""}">🏢 Pessoa Jurídica (PJ)</a><a data-url="${esc(u.FAMILIA)}" class="${VISAO!=="PJ"?"cur":""}">🏠 Financeiro Família</a></div>`;
+  const itens=["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-url="${esc(u[p.code])}" class="${p.code===VISAO?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");
+  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
+    `<div class="profile-menu" id="profMenu">${itens}</div>`;
   const chip=pb.querySelector("#profChip"),menu=pb.querySelector("#profMenu");
   chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
   menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{const isCur=a.classList.contains("cur");if(isCur){menu.classList.remove("open");return;}location.href=a.dataset.url;});
@@ -598,8 +612,8 @@ let _booted=false;
 async function bootApp(){
   document.getElementById("verTag").textContent="v"+(window.APP_VERSION||"3.0");
   /* Escopo: DRE é só do PJ; PF/Família usam Orçamento. Mesmo código, muda CONFIG.VISAO. */
-  {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=(VISAO==="PJ")?"":"none";
-   const _br=document.querySelector(".brand");if(_br&&VISAO!=="PJ")_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+VISAO_LABEL+'</b>';}
+  {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
+   const _br=document.querySelector(".brand");if(_br)_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+esc(VISAO_LABEL)+'</b>';}
   document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO_LABEL}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";
     try{const{data}=await sb.auth.getSession();renderProfile(data&&data.session&&data.session.user&&data.session.user.email);}catch(e){renderProfile();}}

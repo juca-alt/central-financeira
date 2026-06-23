@@ -1,13 +1,16 @@
 // =====================================================================
-// Sync Banco Inter PJ (extrato) → Supabase (visao=PJ). Node 20+, zero deps.
+// Sync Banco Inter (extrato) → Supabase. Node 20+, zero deps.
+// Multi-visão: o MESMO script serve a conta PJ (Outliers MFB, visao=PJ) e
+// a conta PF (Jucá, visao=JUCA) — muda só os env vars por workflow.
 // Roda no GitHub Actions, mesmo padrão do sync-organizze.mjs.
 //
-// API oficial e GRATUITA do Inter Empresas (developers.inter.co):
+// API oficial e GRATUITA do Inter (developers.inter.co):
 //   - OAuth2 client_credentials + mTLS (certificado .crt + chave .key
-//     gerados no Internet Banking PJ em "Nova Integração", escopo extrato.read)
+//     gerados no Internet Banking em "Nova Integração", escopo extrato.read)
 //   - GET /banking/v2/extrato/completo (paginado, até 90 dias por chamada)
 //
-// Dedup: hash estável "inter_<idTransacao>" (ou fallback data|valor|titulo).
+// Dedup: hash estável "inter_<idTransacao>" (ou fallback data|valor|titulo),
+//   sempre filtrado por visao → cada perfil dedupa contra si mesmo.
 // Categorização: aplica regras_classificacao + glossario_termos do Supabase
 // (mesma lógica de sugestão do app), só em lançamentos novos.
 //
@@ -15,8 +18,12 @@
 //   INTER_CLIENT_ID, INTER_CLIENT_SECRET  → da integração criada no IB
 //   INTER_CERT_B64, INTER_KEY_B64         → .crt e .key em base64
 //   SUPABASE_URL, SUPABASE_SERVICE_KEY    → já existem (sync Organizze)
-//   INTER_CONTA_ID                        → id (uuid) da conta "Inter PJ" na tabela contas
-// Opcional: DRY_RUN (default true), SYNC_DAYS (default 30, máx 90)
+//   INTER_CONTA_ID                        → id (uuid) da conta na tabela contas
+// Opcional:
+//   INTER_VISAO  (default 'PJ')                         → visão deste sync (ex: JUCA)
+//   INTER_SCOPE  (default 'extrato.read')               → escopo OAuth
+//   INTER_HOST   (default cdpj.partners.bancointer...)  → host da API
+//   DRY_RUN      (default true), SYNC_DAYS (default 30, máx 90)
 // =====================================================================
 import https from 'node:https';
 
@@ -30,8 +37,9 @@ const CONTA_ID = process.env.INTER_CONTA_ID;
 const OWNER = process.env.OWNER_USER_ID || null; // multi-inquilino: carimba o dono nas linhas gravadas (service_role ignora o default auth.uid())
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true') === 'true';
 const DAYS = Math.min(90, Number(process.env.SYNC_DAYS || 30));
-const VISAO = 'PJ';
-const INTER_HOST = 'cdpj.partners.bancointer.com.br';
+const VISAO = process.env.INTER_VISAO || 'PJ';            // PJ (Outliers MFB) ou JUCA (Inter PF)
+const SCOPE = process.env.INTER_SCOPE || 'extrato.read';
+const INTER_HOST = process.env.INTER_HOST || 'cdpj.partners.bancointer.com.br';
 
 if (!CLIENT_ID || !CLIENT_SECRET || !CERT || !KEY || !SUPABASE_URL || !SERVICE_KEY || !CONTA_ID) {
   console.error('Faltam variáveis: INTER_CLIENT_ID/SECRET, INTER_CERT_B64/KEY_B64, SUPABASE_URL/SERVICE_KEY, INTER_CONTA_ID.');
@@ -65,7 +73,7 @@ function interReq({ method = 'GET', path, headers = {}, body = null }) {
 async function interToken() {
   const form = new URLSearchParams({
     client_id: CLIENT_ID, client_secret: CLIENT_SECRET,
-    grant_type: 'client_credentials', scope: 'extrato.read',
+    grant_type: 'client_credentials', scope: SCOPE,
   }).toString();
   const r = await interReq({
     method: 'POST', path: '/oauth/v2/token',
@@ -78,17 +86,20 @@ async function interToken() {
 
 async function interExtrato(token, dataInicio, dataFim) {
   const out = [];
-  let pagina = 0, totalPaginas = 1;
-  while (pagina < totalPaginas) {
+  let pagina = 0;
+  while (pagina < 100) {                 // trava dura: 100×200 = 20k transações
     const r = await interReq({
       path: `/banking/v2/extrato/completo?dataInicio=${dataInicio}&dataFim=${dataFim}&pagina=${pagina}&tamanhoPagina=200`,
       headers: { Authorization: `Bearer ${token}` },
     });
     const txs = r?.transacoes || [];
     out.push(...txs);
-    totalPaginas = Number(r?.totalPaginas ?? 1);
     pagina += 1;
-    if (!txs.length) break;
+    // Encerra honrando AMBAS as convenções da API: flag nova (ultimaPagina) e contador antigo (totalPaginas).
+    if (r?.ultimaPagina === true) break;
+    const totalPaginas = Number(r?.totalPaginas ?? 0);
+    if (totalPaginas && pagina >= totalPaginas) break;
+    if (txs.length < 200) break;          // página incompleta ⇒ era a última
   }
   return out;
 }
@@ -131,7 +142,7 @@ function buildSuggester(regras, glossario, catsById) {
 async function main() {
   const end = new Date();
   const start = new Date(); start.setDate(start.getDate() - DAYS);
-  console.log(`Inter PJ → Supabase | janela ${iso(start)}..${iso(end)} | DRY_RUN=${DRY_RUN}`);
+  console.log(`Inter (visao=${VISAO}) → Supabase | janela ${iso(start)}..${iso(end)} | DRY_RUN=${DRY_RUN}`);
 
   console.log('1) Token OAuth (mTLS)…');
   const token = await interToken();
@@ -181,7 +192,7 @@ async function main() {
     await sbSend('POST', '/rest/v1/movimentos', rows.slice(i, i + 200), 'return=minimal');
     console.log(`   gravados ${Math.min(i + 200, rows.length)}/${rows.length}`);
   }
-  console.log('OK — sync Inter PJ concluído.');
+  console.log(`OK — sync Inter (visao=${VISAO}) concluído.`);
 }
 
 main().catch(e => { console.error('ERRO:', e.message); process.exit(1); });

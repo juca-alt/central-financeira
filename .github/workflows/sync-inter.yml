@@ -25,13 +25,16 @@ jobs:
           node-version: 20
       - name: Rodar sync Inter PJ
         env:
+          # --- Secrets (você cadastra no GitHub a partir da integração do Inter) ---
           INTER_CLIENT_ID: ${{ secrets.INTER_CLIENT_ID }}
           INTER_CLIENT_SECRET: ${{ secrets.INTER_CLIENT_SECRET }}
           INTER_CERT_B64: ${{ secrets.INTER_CERT_B64 }}
           INTER_KEY_B64: ${{ secrets.INTER_KEY_B64 }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          INTER_CONTA_ID: ${{ secrets.INTER_CONTA_ID }}
+          # --- Config não-sigilosa (fixa no arquivo, igual ao sync Organizze) ---
+          SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
+          INTER_CONTA_ID: eac4907f-6e1a-4326-894f-ffacf25c04f6   # conta "Inter PJ" na tabela contas
+          INTER_VISAO: PJ
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
         run: node scripts/sync-inter.mjs

@@ -26,7 +26,7 @@ const SHELL_HTML = `
 <div class="app">
   <aside class="side" id="sideNav">
     <div class="brand"><span class="dot">₿</span> Central Financeira</div>
-    <div class="ver" id="verTag">v2.0</div>
+    <div class="ver" id="verTag">v3.0</div>
     <nav class="nav" id="nav">
       <a data-route="dashboard" class="active"><span class="ico">▦</span> Visão Geral</a>
       <a data-route="fluxo"><span class="ico">📈</span> Fluxo de Caixa</a>
@@ -60,7 +60,7 @@ document.body.insertAdjacentHTML("afterbegin", SHELL_HTML);
 
 /* ---------- camada de dados (Supabase + DEMO) ---------- */
 /* =====================================================================
-   DADOS — Supabase (anon) + DEMO. v2.0
+   DADOS — Supabase (anon) + DEMO. v3.0
    ===================================================================== */
 const HAS_KEY=!!(window.CONFIG&&window.CONFIG.SUPABASE_ANON_KEY);
 const sb=HAS_KEY?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;

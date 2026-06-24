@@ -11,9 +11,9 @@ on:
         description: "Quantos dias pra trás (máx 90)"
         required: false
         default: "30"
-  # Piloto automático: descomentar depois da 1ª rodada validada
-  # schedule:
-  #   - cron: "30 9 * * *"   # 06h30 BRT, meia hora depois do sync Organizze
+  # Piloto automático: roda todo dia (validado em 2026-06-23)
+  schedule:
+    - cron: "30 9 * * *"   # 06h30 BRT, meia hora depois do sync Organizze
 
 jobs:
   sync:

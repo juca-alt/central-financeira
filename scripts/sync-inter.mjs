@@ -23,7 +23,7 @@
 //   INTER_VISAO  (default 'PJ')                         → visão deste sync (ex: JUCA)
 //   INTER_SCOPE  (default 'extrato.read')               → escopo OAuth
 //   INTER_HOST   (default cdpj.partners.bancointer...)  → host da API
-//   DRY_RUN      (default true), SYNC_DAYS (default 30, máx 90)
+//   DRY_RUN      (default true), SYNC_DAYS (default 30, máx 89 — limite Inter)
 // =====================================================================
 import https from 'node:https';
 
@@ -36,7 +36,7 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const CONTA_ID = process.env.INTER_CONTA_ID;
 const OWNER = process.env.OWNER_USER_ID || null; // multi-inquilino: carimba o dono nas linhas gravadas (service_role ignora o default auth.uid())
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true') === 'true';
-const DAYS = Math.min(90, Number(process.env.SYNC_DAYS || 30));
+const DAYS = Math.min(89, Number(process.env.SYNC_DAYS || 30));   // Inter recusa janela ≥90 dias (conta inclusiva); 89 = margem segura
 const VISAO = process.env.INTER_VISAO || 'PJ';            // PJ (Outliers MFB) ou JUCA (Inter PF)
 const SCOPE = process.env.INTER_SCOPE || 'extrato.read';
 const INTER_HOST = process.env.INTER_HOST || 'cdpj.partners.bancointer.com.br';

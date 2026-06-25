@@ -104,6 +104,11 @@ async function interExtrato(token, dataInicio, dataFim) {
   return out;
 }
 
+/* ---- Saldo REAL da conta (fonte de verdade pro card; independe dos movimentos) ---- */
+async function interSaldo(token) {
+  return interReq({ path: '/banking/v2/saldo', headers: { Authorization: `Bearer ${token}` } });
+}
+
 /* ---- Supabase REST (service_role, mesmo padrão do sync Organizze) ---- */
 const sbHeaders = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 async function sbGet(path) {
@@ -182,6 +187,26 @@ async function main() {
   console.log(`4) Novos a gravar: ${rows.length} (dedup pulou ${txs.length - rows.length})`);
   const comCat = rows.filter(r => r.categoria_id).length;
   console.log(`   ${comCat} já categorizados pelas regras/glossário`);
+
+  /* 5) Saldo REAL do banco → grava em contas.saldo_atual (card usa isso, não a soma). */
+  try {
+    const s = await interSaldo(token);
+    const disp = Number(s?.disponivel ?? s?.saldo ?? s?.valor ?? NaN);
+    console.log('5) Saldo Inter (raw):', JSON.stringify(s));
+    if (Number.isFinite(disp)) {
+      if (DRY_RUN) {
+        console.log(`   [dry] gravaria saldo_atual=R$ ${disp.toFixed(2)} na conta ${CONTA_ID}`);
+      } else {
+        await sbSend('PATCH', `/rest/v1/contas?id=eq.${CONTA_ID}`,
+          { saldo_atual: disp, saldo_atualizado_em: new Date().toISOString() }, 'return=minimal');
+        console.log(`   conta atualizada: saldo_atual=R$ ${disp.toFixed(2)}`);
+      }
+    } else {
+      console.log('   ⚠ saldo não reconhecido no payload — card seguirá pela soma dos movimentos.');
+    }
+  } catch (e) {
+    console.log('   ⚠ saldo Inter falhou (sync de transações segue normal):', e.message);
+  }
 
   if (DRY_RUN) {
     rows.slice(0, 10).forEach(r => console.log(`   [dry] ${r.data} ${r.sinal > 0 ? '+' : '-'}${r.valor} ${r.descricao_limpa.slice(0, 60)}`));

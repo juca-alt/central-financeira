@@ -1,6 +1,6 @@
 /* Service worker — app-shell cache + atualização controlada (perfil Jucá).
    Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo. */
-const CACHE = "cfin-juca-v4.2";
+const CACHE = "cfin-juca-v4.3";
 const SHELL = ["./", "./index.html", "../app.css", "../app.js", "./manifest.webmanifest",
   "../icon-192.png", "../icon-512.png"];
 

@@ -168,7 +168,7 @@ const DEMO=(()=>{
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
   const [contas,cats,mv,ct,pv,rg,gl]=await Promise.all([
-    sb.from("contas").select("id,nome,banco,tipo,ativo,visao").in("visao",VFILTER),
+    sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
@@ -293,9 +293,11 @@ function periodControls(){let inner="";if(PERIOD.mode==="ano")inner=`<select id=
   return`<div class="controls"><select id="pMode"><option value="ano" ${PERIOD.mode==="ano"?"selected":""}>Por ano</option><option value="mes" ${PERIOD.mode==="mes"?"selected":""}>Por mês</option><option value="range" ${PERIOD.mode==="range"?"selected":""}>Período</option></select>${inner}</div>`;}
 function wirePeriod(){$("#pMode").onchange=e=>{PERIOD.mode=e.target.value;if(PERIOD.mode==="mes"&&!PERIOD.mes)PERIOD.mes=new Date().getMonth()+1;viewDashboard();};if($("#pAno"))$("#pAno").onchange=e=>{PERIOD.ano=+e.target.value;viewDashboard();};if($("#pMes"))$("#pMes").onchange=e=>{PERIOD.mes=+e.target.value;viewDashboard();};if($("#pDe"))$("#pDe").onchange=e=>{PERIOD.de=e.target.value;viewDashboard();};if($("#pAte"))$("#pAte").onchange=e=>{PERIOD.ate=e.target.value;viewDashboard();};}
 let _charts=[];
-function contaSaldos(){const b=new Map();(DB.contas||[]).forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});return b;}
+function contaSaldos(){const b=new Map();(DB.contas||[]).forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});(DB.contas||[]).forEach(c=>{if(c.saldo_atual!=null)b.set(c.nome,Number(c.saldo_atual));});return b;}
 function saldoCard(){const b=contaSaldos();let tot=0;
-  const items=[...b.entries()].filter(([n,v])=>v!==0||n!=="(sem conta)").sort((a,b)=>b[1]-a[1]).map(([n,v])=>{tot+=v;const card=/cart/i.test(n);return`<div style="flex:1;min-width:150px;background:var(--card,#fff);border:1px solid var(--bd,#e5e7eb);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">${card?'💳 ':'🏦 '}${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div></div>`;}).join("");
+  const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
+  const fmtTs=ts=>{try{return new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return'';}};
+  const items=[...b.entries()].filter(([n,v])=>v!==0||n!=="(sem conta)").sort((a,b)=>b[1]-a[1]).map(([n,v])=>{tot+=v;const card=/cart/i.test(n);const liveTs=meta.get(n);const tag=liveTs?`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${fmtTs(liveTs)}</div>`:'';return`<div style="flex:1;min-width:150px;background:var(--card,#fff);border:1px solid var(--bd,#e5e7eb);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">${card?'💳 ':'🏦 '}${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
   return`<div class="panel"><h2>Saldos por conta</h2><div style="display:flex;flex-wrap:wrap;gap:10px">${items}<div style="flex:1;min-width:150px;background:#0f172a;color:#fff;border-radius:10px;padding:10px 12px"><div style="font-size:11px;opacity:.8">💰 TOTAL GERAL</div><div style="font-size:17px;font-weight:700">${fmtBRL(tot)}</div></div></div></div>`;}
 function viewDashboard(){const k=kpis();
   $("#view").innerHTML=`<div class="row"><div><h1>Visão Geral</h1><div class="sub">Painel financeiro — ${periodLabel()}</div></div><button class="btn" onclick="addMovimento()">+ Lançar</button></div>${periodControls()}

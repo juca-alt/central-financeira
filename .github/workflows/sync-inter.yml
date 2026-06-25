@@ -11,9 +11,9 @@ on:
         description: "Quantos dias pra trás (máx 90)"
         required: false
         default: "30"
-  # Piloto automático: roda todo dia (validado em 2026-06-23)
+  # Piloto automático: roda a cada 3h (extrato + saldo sempre frescos; validado 2026-06-23)
   schedule:
-    - cron: "30 9 * * *"   # 06h30 BRT, meia hora depois do sync Organizze
+    - cron: "30 */3 * * *"   # a cada 3h (00:30, 03:30 ... 21:30 UTC) → dado nunca >3h atrasado
 
 jobs:
   sync:

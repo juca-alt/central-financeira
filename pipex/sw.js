@@ -1,6 +1,6 @@
 /* Service worker — app-shell cache + atualização controlada (perfil Pipe X).
    Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo. */
-const CACHE = "cfin-pipex-v4.5";
+const CACHE = "cfin-pipex-v4.6";
 const SHELL = ["./", "./index.html", "../app.css", "../app.js", "./manifest.webmanifest",
   "../icon-192.png", "../icon-512.png"];
 

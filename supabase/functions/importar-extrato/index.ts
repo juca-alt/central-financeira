@@ -32,7 +32,10 @@ const PROMPT = [
   "- description: o historico / estabelecimento, limpo e legivel.",
   "- amount: o valor ABSOLUTO, numero positivo (sem cifrao, sem sinal).",
   "- sign: 'Entrada' para credito / recebimento / deposito / Pix recebido; 'Saida' para debito / pagamento / compra / Pix enviado / tarifa.",
-  "Ignore linhas de SALDO, subtotais, totais, cabecalhos e rodapes - apenas transacoes reais.",
+  "Linhas de SALDO, subtotais, totais, cabecalhos e rodapes NAO sao transacoes - nao as inclua na lista de transacoes.",
+  "Alem das transacoes, devolva saldo_final: o SALDO FINAL / saldo da conta ao FIM do periodo do extrato",
+  "(numero, pode ser negativo; ignore 'saldo anterior'/'saldo inicial', queremos o do FIM). Se o documento nao",
+  "mostrar um saldo final claro, devolva saldo_final null.",
   "Se nao houver nenhuma transacao, devolva uma lista vazia.",
 ].join("\n");
 
@@ -52,6 +55,7 @@ const schema = {
         required: ["date", "description", "amount", "sign"],
       },
     },
+    saldo_final: { type: "number", nullable: true },
   },
   required: ["transactions"],
 };
@@ -117,7 +121,10 @@ Deno.serve(async (req) => {
       }))
       .filter((t) => t.date && t.amount > 0);
 
-    return json({ transactions: out });
+    const sfRaw = (parsed as { saldo_final?: unknown }).saldo_final;
+    const saldo_final = (typeof sfRaw === "number" && isFinite(sfRaw)) ? sfRaw : null;
+
+    return json({ transactions: out, saldo_final });
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500);
   }

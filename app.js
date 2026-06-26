@@ -470,7 +470,7 @@ function importViaIA(file,ext){
     try{
       const resp=await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/importar-extrato`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${CONFIG.SUPABASE_ANON_KEY}`,"apikey":CONFIG.SUPABASE_ANON_KEY},body:JSON.stringify({file_base64:b64,mime_type:MIME[ext]||file.type||"image/jpeg"})});
       const data=await resp.json().catch(()=>({}));
-      if(!resp.ok){$("#impOut").innerHTML=`<div class="empty">IA falhou: ${esc(data.error||resp.status)}. Tente uma foto mais nítida ou exporte OFX.</div>`;return;}
+      if(!resp.ok){const over=resp.status===503||data.status===503||data.status===429||/sobrecarreg|high demand|UNAVAILABLE/i.test((data.detail||"")+(data.error||""));$("#impOut").innerHTML=`<div class="empty">${over?"⏳ A IA está sobrecarregada nesse instante. Espera uns segundos e clica <b>Processar</b> de novo.":`IA falhou: ${esc(data.error||resp.status)}. Tente uma foto mais nítida ou exporte OFX.`}</div>`;return;}
       const txs=(data.transactions||[]).map(t=>({date:t.date,description:t.description,amount:Math.abs(+t.amount||0),sign:t.sign==="Entrada"?"Entrada":"Saída"})).filter(t=>t.date&&t.amount>0);
       if(!txs.length){$("#impOut").innerHTML=`<div class="empty">A IA não achou transações nesse arquivo. Tente uma imagem mais nítida ou o extrato em OFX/CSV.</div>`;return;}
       renderImportPreview({kind:tipo==="fatura"?"fatura":"ia",txs},dest);

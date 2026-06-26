@@ -71,23 +71,34 @@ Deno.serve(async (req) => {
     const url =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + key;
 
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { inline_data: { mime_type: mime_type || "image/jpeg", data: file_base64 } },
-            { text: PROMPT },
-          ],
-        }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
-      }),
-    });
+    const payload = {
+      contents: [{
+        parts: [
+          { inline_data: { mime_type: mime_type || "image/jpeg", data: file_base64 } },
+          { text: PROMPT },
+        ],
+      }],
+      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0 },
+    };
 
-    if (!r.ok) {
-      const t = await r.text();
-      return json({ error: "Gemini falhou", detail: t.slice(0, 500) }, 502);
+    // Gemini as vezes responde 503/429 (sobrecarga transitoria). Tenta de novo
+    // com backoff curto (1s, 2s, 4s) antes de desistir, pra nao quebrar na cara
+    // do usuario por um pico momentaneo de demanda do modelo.
+    const RETRY = [429, 500, 502, 503, 504];
+    let r: Response | undefined;
+    for (let i = 0; i < 4; i++) {
+      r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (r.ok || !RETRY.includes(r.status)) break;
+      if (i < 3) await new Promise((res) => setTimeout(res, 1000 * Math.pow(2, i)));
+    }
+
+    if (!r || !r.ok) {
+      const t = r ? await r.text() : "sem resposta do modelo";
+      return json({ error: "Gemini falhou", detail: t.slice(0, 500), status: r?.status || 0 }, 502);
     }
     const data = await r.json();
     const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";

@@ -200,7 +200,9 @@ function parseOFX(text){const out=[];const re=/<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi
 function parseCSV(text){const lines=text.split(/\r?\n/).filter(l=>l.trim());if(!lines.length)return[];const sep=[";",",","\t"].map(s=>[s,lines[0].split(s).length]).sort((a,b)=>b[1]-a[1])[0][0];const rows=lines.map(l=>l.split(sep).map(c=>c.trim()));let hi=-1;for(let i=0;i<Math.min(8,rows.length);i++){const c=rows[i].join("|").toLowerCase();if(/data|date/.test(c)&&/valor|amount|vlr/.test(c)){hi=i;break;}}const header=(hi>=0?rows[hi]:["data","descricao","valor"]).map(h=>h.toLowerCase());const data=hi>=0?rows.slice(hi+1):rows;const col=rx=>header.findIndex(h=>rx.test(h));const di=Math.max(col(/data|date/),0),vi=col(/valor|amount|vlr/),ddi=Math.max(col(/desc|histor|memo|estabele/),1);const out=[];for(const r of data){if(!r||r.every(c=>!c))continue;const dt=normDate(r[di]||"");const amt=parseAmount(vi>=0?r[vi]:r[2]);if(!dt||isNaN(amt)||amt===0)continue;out.push({date:dt,description:r[ddi]||"",amount:Math.abs(amt),sign:amt<0?"Saída":"Entrada"});}return out;}
 function detectCompensatio(t){return/extrato\s+consolidado\s+de\s+comiss[ãa]o/i.test(t)||(/master\s+franqueado/i.test(t)&&/compensatio/i.test(t));}
 function parseCompensatio(text){const out=[];const rx=/(FYC|Renova[çc][ãa]o|Override|Porte|Transfer[êe]ncia|Recapture)/i;const vrx=/(-?\(?\s*(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}\)?)\s*$/;for(const ln of text.split(/\n/)){if(/Comiss[ãa]o\s+Bruta|Vr\.?\s*Bruto\s+a\s+Receber/i.test(ln))continue;const mr=ln.match(rx),mv=ln.match(vrx);if(mr&&mv){const v=parseAmount(mv[1]);const ded=/\b(desc\.?|estorno)\b/i.test(ln);out.push({date:todayISO().slice(0,8)+"30",description:mr[0]+" — Compensatio MFB",amount:Math.abs(v),sign:ded?"Saída":"Entrada"});}}return out;}
-function parseByType(text,tipo){if(tipo==="compensatio"||(tipo==="auto"&&detectCompensatio(text)))return{kind:"compensatio",txs:parseCompensatio(text)};if(tipo==="ofx"||(tipo==="auto"&&/<STMTTRN|<OFX/i.test(text)))return{kind:"ofx",txs:parseOFX(text)};return{kind:tipo==="fatura"?"fatura":"csv",txs:parseCSV(text)};}
+/* saldo final do OFX (LEDGERBAL) — vira o saldo oficial da conta, igual ao da IA */
+function parseOfxSaldo(text){const m=/<LEDGERBAL>[\s\S]*?<BALAMT>([^<\r\n]+)/i.exec(text);if(m){const v=parseAmount(m[1]);if(!isNaN(v))return v;}return null;}
+function parseByType(text,tipo){if(tipo==="compensatio"||(tipo==="auto"&&detectCompensatio(text)))return{kind:"compensatio",txs:parseCompensatio(text)};if(tipo==="ofx"||(tipo==="auto"&&/<STMTTRN|<OFX/i.test(text)))return{kind:"ofx",txs:parseOFX(text),saldo_final:parseOfxSaldo(text)};return{kind:tipo==="fatura"?"fatura":"csv",txs:parseCSV(text)};}
 
 /* ===== Modal + helpers ===== */
 const $=s=>document.querySelector(s);
@@ -456,7 +458,7 @@ function doImport(){const file=$("#impFile").files[0];
     if(["xlsx","xls"].includes(ext)){$("#impOut").innerHTML=`<div class="empty">Excel ainda não: exporte como CSV ou cole o texto.</div>`;return;}
     const rd=new FileReader();rd.onload=()=>runImport(rd.result);rd.readAsText(file);return;}
   runImport($("#imp").value);}
-function renderImportPreview(r,dest){if(!r.txs.length){$("#impOut").innerHTML=`<div class="empty">Nada reconhecido.</div>`;return;}r.txs.forEach(x=>x.cat=suggestCategoria(x.description));const tot=r.txs.reduce((s,x)=>s+(x.sign==="Entrada"?x.amount:-x.amount),0);window._imp={r,dest};$("#impOut").innerHTML=`<div class="sub" style="margin-bottom:8px">Detectado <b>${r.kind.toUpperCase()}</b> · ${r.txs.length} transações · líquido ${fmtBRL(tot)} · destino <b>${esc(dest)}</b></div><table><thead><tr><th>Data</th><th>Descrição</th><th>Cat. sugerida</th><th class="num">Valor</th></tr></thead><tbody>${r.txs.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.description)}</td><td>${x.cat?`<span class="chip">${esc(x.cat)}</span>`:`<span class="chip none">—</span>`}</td><td class="num ${x.sign==="Entrada"?"in":"out"}">${x.sign==="Entrada"?"+":"−"} ${fmtBRL(x.amount)}</td></tr>`).join("")}</tbody></table><div style="margin-top:10px"><button class="btn" onclick="lancarImport()">Lançar ${r.txs.length} ${MODE==="live"?"no Supabase":"(demo)"}</button></div>`;}
+function renderImportPreview(r,dest){if(!r.txs.length){$("#impOut").innerHTML=`<div class="empty">Nada reconhecido.</div>`;return;}r.txs.forEach(x=>x.cat=suggestCategoria(x.description));const tot=r.txs.reduce((s,x)=>s+(x.sign==="Entrada"?x.amount:-x.amount),0);window._imp={r,dest};$("#impOut").innerHTML=`<div class="sub" style="margin-bottom:8px">Detectado <b>${r.kind.toUpperCase()}</b> · ${r.txs.length} transações · líquido ${fmtBRL(tot)} · destino <b>${esc(dest)}</b>${(r.saldo_final!=null&&isFinite(r.saldo_final))?` · saldo final <b>${fmtBRL(r.saldo_final)}</b> → vira o saldo da conta`:""}</div><table><thead><tr><th>Data</th><th>Descrição</th><th>Cat. sugerida</th><th class="num">Valor</th></tr></thead><tbody>${r.txs.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.description)}</td><td>${x.cat?`<span class="chip">${esc(x.cat)}</span>`:`<span class="chip none">—</span>`}</td><td class="num ${x.sign==="Entrada"?"in":"out"}">${x.sign==="Entrada"?"+":"−"} ${fmtBRL(x.amount)}</td></tr>`).join("")}</tbody></table><div style="margin-top:10px"><button class="btn" onclick="lancarImport()">Lançar ${r.txs.length} ${MODE==="live"?"no Supabase":"(demo)"}</button></div>`;}
 function runImport(text){if(!text||!text.trim()){toast("Anexe ou cole");return;}const tipo=$("#impTipo").value,dest=$("#impDest").value,r=parseByType(text,tipo);renderImportPreview(r,dest);}
 /* PDF/foto/print → Gemini (Edge Function importar-extrato). A chave fica no servidor; só o upload sobe pra própria função, e o preview/dedup/categoria reusam o fluxo do OFX. */
 const MIME={pdf:"application/pdf",jpg:"image/jpeg",jpeg:"image/jpeg",png:"image/png",webp:"image/webp",heic:"image/heic",heif:"image/heif"};
@@ -473,7 +475,7 @@ function importViaIA(file,ext){
       if(!resp.ok){const over=resp.status===503||data.status===503||data.status===429||/sobrecarreg|high demand|UNAVAILABLE/i.test((data.detail||"")+(data.error||""));$("#impOut").innerHTML=`<div class="empty">${over?"⏳ A IA está sobrecarregada nesse instante. Espera uns segundos e clica <b>Processar</b> de novo.":`IA falhou: ${esc(data.error||resp.status)}. Tente uma foto mais nítida ou exporte OFX.`}</div>`;return;}
       const txs=(data.transactions||[]).map(t=>({date:t.date,description:t.description,amount:Math.abs(+t.amount||0),sign:t.sign==="Entrada"?"Entrada":"Saída"})).filter(t=>t.date&&t.amount>0);
       if(!txs.length){$("#impOut").innerHTML=`<div class="empty">A IA não achou transações nesse arquivo. Tente uma imagem mais nítida ou o extrato em OFX/CSV.</div>`;return;}
-      renderImportPreview({kind:tipo==="fatura"?"fatura":"ia",txs},dest);
+      renderImportPreview({kind:tipo==="fatura"?"fatura":"ia",txs,saldo_final:(data.saldo_final!=null&&isFinite(+data.saldo_final))?+data.saldo_final:null},dest);
     }catch(e){$("#impOut").innerHTML=`<div class="empty">Erro ao chamar a IA: ${esc(e.message||e)}.</div>`;}
   };
   rd.readAsDataURL(file);
@@ -494,7 +496,20 @@ async function lancarImport(){const{r,dest}=window._imp||{};if(!r)return;const i
       n++;
     }catch(e){err++;}
   }
-  toast([`${n} lançados`,dup?`${dup} ignorados (já existiam)`:"",err?`${err} com erro`:""].filter(Boolean).join(" · "));
+  /* saldo override: o saldo final do extrato vira o saldo OFICIAL da conta (igual ao sync do Inter) — o card passa a bater com o banco mesmo com duplicata ou histórico faltando, pois contaSaldos ignora a soma cega quando há saldo_atual. Guarda: extrato mais antigo não sobrescreve saldo mais novo. */
+  let saldoMsg="";
+  if(!isFat&&r.saldo_final!=null&&isFinite(r.saldo_final)){
+    const conta=(DB.contas||[]).find(c=>c.id===contaId(dest));
+    if(conta){
+      const refDate=(r.txs.reduce((mx,x)=>x.date>mx?x.date:mx,"")||todayISO()).slice(0,10);
+      const prevD=conta.saldo_atualizado_em?String(conta.saldo_atualizado_em).slice(0,10):"";
+      if(!prevD||refDate>=prevD){
+        const sf=Number(r.saldo_final),ts=new Date().toISOString();
+        try{if(MODE==="live")await sbUpd("contas",conta.id,{saldo_atual:sf,saldo_atualizado_em:ts});conta.saldo_atual=sf;conta.saldo_atualizado_em=ts;saldoMsg="saldo da conta → "+fmtBRL(sf);}catch(e){}
+      }
+    }
+  }
+  toast([`${n} lançados`,dup?`${dup} ignorados (já existiam)`:"",saldoMsg,err?`${err} com erro`:""].filter(Boolean).join(" · "));
   await afterWrite();route(isFat?"cartoes":"movimentos");}
 
 /* ===== Fluxo de Caixa (realizado + projeção c/ recorrentes) ===== */

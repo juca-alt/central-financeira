@@ -483,7 +483,8 @@ function importViaIA(file,ext){
 async function lancarImport(){const{r,dest}=window._imp||{};if(!r)return;const isFat=r.kind==="fatura";
   /* dedup: pula transações idênticas às já existentes (evita double-count ao reimportar o mesmo extrato) */
   const norm=s=>String(s||"").trim().toLowerCase();
-  const keyOf=(d,v,desc,c,sign)=>isFat?[d,v,norm(desc),norm(c)].join("|"):[d,v,norm(desc),sign,norm(c)].join("|");
+  /* dedup por IMPRESSÃO DIGITAL data+valor+sinal+conta (NÃO inclui descrição: a IA varia o texto entre leituras → senão re-importar duplica). Fatura mantém descrição. */
+  const keyOf=(d,v,desc,c,sign)=>isFat?[d,v,norm(desc),norm(c)].join("|"):[d,v,sign,norm(c)].join("|");
   const seen=new Set((isFat?DB.cartoes:DB.movimentos).map(m=>isFat?keyOf(m.data,m.valor,m.descricao,m.cartao):keyOf(m.data,m.valor,m.descricao,m.banco,m.sentido)));
   let n=0,dup=0,err=0;
   for(const x of r.txs){

@@ -1,6 +1,6 @@
 /* Service worker — app-shell cache + atualização controlada (perfil R.C).
    Pra publicar nova versão: suba os arquivos e BUMPE o CACHE abaixo. */
-const CACHE = "cfin-rc-v4.5";
+const CACHE = "cfin-rc-v4.6";
 const SHELL = ["./", "./index.html", "../app.css", "../app.js", "./manifest.webmanifest",
   "../icon-192.png", "../icon-512.png"];
 

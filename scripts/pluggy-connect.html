@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Conectar bancos · Pluggy · Central Financeira</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --txt:#e2e8f0; --mut:#94a3b8; --ok:#22c55e; --pri:#6366f1; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:var(--mut); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--mut); margin-bottom:4px; text-transform:uppercase; letter-spacing:.04em; }
+  input[type=text] { width:100%; padding:9px 11px; border-radius:8px; border:1px solid var(--line); background:#0b1220; color:var(--txt); font-family:ui-monospace,monospace; font-size:13px; }
+  .banks { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; margin-top:10px; }
+  button { cursor:pointer; border:0; border-radius:9px; padding:11px 14px; font-size:14px; font-weight:600; color:#fff; background:var(--pri); }
+  button:hover { filter:brightness(1.1); }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); font-weight:500; }
+  .row { display:flex; align-items:center; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; font-size:13px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; }
+  td.id { font-family:ui-monospace,monospace; color:var(--ok); word-break:break-all; }
+  .sql { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:12px; font-family:ui-monospace,monospace; font-size:12px; white-space:pre-wrap; word-break:break-all; margin-top:10px; color:#cbd5e1; }
+  .muted { color:var(--mut); font-size:13px; }
+  .pill { display:inline-block; background:#0b1220; border:1px solid var(--line); border-radius:999px; padding:2px 10px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Conectar bancos via Pluggy</h1>
+  <p class="sub">Ferramenta local de uso unico. Conecte os 3 bancos DENTRO do trial de 15 dias, copie o SQL gerado e rode no Supabase.</p>
+
+  <div class="card">
+    <label>Config (preencha uma vez)</label>
+    <div class="row">
+      <div style="flex:1;min-width:240px">
+        <label>URL da Edge Function pluggy-connect-token</label>
+        <input id="fnUrl" type="text" value="https://mieqsiojvfiqrhectquc.supabase.co/functions/v1/pluggy-connect-token" />
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1;min-width:240px">
+        <label>Supabase anon key (publica — Project Settings &gt; API)</label>
+        <input id="anonKey" type="text" placeholder="cole a anon key aqui" />
+      </div>
+    </div>
+    <div class="row">
+      <label style="margin:0"><input type="checkbox" id="sandbox" checked /> Incluir bancos sandbox (pra TESTAR o pipeline antes do banco real — login user-ok / password-ok)</label>
+    </div>
+    <p class="muted" style="margin-top:10px">A config fica salva neste navegador (localStorage). A anon key e publica, pode colar aqui.</p>
+  </div>
+
+  <div class="card">
+    <label>Conectar (1 clique por banco)</label>
+    <div class="banks">
+      <button data-banco="Nubank" data-visao="FAMILIA">Conectar Nubank · FAMILIA</button>
+      <button data-banco="Inter PF" data-visao="JUCA">Conectar Inter PF · JUCA</button>
+      <button data-banco="C6" data-visao="PIPEX">Conectar C6 · PIPEX</button>
+    </div>
+    <p class="muted" style="margin-top:10px">Cada conexao abre o Pluggy Connect. Ao concluir, o <span class="pill">item_id</span> aparece na tabela abaixo.</p>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <label style="margin:0">Itens conectados</label>
+      <button class="ghost" id="clearBtn">Limpar lista</button>
+    </div>
+    <table id="tbl">
+      <thead><tr><th>Banco</th><th>Visao</th><th>item_id</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="row">
+      <button id="sqlBtn">Gerar SQL de mapeamento</button>
+      <span class="muted">Cole no SQL Editor do Supabase depois de preencher os conta_id.</span>
+    </div>
+    <div class="sql" id="sqlOut" style="display:none"></div>
+  </div>
+</div>
+
+<script src="https://cdn.pluggy.ai/pluggy-connect/latest/pluggy-connect.js"></script>
+<script>
+  const $ = s => document.querySelector(s);
+  const tbody = $('#tbl tbody');
+  const KEY = 'pluggy_connect_state';
+
+  // ---- estado persistente ----
+  function load() { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } }
+  function save(s) { localStorage.setItem(KEY, JSON.stringify(s)); }
+  let state = load();
+  if (state.fnUrl) $('#fnUrl').value = state.fnUrl;
+  if (state.anonKey) $('#anonKey').value = state.anonKey;
+  if (typeof state.sandbox === 'boolean') $('#sandbox').checked = state.sandbox;
+  state.items = state.items || [];
+  ['#fnUrl','#anonKey','#sandbox'].forEach(sel => $(sel).addEventListener('change', () => {
+    state.fnUrl = $('#fnUrl').value.trim();
+    state.anonKey = $('#anonKey').value.trim();
+    state.sandbox = $('#sandbox').checked;
+    save(state);
+  }));
+
+  function render() {
+    tbody.innerHTML = state.items.map(it =>
+      `<tr><td>${it.banco}</td><td>${it.visao}</td><td class="id">${it.itemId}</td></tr>`).join('')
+      || '<tr><td colspan="3" class="muted">nada conectado ainda</td></tr>';
+  }
+  render();
+
+  // ---- pega o connect token na Edge Function ----
+  async function getToken() {
+    const url = $('#fnUrl').value.trim();
+    const anon = $('#anonKey').value.trim();
+    if (!url || !anon) { alert('Preencha a URL da funcao e a anon key.'); return null; }
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': anon, 'Authorization': 'Bearer ' + anon },
+      body: '{}',
+    });
+    const data = await r.json();
+    if (!r.ok || !data.accessToken) { alert('Falha ao gerar token: ' + (data.error || r.status) + (data.detail ? ' — ' + data.detail : '')); return null; }
+    return data.accessToken;
+  }
+
+  // ---- abre o widget ----
+  async function connect(banco, visao) {
+    const token = await getToken();
+    if (!token) return;
+    const widget = new PluggyConnect({
+      connectToken: token,
+      includeSandbox: $('#sandbox').checked,
+      onSuccess: (itemData) => {
+        const itemId = itemData?.item?.id;
+        if (!itemId) { alert('Conexao retornou sem item.id'); return; }
+        state.items = state.items.filter(x => x.itemId !== itemId);
+        state.items.push({ banco, visao, itemId });
+        save(state); render();
+      },
+      onError: (err) => { console.error('Pluggy error', err); alert('Erro na conexao: ' + JSON.stringify(err)); },
+    });
+    widget.init();
+  }
+
+  document.querySelectorAll('button[data-banco]').forEach(btn =>
+    btn.addEventListener('click', () => connect(btn.dataset.banco, btn.dataset.visao)));
+
+  $('#clearBtn').addEventListener('click', () => {
+    if (!confirm('Limpar a lista de itens conectados deste navegador?')) return;
+    state.items = []; save(state); render(); $('#sqlOut').style.display = 'none';
+  });
+
+  // ---- gera o SQL de mapeamento ----
+  $('#sqlBtn').addEventListener('click', () => {
+    if (!state.items.length) { alert('Conecte pelo menos um banco antes.'); return; }
+    const lines = state.items.map(it =>
+      `insert into pluggy_conexoes (item_id, conta_id, visao, banco) values\n` +
+      `  ('${it.itemId}', 'COLE_O_CONTA_ID_AQUI', '${it.visao}', '${it.banco}')\n` +
+      `  on conflict (item_id) do update set conta_id=excluded.conta_id, visao=excluded.visao, banco=excluded.banco;`
+    );
+    const sql = `-- Mapeia cada item Pluggy a uma conta da tabela contas.\n` +
+      `-- Troque COLE_O_CONTA_ID_AQUI pelo id (uuid) da conta certa em 'contas'.\n\n` +
+      lines.join('\n\n');
+    const out = $('#sqlOut');
+    out.textContent = sql; out.style.display = 'block';
+    navigator.clipboard?.writeText(sql).then(() => {}, () => {});
+  });
+</script>
+</body>
+</html>

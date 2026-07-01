@@ -631,10 +631,12 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   const ent={},sai={};DB.movimentos.filter(m=>!isInterno(m)).forEach(m=>{const k=monthKey(m.data);if(m.sentido==="Entrada")ent[k]=(ent[k]||0)+m.valor;else sai[k]=(sai[k]||0)+m.valor;});
   // projeção: previstos abertos por mês de vencimento; recorrentes mensais replicam pra frente
   const rec={},pag={};
-  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<=tk)return;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))rec[mm]=(rec[mm]||0)+a.previstoLiquido;});});
-  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<=tk)return;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))pag[mm]=(pag[mm]||0)+c.valor;});});
+  // inclui o mês CORRENTE na projeção (mostra realizado + o que ainda falta receber/pagar no mês)
+  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))rec[mm]=(rec[mm]||0)+a.previstoLiquido;});});
+  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))pag[mm]=(pag[mm]||0)+c.valor;});});
   let base=0;DB.movimentos.filter(m=>!isInterno(m)&&monthKey(m.data)<months[0]).forEach(m=>base+=m.sentido==="Entrada"?m.valor:-m.valor);
-  let acc=base;const data=months.map(k=>{const proje=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);acc+=net;return{k,e,s,r,p,net,acc,proje};});
+  // mês corrente e futuros mostram os previstos (a receber/pagar); passados só realizado
+  let acc=base;const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);acc+=net;return{k,e,s,r,p,net,acc,proje:fut};});
   const cell=(v,cls)=>`<td class="${v?cls:''}">${v?fmtBRL(v):"—"}</td>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção (a receber/pagar + recorrentes). <span class="pj">Roxo</span> = projetado.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
    <div class="panel" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th>${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>

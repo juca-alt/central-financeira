@@ -111,6 +111,11 @@ const addMonth=(k,n)=>{let[y,m]=k.split("-").map(Number);m+=n;y+=Math.floor((m-1
 const INTERNO_CAT_RX=/transfer[eê]ncia|saldo inicial|aplica[cç][aã]o|investiment|resgate|pagamento fatura/i;
 const INTERNO_DESC_RX=/\b(aplica[cç][aã]o|resgate|pagamento\s+fatura|fatura\s+cart[aã]o|transfer[eê]ncia\s+interna|transf\s+entre\s+contas)\b/i;
 const isInterno=m=>INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
+/* Inter-visão: transferências entre as PRÓPRIAS entidades do Gustavo (Outliers↔PF/Família/Jucá, fluxo Rebeca-RC).
+   Na visão individual contam como receita/despesa (útil p/ orçamento); na Central consolidada são NETADAS
+   p/ não duplicar (o dinheiro já foi contado uma vez na origem). Detecta por contraparte + tag em observacao. */
+const INTERVISAO_DESC_RX=/outliers corretora|gustavo melo juc|gustavo juc[aá] corretora/i;
+const isInterVisao=m=>INTERVISAO_DESC_RX.test(m.descricao||"")||/#intervisao|#rebeca-?rc/i.test(m.observacao||"");
 
 function suggestCategoria(desc){const up=(desc||"").toUpperCase();if(!up)return"";
   const gl=(DB.glossario||[]).slice().sort((a,b)=>(b.termo||"").length-(a.termo||"").length);
@@ -727,7 +732,7 @@ async function loadCentral(){
   const[contas,cats,mv,pv]=await Promise.all([
     sb.from("contas").select("id,nome,tipo,visao,saldo_atual").in("visao",codes),
     sb.from("categorias").select("id,nome").in("visao",codes),
-    sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao").gte("data",de).lte("data",ate).limit(20000),
+    sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao,observacao").gte("data",de).lte("data",ate).limit(20000),
     sb.from("previstos").select("valor,vencimento,tipo,status,recorrencia,visao").in("visao",codes).limit(20000)]);
   const enumNovo=[contas,mv,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
   if(enumNovo)return _finalizeCentral(_emptyPer());
@@ -735,7 +740,7 @@ async function loadCentral(){
   const catName=new Map(((cats.data)||[]).map(c=>[c.id,c.nome]));
   const per=_emptyPer();
   (contas.data||[]).forEach(c=>{const P=per[c.visao];if(!P)return;const isCard=c.tipo==="cartao"||/cart/i.test(c.nome||"");if(!isCard&&c.saldo_atual!=null)P.saldo+=Number(c.saldo_atual);});
-  (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída"};if(isInterno(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
+  (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",observacao:r.observacao||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída"};if(isInterno(m)||isInterVisao(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
   (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
   return _finalizeCentral(per);}
 function centralRow(v){const active=v.code===VISAO;return`<div onclick="setVisao('${v.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid ${active?'var(--primary)':'var(--border)'};border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">

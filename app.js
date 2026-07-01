@@ -28,7 +28,8 @@ const SHELL_HTML = `
     <div class="brand"><span class="dot">₿</span> Central Financeira</div>
     <div class="ver" id="verTag">v3.0</div>
     <nav class="nav" id="nav">
-      <a data-route="dashboard" class="active"><span class="ico">▦</span> Visão Geral</a>
+      <a data-route="central" class="active"><span class="ico">◎</span> Central</a>
+      <a data-route="dashboard"><span class="ico">▦</span> Visão Geral</a>
       <a data-route="fluxo"><span class="ico">📈</span> Fluxo de Caixa</a>
       <a data-route="dre" id="navDre"><span class="ico">📊</span> DRE</a>
       <a data-route="orcamento"><span class="ico">🎯</span> Orçamento</a>
@@ -63,10 +64,10 @@ document.body.insertAdjacentHTML("afterbegin", SHELL_HTML);
    DADOS — Supabase (anon) + DEMO. v3.0
    ===================================================================== */
 const HAS_KEY=!!(window.CONFIG&&window.CONFIG.SUPABASE_ANON_KEY);
-const sb=HAS_KEY?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
-const MODE=HAS_KEY?"live":"demo";
-const VISAO=(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo deste app
-/* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (relativa à raiz). */
+const FORCE_DEMO=/[?&]demo=1/.test(location.search);   // ?demo=1 → dados de exemplo (dev/preview, sem login)
+const sb=(HAS_KEY&&!FORCE_DEMO)?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
+const MODE=(HAS_KEY&&!FORCE_DEMO)?"live":"demo";
+/* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (legado, migrando p/ app único). */
 const PROFILES=[
   {code:"PJ",      label:"Outliers MFB", grupo:"Negócios", path:"",       icon:"🏢"},
   {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢"},
@@ -74,11 +75,26 @@ const PROFILES=[
   {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠"},
   {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑"},
 ];
-const CUR_PROFILE=PROFILES.find(p=>p.code===VISAO)||{code:VISAO,label:VISAO,grupo:"Negócios",path:""};
-const VISAO_LABEL=CUR_PROFILE.label;
-const IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";        // DRE só p/ Negócios; Pessoal usa Orçamento
+/* Visão ativa — MUTÁVEL. App único: a Central troca a visão em runtime (setVisao). */
+const VISAO_KEY="cfin_visao";
+const savedVisao=(()=>{try{return localStorage.getItem(VISAO_KEY);}catch(e){return null;}})();
+let VISAO=savedVisao||(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo da visão aberta
+let CUR_PROFILE=PROFILES.find(p=>p.code===VISAO)||{code:VISAO,label:VISAO,grupo:"Negócios",path:""};
+let VISAO_LABEL=CUR_PROFILE.label;
+let IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";          // DRE só p/ Negócios; Pessoal usa Orçamento
+let VFILTER=[VISAO,"AMBOS"];                              // o que a visão aberta enxerga
 try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}
-const VFILTER=[VISAO,"AMBOS"];                            // o que este app enxerga
+/* recalcula os derivados da visão (sem recarregar dados) */
+function applyVisao(code){VISAO=code;CUR_PROFILE=PROFILES.find(p=>p.code===code)||{code,label:code,grupo:"Negócios",path:""};VISAO_LABEL=CUR_PROFILE.label;IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";VFILTER=[VISAO,"AMBOS"];try{localStorage.setItem(VISAO_KEY,code);}catch(e){}try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}}
+/* troca a visão ativa: recarrega dados da visão e abre a Visão Geral dela */
+async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){try{DB=await loadData();}catch(e){toast("Erro ao trocar visão: "+e.message);}}SEL.clear();route("dashboard");closeDrawer();}
+/* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
+function syncChrome(){
+  const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
+  const _br=document.querySelector(".brand");if(_br)_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+esc(VISAO_LABEL)+'</b>';
+  const _env=document.getElementById("envBox");if(_env)_env.innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${esc(VISAO_LABEL)}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
+  try{const pb=document.getElementById("profileBox");if(pb&&pb.dataset.email!=null)renderProfile(pb.dataset.email);}catch(e){}
+}
 const fmtBRL=v=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 const fmtK=v=>Math.abs(v)>=1000?(v/1000).toFixed(1).replace(".0","")+"k":String(Math.round(v));
 const fmtDate=s=>{if(!s)return"—";const p=String(s).slice(0,10).split("-");if(p.length===3&&p[0].length===4)return p[2]+"/"+p[1]+"/"+p[0];const d=new Date(s);return isNaN(d)?s:d.toLocaleDateString("pt-BR");};
@@ -242,6 +258,37 @@ let DB=null,CURRENT="dashboard",SEL=new Set();
 function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
+/* ===== Motor de recorrência + números do período (Visão Geral) =====
+   "A realizar" = agendados (previstos abertos) + recorrentes projetados no período. */
+const pad2=n=>String(n).padStart(2,"0");
+function daysInMonth(y,m){return[31,(y%4===0&&(y%100!==0||y%400===0))?29:28,31,30,31,30,31,31,30,31,30,31][m-1];}
+function monthBounds(ano,mes){return{de:ano+"-"+pad2(mes)+"-01",ate:ano+"-"+pad2(mes)+"-"+pad2(daysInMonth(ano,mes))};}
+function addDaysISO(iso,n){let[y,m,d]=iso.split("-").map(Number);const dt=new Date(Date.UTC(y,m-1,d));dt.setUTCDate(dt.getUTCDate()+n);return dt.getUTCFullYear()+"-"+pad2(dt.getUTCMonth()+1)+"-"+pad2(dt.getUTCDate());}
+function recKind(r){r=(r||"").toLowerCase();if(/quinz/.test(r))return"q";if(/seman|week/.test(r))return"w";if(/anu|ano|year/.test(r))return"y";if(/mens|month|m[êe]s/.test(r))return"m";return"";}
+function stepRec(iso,kind,dir){let[y,m,d]=iso.split("-").map(Number);
+  if(kind==="w")return addDaysISO(iso,7*dir);
+  if(kind==="q")return addDaysISO(iso,14*dir);
+  if(kind==="y")return(y+dir)+"-"+pad2(m)+"-"+pad2(Math.min(d,daysInMonth(y+dir,m)));
+  let nm=m+dir,ny=y;while(nm>12){nm-=12;ny++;}while(nm<1){nm+=12;ny--;}return ny+"-"+pad2(nm)+"-"+pad2(Math.min(d,daysInMonth(ny,nm)));}
+/* datas de ocorrência de um previsto dentro de [de,ate]; sem recorrência = a própria data se cair no período */
+function ocorrencias(base,rec,de,ate){base=(base||"").slice(0,10);if(!base)return[];const kind=recKind(rec);
+  if(!kind)return(base>=de&&base<=ate)?[base]:[];
+  let cur=base,g=0;while(cur>de&&g++<600)cur=stepRec(cur,kind,-1);
+  const out=[];g=0;while(cur<=ate&&g++<600){if(cur>=de)out.push(cur);cur=stepRec(cur,kind,1);}return out;}
+const isPrevAberto=st=>{st=(st||"").toLowerCase();return st!=="pago"&&st!=="recebido"&&st!=="cancelado";};
+/* saldo somado só das contas correntes da visão (cartões contam à parte) */
+function saldoCorrente(){const b=contaSaldos();let t=0;b.forEach((v,n)=>{if(!isCartaoConta(n))t+=v;});return t;}
+/* números do módulo Visão Geral p/ o período [de,ate] */
+function overviewNumbers(de,ate){
+  const inR=iso=>{iso=(iso||"").slice(0,10);return iso>=de&&iso<=ate;};
+  const mv=(DB.movimentos||[]).filter(m=>!isInterno(m)&&inR(m.data));
+  const entReal=mv.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);
+  const saiReal=mv.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
+  let entAReal=0;(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;entAReal+=ocorrencias(a.dataPrevista,a.recorrencia,de,ate).length*Number(a.previstoLiquido||0);});
+  let saiAReal=0;(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status))return;saiAReal+=ocorrencias(c.vencimento,c.recorrencia,de,ate).length*Number(c.valor||0);});
+  const saldoTotal=saldoCorrente();
+  return{saldoTotal,entReal,saiReal,entAReal,saiAReal,entPrev:entReal+entAReal,saiPrev:saiReal+saiAReal,proj:saldoTotal+entAReal-saiAReal};}
+
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
 function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Saída",valor:"",descricao:"",banco:bancoOpts()[0]||"",categoria:""};
   const banco=bancoOpts();
@@ -298,25 +345,54 @@ function periodControls(){let inner="";if(PERIOD.mode==="ano")inner=`<select id=
 function wirePeriod(){$("#pMode").onchange=e=>{PERIOD.mode=e.target.value;if(PERIOD.mode==="mes"&&!PERIOD.mes)PERIOD.mes=new Date().getMonth()+1;viewDashboard();};if($("#pAno"))$("#pAno").onchange=e=>{PERIOD.ano=+e.target.value;viewDashboard();};if($("#pMes"))$("#pMes").onchange=e=>{PERIOD.mes=+e.target.value;viewDashboard();};if($("#pDe"))$("#pDe").onchange=e=>{PERIOD.de=e.target.value;viewDashboard();};if($("#pAte"))$("#pAte").onchange=e=>{PERIOD.ate=e.target.value;viewDashboard();};}
 let _charts=[];
 function contaSaldos(){const b=new Map();(DB.contas||[]).forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});(DB.contas||[]).forEach(c=>{if(c.saldo_atual!=null)b.set(c.nome,Number(c.saldo_atual));});return b;}
-function saldoCard(){const b=contaSaldos();let tot=0;
+function contasPanel(){const b=contaSaldos();
   const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
   const fmtTs=ts=>{try{return new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return'';}};
-  const items=[...b.entries()].filter(([n,v])=>v!==0||n!=="(sem conta)").sort((a,b)=>b[1]-a[1]).map(([n,v])=>{tot+=v;const card=/cart/i.test(n);const liveTs=meta.get(n);const tag=liveTs?`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${fmtTs(liveTs)}</div>`:'';return`<div style="flex:1;min-width:150px;background:var(--card,#fff);border:1px solid var(--bd,#e5e7eb);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">${card?'💳 ':'🏦 '}${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
-  return`<div class="panel"><h2>Saldos por conta</h2><div style="display:flex;flex-wrap:wrap;gap:10px">${items}<div style="flex:1;min-width:150px;background:#0f172a;color:#fff;border-radius:10px;padding:10px 12px"><div style="font-size:11px;opacity:.8">💰 TOTAL GERAL</div><div style="font-size:17px;font-weight:700">${fmtBRL(tot)}</div></div></div></div>`;}
-function viewDashboard(){const k=kpis();
-  $("#view").innerHTML=`<div class="row"><div><h1>Visão Geral</h1><div class="sub">Painel financeiro — ${periodLabel()}</div></div><button class="btn" onclick="addMovimento()">+ Lançar</button></div>${periodControls()}
-  <div class="kpis"><div class="kpi"><div class="lbl">💰 Saldo</div><div class="val ${k.saldo>=0?'in':'out'}">${fmtBRL(k.saldo)}</div><div class="hint">entradas − saídas (sem internos)</div></div>
-   <div class="kpi"><div class="lbl">📈 Entradas</div><div class="val in">${fmtBRL(k.ent)}</div></div>
-   <div class="kpi"><div class="lbl">📉 Saídas</div><div class="val out">${fmtBRL(k.sai)}</div></div>
-   <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${k.proj>=0?'in':'out'}">${fmtBRL(k.proj)}</div><div class="hint">+receber ${fmtK(k.aReceber)} −pagar ${fmtK(k.aPagar)}</div></div></div>
-  ${saldoCard()}
-  <div class="grid2"><div class="panel"><h2>Fluxo mensal</h2><canvas id="chFlow" height="120"></canvas></div><div class="panel"><h2>Top categorias (saídas)</h2><canvas id="chCat" height="120"></canvas></div></div>
-  <div class="panel"><h2>Movimentos do período</h2>${miniMov(DB.movimentos.filter(inPeriod).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,10))}</div>`;
-  wirePeriod();_charts.forEach(c=>c.destroy());_charts=[];
-  const rows=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const bk=new Map();rows.forEach(m=>{const kk=monthKey(m.data);if(!bk.has(kk))bk.set(kk,{e:0,s:0});const b=bk.get(kk);if(m.sentido==="Entrada")b.e+=m.valor;else b.s+=m.valor;});const keys=[...bk.keys()].sort();
-  _charts.push(new Chart($("#chFlow"),{type:"bar",data:{labels:keys.map(mkLabel),datasets:[{label:"Entradas",data:keys.map(k=>bk.get(k).e),backgroundColor:"#16a34a",borderRadius:5},{label:"Saídas",data:keys.map(k=>bk.get(k).s),backgroundColor:"#dc2626",borderRadius:5}]},options:{plugins:{legend:{position:"bottom"}},scales:{y:{ticks:{callback:fmtK}}}}}));
-  const cm=new Map();rows.filter(m=>m.sentido==="Saída").forEach(m=>cm.set(m.categoria||"—",(cm.get(m.categoria||"—")||0)+m.valor));const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]).slice(0,7);
-  _charts.push(new Chart($("#chCat"),{type:"doughnut",data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777"]}]},options:{plugins:{legend:{position:"right",labels:{font:{size:10}}}}}}));
+  const items=[...b.entries()].filter(([n,v])=>!isCartaoConta(n)&&(v!==0||n!=="(sem conta)")).sort((a,b)=>b[1]-a[1]);
+  if(!items.length)return'';
+  const rows=items.map(([n,v])=>{const liveTs=meta.get(n);const tag=liveTs?`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${fmtTs(liveTs)}</div>`:'';return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
+  return`<div class="panel"><h2>Saldo por conta</h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
+function cartoesPanel(){const b=contaSaldos();
+  const items=[...b.entries()].filter(([n,v])=>isCartaoConta(n)).sort((a,b)=>a[1]-b[1]);
+  if(!items.length)return'';
+  const rows=items.map(([n,v])=>`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">💳 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div></div>`).join("");
+  return`<div class="panel"><h2>Cartões <span class="link" onclick="route('cartoes')" style="font-weight:600">ver faturas ›</span></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
+function entSaiDetail(o){const r=(lbl,v,cls)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)"><span class="sub">${lbl}</span><b class="${cls||''}" style="font-variant-numeric:tabular-nums">${fmtBRL(v)}</b></div>`;
+  return`<div class="grid2" style="grid-template-columns:1fr 1fr">
+    <div class="panel"><h2>📈 Entradas</h2>${r('Realizado',o.entReal,'in')}${r('A realizar',o.entAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.entPrev)}</b></div></div>
+    <div class="panel"><h2>📉 Saídas</h2>${r('Realizado',o.saiReal,'out')}${r('A realizar',o.saiAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.saiPrev)}</b></div></div>
+  </div>`;}
+function stepMes(n){let m=PERIOD.mes+n,y=PERIOD.ano;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}PERIOD.mes=m;PERIOD.ano=y;viewDashboard();}
+function viewDashboard(){
+  if(!PERIOD.mes||!PERIOD.ano){const d=new Date();PERIOD.ano=d.getFullYear();PERIOD.mes=d.getMonth()+1;}
+  PERIOD.mode="mes";
+  const{de,ate}=monthBounds(PERIOD.ano,PERIOD.mes);
+  const o=overviewNumbers(de,ate);
+  const recentes=(DB.movimentos||[]).filter(m=>{const d=(m.data||'').slice(0,10);return d>=de&&d<=ate;}).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,12);
+  $("#view").innerHTML=`
+  <div class="row">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn ghost sm" onclick="route('central')" title="Voltar à Central">‹ Central</button>
+      <div><h1>${esc(VISAO_LABEL)}</h1><div class="sub">Visão geral · ${esc(CUR_PROFILE.grupo)}</div></div>
+    </div>
+    <button class="btn" onclick="addMovimento()">+ Lançar</button>
+  </div>
+  <div class="controls" style="justify-content:flex-start;align-items:center">
+    <button class="btn ghost sm" onclick="stepMes(-1)" aria-label="Mês anterior">‹</button>
+    <div style="font-weight:660;min-width:130px;text-align:center">${ML[PERIOD.mes-1]} ${PERIOD.ano}</div>
+    <button class="btn ghost sm" onclick="stepMes(1)" aria-label="Próximo mês">›</button>
+    <span class="sub">01–${pad2(daysInMonth(PERIOD.ano,PERIOD.mes))}/${pad2(PERIOD.mes)}</span>
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">contas da visão</div></div>
+    <div class="kpi"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">real ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)}</div></div>
+    <div class="kpi"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div><div class="hint">real ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)}</div></div>
+    <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div><div class="hint">saldo + receber − pagar</div></div>
+  </div>
+  ${entSaiDetail(o)}
+  ${contasPanel()}
+  ${cartoesPanel()}
+  <div class="panel"><h2>Movimentos do período</h2>${miniMov(recentes)}</div>`;
 }
 function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.</div>`;return`<table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
 
@@ -628,7 +704,53 @@ function delCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const 
 async function setGrupoDre(id,val){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const prev=c.grupo_dre;c.grupo_dre=val||null;try{if(MODE==="live")await sbUpd("categorias",id,{grupo_dre:val||null});toast(val?("→ "+val):"Grupo removido (auto)");}catch(e){c.grupo_dre=prev;toast("Erro: "+e.message);}}
 
 /* ===== Router + Init ===== */
-const ROUTES={dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,pagar:viewPagar,receber:viewReceber,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+/* ===== Central Financeira — consolidado de TODAS as visões ===== */
+let CENTRAL=null;
+function _finalizeCentral(per){const visoes=PROFILES.map(p=>{const P=per[p.code];P.entPrev=P.entReal+P.entAReal;P.saiPrev=P.saiReal+P.saiAReal;P.proj=P.saldo+P.entAReal-P.saiAReal;return P;});
+  const sum=k=>visoes.reduce((s,v)=>s+v[k],0);
+  return{visoes,totalSaldo:sum("saldo"),totalEntPrev:sum("entPrev"),totalSaiPrev:sum("saiPrev"),totalProj:sum("proj")};}
+function _emptyPer(){const per={};PROFILES.forEach(p=>per[p.code]={...p,saldo:0,entReal:0,saiReal:0,entAReal:0,saiAReal:0});return per;}
+function _demoCentral(){const d=new Date();const{de,ate}=monthBounds(d.getFullYear(),d.getMonth()+1);const o=overviewNumbers(de,ate);const per=_emptyPer();const P=per[VISAO];if(P){P.saldo=o.saldoTotal;P.entReal=o.entReal;P.saiReal=o.saiReal;P.entAReal=o.entAReal;P.saiAReal=o.saiAReal;}return _finalizeCentral(per);}
+async function loadCentral(){
+  if(MODE==="demo")return _demoCentral();
+  const d=new Date();const{de,ate}=monthBounds(d.getFullYear(),d.getMonth()+1);
+  const codes=PROFILES.map(p=>p.code).concat("AMBOS");
+  const[contas,cats,mv,pv]=await Promise.all([
+    sb.from("contas").select("id,nome,tipo,visao,saldo_atual").in("visao",codes),
+    sb.from("categorias").select("id,nome").in("visao",codes),
+    sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao").gte("data",de).lte("data",ate).limit(20000),
+    sb.from("previstos").select("valor,vencimento,tipo,status,recorrencia,visao").in("visao",codes).limit(20000)]);
+  const enumNovo=[contas,mv,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
+  if(enumNovo)return _finalizeCentral(_emptyPer());
+  for(const r of[contas,mv,pv])if(r.error)throw new Error(r.error.message);
+  const catName=new Map(((cats.data)||[]).map(c=>[c.id,c.nome]));
+  const per=_emptyPer();
+  (contas.data||[]).forEach(c=>{const P=per[c.visao];if(!P)return;const isCard=c.tipo==="cartao"||/cart/i.test(c.nome||"");if(!isCard&&c.saldo_atual!=null)P.saldo+=Number(c.saldo_atual);});
+  (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída"};if(isInterno(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
+  (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
+  return _finalizeCentral(per);}
+function centralRow(v){const active=v.code===VISAO;return`<div onclick="setVisao('${v.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid ${active?'var(--primary)':'var(--border)'};border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
+  <div style="font-size:20px;width:26px;text-align:center">${v.icon}</div>
+  <div style="flex:1;min-width:0"><div style="font-weight:660">${esc(v.label)}</div><div class="sub" style="font-size:11px">${esc(v.grupo)}${active?' · aberta agora':''}</div></div>
+  <div style="text-align:right"><div class="${v.saldo>=0?'in':'out'}" style="font-weight:700;font-variant-numeric:tabular-nums">${fmtBRL(v.saldo)}</div><div class="sub" style="font-size:10px">abrir ›</div></div>
+</div>`;}
+function viewCentral(){const c=CENTRAL||_finalizeCentral(_emptyPer());
+  const grupos=["Negócios","Pessoal"].map(g=>{const vs=c.visoes.filter(v=>v.grupo===g);if(!vs.length)return'';return`<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:18px 2px 8px">${g==='Pessoal'?'Vida':g}</div>${vs.map(centralRow).join("")}`;}).join("");
+  $("#view").innerHTML=`
+  <div class="row"><div><h1>Central financeira</h1><div class="sub">Consolidado de todas as visões · mês atual</div></div></div>
+  <div class="panel" style="background:#0b1220;color:#fff;border:0">
+    <div style="font-size:12px;opacity:.75">💰 Saldo consolidado</div>
+    <div style="font-size:30px;font-weight:720;letter-spacing:-.02em;margin-top:2px;font-variant-numeric:tabular-nums">${fmtBRL(c.totalSaldo)}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px">
+      <div><div style="font-size:11px;opacity:.7">Entradas prev.</div><div style="font-size:16px;font-weight:600;color:#4ade80">${fmtBRL(c.totalEntPrev)}</div></div>
+      <div><div style="font-size:11px;opacity:.7">Saídas prev.</div><div style="font-size:16px;font-weight:600;color:#f87171">${fmtBRL(c.totalSaiPrev)}</div></div>
+      <div><div style="font-size:11px;opacity:.7">Projetado</div><div style="font-size:16px;font-weight:600;color:#a5b4fc">${fmtBRL(c.totalProj)}</div></div>
+    </div>
+  </div>
+  <div style="font-size:13px;color:var(--muted);margin:6px 2px 0">Escolha uma visão para abrir o detalhe.</div>
+  ${grupos}`;
+}
+const ROUTES={central:viewCentral,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,pagar:viewPagar,receber:viewReceber,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a){route(a.dataset.route);closeDrawer();}});
 /* ===== Drawer mobile (sidebar off-canvas) ===== */
 function openDrawer(){document.getElementById("sideNav").classList.add("open");document.getElementById("sideOv").classList.add("show");}
@@ -636,14 +758,14 @@ function closeDrawer(){const s=document.getElementById("sideNav"),o=document.get
 (function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
 /* ===== Seletor de perfil PJ ↔ PF ===== */
 function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}
-function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";
-  const u=profileUrls();const ini=((email||VISAO||"?").trim()[0]||"?").toUpperCase();
-  const itens=["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-url="${esc(u[p.code])}" class="${p.code===VISAO?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");
-  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps">trocar perfil ▾</div></div></div>`+
+function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";pb.dataset.email=email||"";
+  const ini=((email||VISAO_LABEL||"?").trim()[0]||"?").toUpperCase();
+  const itens=`<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");
+  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps">trocar visão ▾</div></div></div>`+
     `<div class="profile-menu" id="profMenu">${itens}</div>`;
   const chip=pb.querySelector("#profChip"),menu=pb.querySelector("#profMenu");
   chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
-  menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{const isCur=a.classList.contains("cur");if(isCur){menu.classList.remove("open");return;}location.href=a.dataset.url;});
+  menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{menu.classList.remove("open");const code=a.dataset.code;if(code==="__central"){route("central");return;}if(code===VISAO&&CURRENT!=="central"){route("dashboard");return;}setVisao(code);});
   document.addEventListener("click",()=>menu.classList.remove("open"));
 }
 /* ===== PWA: service worker + aviso de atualização ===== */
@@ -688,14 +810,14 @@ const hideGate=()=>gate.classList.remove("show");
 let _booted=false;
 async function bootApp(){
   document.getElementById("verTag").textContent="v"+(window.APP_VERSION||"3.0");
-  /* Escopo: DRE é só do PJ; PF/Família usam Orçamento. Mesmo código, muda CONFIG.VISAO. */
-  {const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
-   const _br=document.querySelector(".brand");if(_br)_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+esc(VISAO_LABEL)+'</b>';}
-  document.getElementById("envBox").innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${VISAO_LABEL}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
+  syncChrome();   /* marca, DRE, env, perfil da visão ativa */
   if(MODE==="live"){document.getElementById("logoutBtn").style.display="block";document.getElementById("pwBtn").style.display="block";
     try{const{data}=await sb.auth.getSession();renderProfile(data&&data.session&&data.session.user&&data.session.user.email);}catch(e){renderProfile();}}
   if(_booted)return;_booted=true;
-  try{DB=await loadData();const ys=yearsList();PERIOD.ano=ys[0]||new Date().getFullYear();PERIOD.mes=new Date().getMonth()+1;route("dashboard");}
+  try{const d=new Date();PERIOD.ano=d.getFullYear();PERIOD.mes=d.getMonth()+1;PERIOD.mode="mes";
+    DB=await loadData();
+    try{CENTRAL=await loadCentral();}catch(e){CENTRAL=_finalizeCentral(_emptyPer());}
+    route("central");}   /* app único: entra pela Central consolidada */
   catch(e){document.getElementById("view").innerHTML=`<div class="panel"><h2>Erro ao carregar</h2><div class="sub">${esc(e.message)}</div></div>`;}
 }
 

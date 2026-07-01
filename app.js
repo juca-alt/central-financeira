@@ -27,6 +27,7 @@ const SHELL_HTML = `
   <aside class="side" id="sideNav">
     <div class="brand"><span class="dot">₿</span> Central Financeira</div>
     <div class="ver" id="verTag">v3.0</div>
+    <div class="vsw" id="vswBox"></div>
     <nav class="nav" id="nav">
       <a data-route="central" class="active"><span class="ico">◎</span> Central</a>
       <a data-route="dashboard"><span class="ico">▦</span> Visão Geral</a>
@@ -91,7 +92,7 @@ async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){tr
 /* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
 function syncChrome(){
   const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
-  const _br=document.querySelector(".brand");if(_br)_br.innerHTML='<span class="dot">₿</span> Central Financeira <b style="opacity:.6;font-weight:600">'+esc(VISAO_LABEL)+'</b>';
+  try{renderTopSwitch();}catch(e){}
   const _env=document.getElementById("envBox");if(_env)_env.innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${esc(VISAO_LABEL)}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   try{const pb=document.getElementById("profileBox");if(pb&&pb.dataset.email!=null)renderProfile(pb.dataset.email);}catch(e){}
 }
@@ -255,7 +256,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Motor de recorrência + números do período (Visão Geral) =====
@@ -766,16 +767,30 @@ function closeDrawer(){const s=document.getElementById("sideNav"),o=document.get
 (function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
 /* ===== Seletor de perfil PJ ↔ PF ===== */
 function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}
+/* itens do menu de visões (usado pelo seletor do topo) */
+function visaoMenuItems(){return `<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");}
+/* aplica a escolha do menu (Central consolidada ou uma visão) */
+function visaoPick(code){if(code==="__central"){route("central");return;}if(code===VISAO&&CURRENT!=="central"){route("dashboard");return;}setVisao(code);}
+/* SELETOR DE VISÃO no topo: mostra onde estou (visão ativa ou Central) e troca */
+function renderTopSwitch(){
+  const box=document.getElementById("vswBox");if(!box)return;
+  const onCentral=CURRENT==="central";
+  const icon=onCentral?"◎":(CUR_PROFILE.icon||"●");
+  const label=onCentral?"Todas as visões":VISAO_LABEL;
+  const sub=onCentral?"Central consolidada":(CUR_PROFILE.grupo==="Pessoal"?"Vida":CUR_PROFILE.grupo);
+  box.innerHTML=`<div class="vsw-chip" id="vswChip" title="Trocar visão"><span class="vsw-ic">${icon}</span><div class="vsw-tx"><div class="vsw-cur">${esc(label)}</div><div class="vsw-sub">${esc(sub)}</div></div><span class="vsw-caret">▾</span></div><div class="vsw-menu" id="vswMenu">${visaoMenuItems()}</div>`;
+  const chip=box.querySelector("#vswChip"),menu=box.querySelector("#vswMenu");
+  chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
+  menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{menu.classList.remove("open");visaoPick(a.dataset.code);});
+  const mt=document.querySelector(".mtop-brand");if(mt)mt.textContent=label;
+}
+/* chip de conta no rodapé (identidade + acesso a senha/sair); a troca de visão vive no topo */
 function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";pb.dataset.email=email||"";
   const ini=((email||VISAO_LABEL||"?").trim()[0]||"?").toUpperCase();
-  const itens=`<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");
-  pb.innerHTML=`<div class="profile-chip" id="profChip"><div class="av">${esc(ini)}</div><div><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps">trocar visão ▾</div></div></div>`+
-    `<div class="profile-menu" id="profMenu">${itens}</div>`;
-  const chip=pb.querySelector("#profChip"),menu=pb.querySelector("#profMenu");
-  chip.onclick=e=>{e.stopPropagation();menu.classList.toggle("open");};
-  menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{menu.classList.remove("open");const code=a.dataset.code;if(code==="__central"){route("central");return;}if(code===VISAO&&CURRENT!=="central"){route("dashboard");return;}setVisao(code);});
-  document.addEventListener("click",()=>menu.classList.remove("open"));
+  pb.innerHTML=`<div class="profile-chip" style="cursor:default"><div class="av">${esc(ini)}</div><div style="min-width:0"><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(email||"conta conectada")}</div></div></div>`;
 }
+/* fecha os menus abertos ao clicar fora — registrado uma vez */
+document.addEventListener("click",()=>{document.querySelectorAll(".vsw-menu.open,.profile-menu.open").forEach(m=>m.classList.remove("open"));});
 /* ===== PWA: service worker + aviso de atualização ===== */
 (function(){
   if(!("serviceWorker" in navigator))return;

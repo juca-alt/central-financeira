@@ -6,7 +6,22 @@
   .side{background:#0b1220;color:#cbd5e1;padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow:auto}
   .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 2px;font-weight:700;color:#fff;font-size:15px}
   .brand .dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#3b5bdb,#7c3aed);display:grid;place-items:center;font-size:14px}
-  .ver{margin:0 0 12px 47px;font-size:10px;color:#64748b;font-weight:700;letter-spacing:.04em}
+  .ver{margin:0 0 10px 47px;font-size:10px;color:#64748b;font-weight:700;letter-spacing:.04em}
+  .vsw{position:relative;margin:0 4px 14px}
+  .vsw-chip{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:11px;background:#16213a;border:1px solid #22304d;cursor:pointer}
+  .vsw-chip:hover{background:#1e2b47}
+  .vsw-ic{width:28px;height:28px;border-radius:8px;background:#0b1220;display:grid;place-items:center;font-size:15px;flex:none}
+  .vsw-tx{flex:1;min-width:0}
+  .vsw-cur{font-size:13px;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vsw-sub{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .vsw-caret{color:#94a3b8;font-size:11px;flex:none}
+  .vsw-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:#0f172a;border:1px solid #1e293b;border-radius:11px;padding:5px;box-shadow:0 14px 34px rgba(0,0,0,.55);z-index:95}
+  .vsw-menu.open{display:block}
+  .vsw-menu .profile-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:#64748b;font-weight:700;padding:7px 10px 3px}
+  .vsw-menu .profile-grp:first-child{padding-top:3px}
+  .vsw-menu a{display:block;padding:8px 10px;border-radius:7px;color:#cbd5e1;font-size:12.5px;cursor:pointer;text-decoration:none}
+  .vsw-menu a:hover{background:#1e293b;color:#fff}
+  .vsw-menu a.cur{color:#fff;font-weight:600;background:#1e3a5f}
   .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:#cbd5e1;text-decoration:none;font-weight:500;cursor:pointer;font-size:13px}
   .nav a:hover{background:#1e293b;color:#fff}.nav a.active{background:var(--primary);color:#fff}
   .nav .ico{width:17px;text-align:center;opacity:.92}

@@ -363,10 +363,23 @@ function entSaiDetail(o){const r=(lbl,v,cls)=>`<div style="display:flex;justify-
     <div class="panel"><h2>📉 Saídas</h2>${r('Realizado',o.saiReal,'out')}${r('A realizar',o.saiAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.saiPrev)}</b></div></div>
   </div>`;}
 function stepMes(n){let m=PERIOD.mes+n,y=PERIOD.ano;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}PERIOD.mes=m;PERIOD.ano=y;viewDashboard();}
+function stepAno(n){PERIOD.ano=(PERIOD.ano||new Date().getFullYear())+n;viewDashboard();}
+function setOvMode(m){PERIOD.mode=m;const d=new Date();if(m==="mes"&&!PERIOD.mes){PERIOD.ano=d.getFullYear();PERIOD.mes=d.getMonth()+1;}if(m==="ano"&&!PERIOD.ano)PERIOD.ano=d.getFullYear();if(m==="range"){if(!PERIOD.de)PERIOD.de=(PERIOD.ano||d.getFullYear())+"-01-01";if(!PERIOD.ate)PERIOD.ate=todayISO();}viewDashboard();}
+function ovSetDe(v){PERIOD.de=v;viewDashboard();}function ovSetAte(v){PERIOD.ate=v;viewDashboard();}
+/* limites do período do módulo Visão Geral a partir do PERIOD (mes|ano|range) */
+function ovBounds(){if(PERIOD.mode==="ano")return{de:PERIOD.ano+"-01-01",ate:PERIOD.ano+"-12-31"};if(PERIOD.mode==="range")return{de:PERIOD.de||"0000-01-01",ate:PERIOD.ate||"9999-12-31"};return monthBounds(PERIOD.ano,PERIOD.mes);}
+function ovPeriodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="range")return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");return"01–"+pad2(daysInMonth(PERIOD.ano,PERIOD.mes))+"/"+pad2(PERIOD.mes);}
+function ovPeriodBar(){
+  const seg=(m,lbl)=>`<button class="btn ${PERIOD.mode===m?'':'ghost'} sm" onclick="setOvMode('${m}')">${lbl}</button>`;
+  let inner="";
+  if(PERIOD.mode==="ano")inner=`<button class="btn ghost sm" onclick="stepAno(-1)" aria-label="Ano anterior">‹</button><div style="font-weight:660;min-width:70px;text-align:center">${PERIOD.ano}</div><button class="btn ghost sm" onclick="stepAno(1)" aria-label="Próximo ano">›</button>`;
+  else if(PERIOD.mode==="range")inner=`<input type="date" value="${PERIOD.de||''}" onchange="ovSetDe(this.value)"> <span class="sub">até</span> <input type="date" value="${PERIOD.ate||''}" onchange="ovSetAte(this.value)">`;
+  else inner=`<button class="btn ghost sm" onclick="stepMes(-1)" aria-label="Mês anterior">‹</button><div style="font-weight:660;min-width:120px;text-align:center">${ML[PERIOD.mes-1]} ${PERIOD.ano}</div><button class="btn ghost sm" onclick="stepMes(1)" aria-label="Próximo mês">›</button>`;
+  return`<div class="controls" style="justify-content:flex-start;align-items:center;gap:12px;flex-wrap:wrap"><div class="seg" style="display:inline-flex;gap:4px">${seg('mes','Mês')}${seg('ano','Ano')}${seg('range','Período')}</div><div style="display:flex;align-items:center;gap:8px">${inner}<span class="sub">${ovPeriodLabel()}</span></div></div>`;}
 function viewDashboard(){
-  if(!PERIOD.mes||!PERIOD.ano){const d=new Date();PERIOD.ano=d.getFullYear();PERIOD.mes=d.getMonth()+1;}
-  PERIOD.mode="mes";
-  const{de,ate}=monthBounds(PERIOD.ano,PERIOD.mes);
+  {const d=new Date();if(!PERIOD.ano)PERIOD.ano=d.getFullYear();if(!PERIOD.mes)PERIOD.mes=d.getMonth()+1;}
+  if(!["mes","ano","range"].includes(PERIOD.mode))PERIOD.mode="mes";
+  const{de,ate}=ovBounds();
   const o=overviewNumbers(de,ate);
   const recentes=(DB.movimentos||[]).filter(m=>{const d=(m.data||'').slice(0,10);return d>=de&&d<=ate;}).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,12);
   $("#view").innerHTML=`
@@ -377,12 +390,7 @@ function viewDashboard(){
     </div>
     <button class="btn" onclick="addMovimento()">+ Lançar</button>
   </div>
-  <div class="controls" style="justify-content:flex-start;align-items:center">
-    <button class="btn ghost sm" onclick="stepMes(-1)" aria-label="Mês anterior">‹</button>
-    <div style="font-weight:660;min-width:130px;text-align:center">${ML[PERIOD.mes-1]} ${PERIOD.ano}</div>
-    <button class="btn ghost sm" onclick="stepMes(1)" aria-label="Próximo mês">›</button>
-    <span class="sub">01–${pad2(daysInMonth(PERIOD.ano,PERIOD.mes))}/${pad2(PERIOD.mes)}</span>
-  </div>
+  ${ovPeriodBar()}
   <div class="kpis">
     <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">contas da visão</div></div>
     <div class="kpi"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">real ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)}</div></div>

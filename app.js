@@ -427,8 +427,9 @@ async function delPrev(coll,row){if(MODE==="live"){try{await sbDel("previstos",r
 const cardContas=()=>(DB.contas||[]).filter(c=>c.tipo==="cartao"||/cart/i.test(c.nome));
 let CART_SEL=null, FAT_SEL=null;
 /* Config de fatura por cartao (dia do mes): f=fechamento, v=vencimento. Default: fecha fim do mes, vence 10. */
-const FATURA_CFG={"cartão inter empresas":{f:3,v:10},"cartão inter microbusiness":{f:3,v:10},"cartão inter pf":{f:5,v:12}};
-const faturaCfg=n=>FATURA_CFG[(n||"").toLowerCase()]||{f:31,v:10};
+const FATURA_CFG={"cartao inter empresas":{f:3,v:10},"cartao inter microbusiness":{f:3,v:10},"cartao inter pf":{f:5,v:12}};
+const cfgKey=n=>(n||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); // ignora acento
+const faturaCfg=n=>FATURA_CFG[cfgKey(n)]||{f:31,v:10};
 /* mes-fatura (YYYY-MM) de uma compra, pela data de FECHAMENTO (compra depois do fechamento cai na proxima fatura) */
 function faturaMes(diso,close){let a=(diso||"").split("-").map(Number);let y=a[0],m=a[1],d=a[2];if(d>close){m++;if(m>12){m=1;y++;}}return y+"-"+String(m).padStart(2,"0");}
 const faturaVenc=(fk,vd)=>fk+"-"+String(Math.min(vd,28)).padStart(2,"0");

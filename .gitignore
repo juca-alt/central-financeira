@@ -1,0 +1,5 @@
+# Dados financeiros pessoais — NUNCA versionar (repo é público via GitHub Pages)
+scripts/carga-*.sql
+scripts/gerar_carga.py
+_tmp_*
+*.local.sql

@@ -425,31 +425,46 @@ async function delPrev(coll,row){if(MODE==="live"){try{await sbDel("previstos",r
 
 /* ===== Cartões (lê dos movimentos lançados nas contas tipo cartão) ===== */
 const cardContas=()=>(DB.contas||[]).filter(c=>c.tipo==="cartao"||/cart/i.test(c.nome));
-let CART_SEL=null;
+let CART_SEL=null, FAT_SEL=null;
+/* Config de fatura por cartao (dia do mes): f=fechamento, v=vencimento. Default: fecha fim do mes, vence 10. */
+const FATURA_CFG={"cartão inter empresas":{f:3,v:10},"cartão inter microbusiness":{f:3,v:10},"cartão inter pf":{f:5,v:12}};
+const faturaCfg=n=>FATURA_CFG[(n||"").toLowerCase()]||{f:31,v:10};
+/* mes-fatura (YYYY-MM) de uma compra, pela data de FECHAMENTO (compra depois do fechamento cai na proxima fatura) */
+function faturaMes(diso,close){let a=(diso||"").split("-").map(Number);let y=a[0],m=a[1],d=a[2];if(d>close){m++;if(m>12){m=1;y++;}}return y+"-"+String(m).padStart(2,"0");}
+const faturaVenc=(fk,vd)=>fk+"-"+String(Math.min(vd,28)).padStart(2,"0");
+const stBadge=st=>({paga:'background:#e7f6ec;color:#16a34a',aberta:'background:#eef2ff;color:#4f46e5',vencida:'background:#fef2f2;color:#dc2626'}[st]||'');
+const stLabel=st=>({paga:'Paga',aberta:'Aberta',vencida:'Vencida'}[st]||st);
 function viewCartoes(){const cards=cardContas();
   if(!cards.length){$("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1></div></div><div class="panel"><div class="empty">Nenhum cartão cadastrado. Crie em Configurações › Cartões.</div></div>`;return;}
   if(!CART_SEL||!cards.some(c=>c.nome===CART_SEL))CART_SEL=cards[0].nome;
+  const cfg=faturaCfg(CART_SEL),hoje=todayISO();
   const movs=DB.movimentos.filter(m=>m.banco===CART_SEL);
-  // saldo da fatura (dívida) = saídas(compras) − entradas(pagamentos)
-  const compras=movs.filter(m=>m.sentido==="Saída"),pagtos=movs.filter(m=>m.sentido==="Entrada");
-  const totCompras=compras.reduce((s,m)=>s+m.valor,0),totPagtos=pagtos.reduce((s,m)=>s+m.valor,0),saldo=totCompras-totPagtos;
-  // faturas a pagar vinculadas (Contas a Pagar com "fatura" na descrição)
-  const faturasAbertas=(DB.contasPagar||[]).filter(p=>/fatura/i.test(p.descricao)&&p.status==="aberto");
-  // agrupa por competência = mês da compra
-  const fat=new Map();movs.forEach(m=>{const k=monthKey(m.data);if(!fat.has(k))fat.set(k,{comp:k,compras:0,pagtos:0,n:0});const f=fat.get(k);if(m.sentido==="Saída"){f.compras+=m.valor;f.n++;}else f.pagtos+=m.valor;});
-  const fs=[...fat.values()].sort((a,b)=>b.comp.localeCompare(a.comp));
-  const parc=compras.filter(m=>/parcela|\/\d+/i.test(m.descricao));
-  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Controle de fatura — lê dos lançamentos na conta do cartão</div></div>
-    ${cards.length>1?`<select onchange="CART_SEL=this.value;viewCartoes()">${cards.map(c=>`<option ${c.nome===CART_SEL?"selected":""}>${esc(c.nome)}</option>`).join("")}</select>`:""}</div>
-   <div class="kpis"><div class="kpi"><div class="lbl">💳 Fatura em aberto (saldo)</div><div class="val ${saldo>0?'out':'in'}">${fmtBRL(saldo)}</div><div class="hint">compras − pagamentos</div></div>
-    <div class="kpi"><div class="lbl">Compras (total)</div><div class="val out">${fmtBRL(totCompras)}</div><div class="hint">${compras.length} lançamentos</div></div>
-    <div class="kpi"><div class="lbl">Pagamentos (total)</div><div class="val in">${fmtBRL(totPagtos)}</div><div class="hint">${pagtos.length} pagamentos</div></div>
-    <div class="kpi"><div class="lbl">📅 Próxima fatura</div><div class="val">${faturasAbertas.length?fmtDate(faturasAbertas.sort((a,b)=>a.vencimento.localeCompare(b.vencimento))[0].vencimento):"—"}</div><div class="hint">${faturasAbertas.length?fmtBRL(faturasAbertas[0].valor):"em Contas a Pagar"}</div></div></div>
-   <div class="panel"><h2>Faturas por competência (mês de compra)</h2><table><thead><tr><th>Competência</th><th class="num">Compras</th><th class="num">Pagamentos</th><th class="num">Líquido</th><th></th></tr></thead><tbody>${fs.map(f=>`<tr><td><b>${mkLabel(f.comp)}</b> <span class="sub" style="margin:0">(${f.n})</span></td><td class="num out">${fmtBRL(f.compras)}</td><td class="num in">${f.pagtos?fmtBRL(f.pagtos):"—"}</td><td class="num ${f.compras-f.pagtos>0?'out':'in'}">${fmtBRL(f.compras-f.pagtos)}</td><td><button class="btn ghost sm" onclick="gerarFatura('${f.comp}')">Gerar conta a pagar</button></td></tr>`).join("")||`<tr><td colspan="5"><div class="empty">Sem lançamentos.</div></td></tr>`}</tbody></table></div>
-   ${parc.length?`<div class="panel"><h2>Parcelados detectados (${parc.length})</h2><table><tbody>${parc.map(m=>`<tr><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td class="num out">${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table><div class="sub">Dica: edite a descrição com "1/5" etc. e o controle de parcelas futuras entra no próximo incremento.</div></div>`:""}
-   <div class="panel"><h2>Lançamentos do cartão (${movs.length})</h2><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${movs.slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos.</div></td></tr>`}</tbody></table></div>`;}
-function gerarFatura(compKey){const cartao=CART_SEL;const comp=compKey.slice(5,7)+"/"+compKey.slice(0,4);const due=compKey+"-10";
-  const total=DB.movimentos.filter(m=>m.banco===cartao&&monthKey(m.data)===compKey&&m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
+  // agrupa por FATURA (data de fechamento)
+  const fat=new Map();movs.forEach(m=>{const k=faturaMes(m.data,cfg.f);if(!fat.has(k))fat.set(k,{fk:k,compras:0,pagtos:0,n:0,txs:[]});const f=fat.get(k);f.txs.push(m);if(m.sentido==="Saída"){f.compras+=m.valor;f.n++;}else f.pagtos+=m.valor;});
+  const fs=[...fat.values()].sort((a,b)=>a.fk.localeCompare(b.fk));
+  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;f.status=(f.compras>0&&f.pagtos>=f.compras)?"paga":(f.venc<hoje?"vencida":"aberta");});
+  if(!FAT_SEL||!fat.has(FAT_SEL))FAT_SEL=(fs.find(f=>f.status==="aberta")||fs[fs.length-1]||{fk:""}).fk;
+  const sel=fat.get(FAT_SEL)||{fk:"",compras:0,pagtos:0,n:0,txs:[],venc:""};
+  const aberta=fs.find(f=>f.status==="aberta");
+  const totCompras=movs.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
+  const melhorDia=(cfg.f%31)+1;
+  const showFs=fs.slice(-10).reverse(); // fatura mais recente primeiro
+  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Faturas por fechamento (dia ${cfg.f}) · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</div></div>
+    ${cards.length>1?`<select onchange="CART_SEL=this.value;FAT_SEL=null;viewCartoes()">${cards.map(c=>`<option ${c.nome===CART_SEL?"selected":""}>${esc(c.nome)}</option>`).join("")}</select>`:""}</div>
+   <div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 12px">${showFs.map(f=>`
+     <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:158px;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;background:#fff;${f.fk===FAT_SEL?'box-shadow:0 0 0 2px #6366f1 inset;border-color:#6366f1':''}">
+       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:13px">${mkLabel(f.fk)}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(f.status)}">${stLabel(f.status)}</span></div>
+       <div style="font-size:20px;font-weight:700;margin:6px 0 2px" class="${f.saldo>0?'out':'in'}">${fmtBRL(f.saldo)}</div>
+       <div class="sub" style="margin:0;font-size:11px">venc ${fmtDate(f.venc)} · ${f.n} compras</div>
+     </div>`).join("")||`<div class="empty">Sem faturas.</div>`}</div>
+   <div class="kpis"><div class="kpi"><div class="lbl">💳 Fatura ${mkLabel(sel.fk)||"—"}</div><div class="val ${sel.compras-sel.pagtos>0?'out':'in'}">${fmtBRL(sel.compras-sel.pagtos)}</div><div class="hint">${sel.n} compras · venc ${sel.venc?fmtDate(sel.venc):"—"}</div></div>
+    <div class="kpi"><div class="lbl">Compras da fatura</div><div class="val out">${fmtBRL(sel.compras)}</div><div class="hint">pagamentos ${fmtBRL(sel.pagtos)}</div></div>
+    <div class="kpi"><div class="lbl">Total no cartão</div><div class="val out">${fmtBRL(totCompras)}</div><div class="hint">${movs.length} lançamentos</div></div>
+    <div class="kpi"><div class="lbl">📅 Fatura aberta</div><div class="val">${aberta?fmtDate(aberta.venc):"—"}</div><div class="hint">${aberta?fmtBRL(aberta.saldo):"em dia"}</div></div></div>
+   <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table></div>`;}
+function gerarFatura(fk){const cartao=CART_SEL,cfg=faturaCfg(cartao);const comp=fk.slice(5,7)+"/"+fk.slice(0,4);const due=faturaVenc(fk,cfg.v);
+  const total=DB.movimentos.filter(m=>m.banco===cartao&&faturaMes(m.data,cfg.f)===fk&&m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
   const o={_row:"p"+Date.now(),descricao:`Fatura ${cartao} ${comp}`,vencimento:due,valor:total,categoria:"Pagamento fatura cartão",banco:cartao,status:"aberto",recorrencia:""};(async()=>{if(MODE==="live")o._row=await sbIns("previstos",{descricao:o.descricao,valor:o.valor,vencimento:due,tipo:"pagar",status:"aberto",visao:VISAO,conta_id:contaId(cartao),categoria_id:catId("Pagamento fatura cartão")});DB.contasPagar.push(o);toast("Fatura lançada");route("pagar");})().catch(e=>toast("Erro: "+e.message));}
 
 /* ===== Importar ===== */

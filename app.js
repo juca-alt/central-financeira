@@ -632,8 +632,10 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   // projeção: previstos abertos por mês de vencimento; recorrentes mensais replicam pra frente
   const rec={},pag={};
   // inclui o mês CORRENTE na projeção (realizado + a receber/pagar do mês + VENCIDOS em aberto)
-  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(a.recorrencia==="mensal"&&mm>=k)||(mm===tk&&k<tk&&!a.recorrencia))rec[mm]=(rec[mm]||0)+a.previstoLiquido;});});
-  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(c.recorrencia==="mensal"&&mm>=k)||(mm===tk&&k<tk&&!c.recorrencia))pag[mm]=(pag[mm]||0)+c.valor;});});
+  // ocorrências normais do mês + a ÂNCORA VENCIDA (aberta) somada no mês corrente — recorrente ou não:
+  // ex.: MJM venc 20/06 aberto + recorrência de 20/07 ⇒ julho mostra 2× (o atrasado não some)
+  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)rec[mm]=(rec[mm]||0)+x*a.previstoLiquido;});});
+  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)pag[mm]=(pag[mm]||0)+x*c.valor;});});
   let base=0;DB.movimentos.filter(m=>!isInterno(m)&&monthKey(m.data)<months[0]).forEach(m=>base+=m.sentido==="Entrada"?m.valor:-m.valor);
   // mês corrente e futuros mostram os previstos (a receber/pagar); passados só realizado
   let acc=base;const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);acc+=net;return{k,e,s,r,p,net,acc,proje:fut};});
@@ -697,10 +699,11 @@ function fluxoDrill(k,t){
     abertos.forEach(x=>{
       const venc=t==="r"?x.dataPrevista:x.vencimento, vk=monthKey(venc);
       if(!vk)return;
-      const hit=(vk===k)||(x.recorrencia==="mensal"&&k>=vk)||(k===tk&&vk<tk&&!x.recorrencia); // inclui vencidos no mês corrente
-      if(!hit)return;
-      const vencido=vk<k;
-      items.push({venc,vencido,desc:t==="r"?x.linha:x.descricao,valor:Number(t==="r"?x.previstoLiquido:x.valor)||0});
+      const val=Number(t==="r"?x.previstoLiquido:x.valor)||0, desc=t==="r"?x.linha:x.descricao;
+      // ocorrência do mês k (recorrente projeta a partir da âncora)
+      if(vk===k||(x.recorrencia==="mensal"&&k>=vk))items.push({venc:k+"-"+(venc||"").slice(8,10),vencido:false,desc,valor:val});
+      // âncora VENCIDA (aberta) listada no mês corrente — espelha a soma da célula
+      if(k===tk&&vk<tk)items.push({venc,vencido:true,desc,valor:val});
     });
     n=items.length;tot=items.reduce((s,x)=>s+x.valor,0);
     linhas=items.sort((a,b)=>a.venc<b.venc?-1:1).map(x=>_drillRow((x.venc||"").slice(8,10)+"/"+(x.venc||"").slice(5,7),esc(x.desc||"")+(x.vencido?' <span style="color:#dc2626;font-weight:700;font-size:11px">VENCIDO</span>':''),x.vencido?"em atraso":"previsto",fmtBRL(x.valor),t==="r"?"in":"out")).join("");

@@ -589,16 +589,20 @@ function importViaIA(file,ext){
   rd.readAsDataURL(file);
 }
 async function lancarImport(){const{r,dest}=window._imp||{};if(!r)return;const isFat=r.kind==="fatura";
-  /* dedup: pula transações idênticas às já existentes (evita double-count ao reimportar o mesmo extrato) */
+  /* GUARD ANTI-DUPLICATA (count-aware): valida CADA linha entrante contra o que JÁ existe,
+     independente da fonte (extrato novo, antigo, sync, IA). Impressão digital data+valor+sinal+conta,
+     por CONTAGEM (multiset): se o banco tem 2 e o arquivo traz 4, entram só as 2 que faltam.
+     Resolve: reimport do mesmo extrato (0 novas), extrato retroativo sobre dados de sync (só o gap),
+     e transações legítimas repetidas no mesmo dia (ex.: 4× lavanderia R$14,99 — antes o Set descartava 3). */
   const norm=s=>String(s||"").trim().toLowerCase();
-  /* dedup por IMPRESSÃO DIGITAL data+valor+sinal+conta (NÃO inclui descrição: a IA varia o texto entre leituras → senão re-importar duplica). Fatura mantém descrição. */
-  const keyOf=(d,v,desc,c,sign,bal)=>isFat?[d,v,norm(desc),norm(c)].join("|"):[d,v,sign,norm(c),bal!=null?bal:""].join("|");
-  const seen=new Set((isFat?DB.cartoes:DB.movimentos).map(m=>isFat?keyOf(m.data,m.valor,m.descricao,m.cartao):keyOf(m.data,m.valor,m.descricao,m.banco,m.sentido)));
+  const keyOf=(d,v,desc,c,sign)=>isFat?[d,v,norm(desc),norm(c)].join("|"):[d,v,sign,norm(c)].join("|");
+  const cnt=new Map();
+  (isFat?DB.cartoes:DB.movimentos).forEach(m=>{const k=isFat?keyOf(m.data,m.valor,m.descricao,m.cartao):keyOf(m.data,m.valor,m.descricao,m.banco,m.sentido);cnt.set(k,(cnt.get(k)||0)+1);});
   let n=0,dup=0,err=0;
   for(const x of r.txs){
-    const key=keyOf(x.date,x.amount,x.description,dest,x.sign,x.bal);
-    if(seen.has(key)){dup++;continue;}
-    seen.add(key);
+    const key=keyOf(x.date,x.amount,x.description,dest,x.sign);
+    const c=cnt.get(key)||0;
+    if(c>0){cnt.set(key,c-1);dup++;continue;}
     try{
       if(isFat){const o={_row:"k"+Date.now()+n,data:x.date,descricao:x.description,cartao:dest,valor:x.amount,subcategoria:x.cat||"",mesFatura:x.date.slice(5,7)+"/"+x.date.slice(0,4)};if(MODE==="live")o._row=await sbIns("cartao_transacoes",{cartao_id:contaId(dest),data_compra:x.date,data_fatura:x.date.slice(0,7)+"-01",descricao:x.description,valor:x.amount,parcela_atual:1,parcela_total:1,categoria_id:catId(x.cat),visao:VISAO,hash:uhash(x.description+x.date+x.amount)});DB.cartoes.unshift(o);}
       else{const o={_row:"d"+Date.now()+n,data:x.date,descricao:x.description,valor:x.amount,sentido:x.sign,banco:dest,categoria:x.cat||"",mes:+x.date.slice(5,7),ano:+x.date.slice(0,4)};if(MODE==="live")o._row=await sbIns("movimentos",{data:x.date,descricao_original:x.description,descricao_limpa:x.description,valor:x.amount,sinal:x.sign==="Entrada"?1:-1,conta_id:contaId(dest),categoria_id:catId(x.cat),visao:VISAO,hash:uhash(x.description+x.date+x.amount+(x.bal!=null?"|"+x.bal:""))});DB.movimentos.unshift(o);}

@@ -138,6 +138,34 @@ async function main() {
     });
   }
 
+  // ============================================================
+  // GUARD ANTI-DUPLICATA cross-fonte (count-aware) — 02/07/2026.
+  // O dedup por external_id só enxerga o PRÓPRIO organizze; se a mesma
+  // transação já entrou por extrato (Importar/PDF/CSV) ou outro sync,
+  // duplicava. Agora: impressão digital data|valor|sinal|conta contra
+  // TODOS os movimentos existentes na janela, por CONTAGEM (multiset).
+  // ============================================================
+  const fpExist = new Map();
+  {
+    const contas = [CONTA_CORRENTE, CONTA_CARTAO].filter(Boolean);
+    for (const cid of contas) {
+      const evs = await sbGet(`/rest/v1/movimentos?conta_id=eq.${cid}&data=gte.${iso(start)}&data=lte.${iso(end)}&select=data,valor,sinal,conta_id`);
+      for (const e of evs) {
+        const k = `${String(e.data).slice(0,10)}|${Number(e.valor).toFixed(2)}|${e.sinal}|${e.conta_id}`;
+        fpExist.set(k, (fpExist.get(k) || 0) + 1);
+      }
+    }
+  }
+  let dupCross = 0;
+  const rowsFinal = rows.filter(r0 => {
+    const k = `${r0.data}|${Number(r0.valor).toFixed(2)}|${r0.sinal}|${r0.conta_id}`;
+    const c = fpExist.get(k) || 0;
+    if (c > 0) { fpExist.set(k, c - 1); dupCross++; return false; }
+    return true;
+  });
+  rows.length = 0; rows.push(...rowsFinal);
+  console.log(`Guard cross-fonte: ${dupCross} duplicata(s) barrada(s) por impressão digital.`);
+
   console.log(`Novas a inserir: ${rows.length} (puladas: ${skipped})`);
   console.log(`A retroagir categoria (já existentes, sem categoria): ${backfillCandidatos}`);
   if (DRY_RUN && wouldCreateCats.size) {

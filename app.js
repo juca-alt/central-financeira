@@ -631,46 +631,82 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   const ent={},sai={};DB.movimentos.filter(m=>!isInterno(m)).forEach(m=>{const k=monthKey(m.data);if(m.sentido==="Entrada")ent[k]=(ent[k]||0)+m.valor;else sai[k]=(sai[k]||0)+m.valor;});
   // projeção: previstos abertos por mês de vencimento; recorrentes mensais replicam pra frente
   const rec={},pag={};
-  // inclui o mês CORRENTE na projeção (mostra realizado + o que ainda falta receber/pagar no mês)
-  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))rec[mm]=(rec[mm]||0)+a.previstoLiquido;});});
-  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))pag[mm]=(pag[mm]||0)+c.valor;});});
+  // inclui o mês CORRENTE na projeção (realizado + a receber/pagar do mês + VENCIDOS em aberto)
+  DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(a.recorrencia==="mensal"&&mm>=k)||(mm===tk&&k<tk&&!a.recorrencia))rec[mm]=(rec[mm]||0)+a.previstoLiquido;});});
+  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;if(mm===k||(c.recorrencia==="mensal"&&mm>=k)||(mm===tk&&k<tk&&!c.recorrencia))pag[mm]=(pag[mm]||0)+c.valor;});});
   let base=0;DB.movimentos.filter(m=>!isInterno(m)&&monthKey(m.data)<months[0]).forEach(m=>base+=m.sentido==="Entrada"?m.valor:-m.valor);
   // mês corrente e futuros mostram os previstos (a receber/pagar); passados só realizado
   let acc=base;const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);acc+=net;return{k,e,s,r,p,net,acc,proje:fut};});
-  const cell=(v,cls)=>`<td class="${v?cls:''}">${v?fmtBRL(v):"—"}</td>`;
+  const cell=(v,cls,k,t)=>`<td class="${v?cls:''} fxc" data-k="${k}" data-t="${t}" style="${v?'cursor:pointer':''}" title="${v?'Ver detalhes':''}">${v?fmtBRL(v):"—"}</td>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção (a receber/pagar + recorrentes). <span class="pj">Roxo</span> = projetado.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
    <div class="panel" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th>${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>
-    <tr><td class="h">Entradas</td>${data.map(c=>cell(c.e,"in")).join("")}</tr>
-    <tr><td class="h">Saídas</td>${data.map(c=>cell(c.s,"out")).join("")}</tr>
-    <tr><td class="h">A receber (prev.)</td>${data.map(c=>`<td class="${c.r?'pj':''}">${c.r?fmtBRL(c.r):"—"}</td>`).join("")}</tr>
-    <tr><td class="h">A pagar (prev.)</td>${data.map(c=>`<td class="${c.p?'pj':''}">${c.p?'−'+fmtBRL(c.p):"—"}</td>`).join("")}</tr>
+    <tr><td class="h">Entradas</td>${data.map(c=>cell(c.e,"in",c.k,"e")).join("")}</tr>
+    <tr><td class="h">Saídas</td>${data.map(c=>cell(c.s,"out",c.k,"s")).join("")}</tr>
+    <tr><td class="h">A receber (prev.)</td>${data.map(c=>`<td class="${c.r?'pj':''} fxc" data-k="${c.k}" data-t="r" style="${c.r?'cursor:pointer':''}">${c.r?fmtBRL(c.r):"—"}</td>`).join("")}</tr>
+    <tr><td class="h">A pagar (prev.)</td>${data.map(c=>`<td class="${c.p?'pj':''} fxc" data-k="${c.k}" data-t="p" style="${c.p?'cursor:pointer':''}">${c.p?'−'+fmtBRL(c.p):"—"}</td>`).join("")}</tr>
     <tr style="border-top:2px solid var(--border)"><td class="h"><b>Saldo do mês</b></td>${data.map(c=>`<td class="${c.net>=0?'in':'out'}"><b>${fmtBRL(c.net)}</b></td>`).join("")}</tr>
     <tr><td class="h"><b>Saldo acumulado</b></td>${data.map(c=>`<td class="${c.acc>=0?'in':'out'}"><b>${fmtBRL(c.acc)}</b></td>`).join("")}</tr>
    </tbody></table></div><div class="panel"><h2>Saldo acumulado projetado</h2><canvas id="chAcc" height="90"></canvas></div>`;
   $("#fh").value=String(FLUXO_H);$("#fh").onchange=e=>{FLUXO_H=+e.target.value;viewFluxo();};
+  document.querySelectorAll("#view td.fxc").forEach(td=>{td.onclick=()=>{if(td.textContent.trim()!=="—")fluxoDrill(td.dataset.k,td.dataset.t);};});
   _charts.forEach(c=>c.destroy());_charts=[];_charts.push(new Chart($("#chAcc"),{type:"line",data:{labels:data.map(c=>mkLabel(c.k)),datasets:[{label:"Saldo",data:data.map(c=>c.acc),borderColor:"#3b5bdb",backgroundColor:"rgba(59,91,219,.12)",fill:true,tension:.25,pointBackgroundColor:data.map(c=>c.proje?"#7c3aed":"#3b5bdb")}]},options:{plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK}}}}}));
 }
 
 /* ===== DRE ===== */
 let DRE_MODE="ano",DRE_ANO=null,DRE_MES=null;
+/* Modal genérico de drill-down (usado por DRE e Fluxo de Caixa).
+   ATENÇÃO: titulo/sub/rowsHtml entram como HTML — callers devem esc() qualquer dado de usuário;
+   só HTML hardcoded seguro (<b>, <span>) pode vir sem escape. */
+function drillModal(titulo,sub,rowsHtml){
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px";
+  ov.innerHTML=`<div style="background:var(--card,#fff);border-radius:14px;padding:16px;max-width:680px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:82vh;display:flex;flex-direction:column">
+    <div class="row" style="margin:0 0 10px;align-items:flex-start"><div><h2 style="margin:0">${titulo}</h2><div class="sub">${sub}</div></div><button id="drillX" class="btn ghost sm">✕</button></div>
+    <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${rowsHtml}</tbody></table></div></div>`;
+  document.body.appendChild(ov);
+  const onKey=e=>{if(e.key==="Escape")close();};
+  const close=()=>{ov.remove();document.removeEventListener("keydown",onKey);};
+  ov.onclick=e=>{if(e.target===ov)close();};
+  ov.querySelector("#drillX").onclick=close;
+  document.addEventListener("keydown",onKey);
+}
+const _drillRow=(dt,desc,extra,valor,cls)=>`<tr style="border-top:1px solid var(--border)"><td style="white-space:nowrap;padding:5px 8px">${dt}</td><td style="padding:5px 8px">${desc}</td><td class="sub" style="white-space:nowrap;padding:5px 8px">${extra}</td><td class="num ${cls}" style="text-align:right;white-space:nowrap;padding:5px 8px">${valor}</td></tr>`;
 /* Drill-down: clicar numa linha do DRE abre as movimentações que a compõem (mesmo período/filtro) */
 function dreDrill(cat){
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
   const items=DB.movimentos.filter(m=>inDre(m)&&!isInterno(m)&&(m.categoria||"Outras")===cat).sort((a,b)=>a.data<b.data?1:-1);
   const tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
   const per=DRE_MODE==="ano"?("ano "+DRE_ANO):(ML[DRE_MES-1]+"/"+DRE_ANO);
-  const linhas=items.map(m=>`<tr style="border-top:1px solid var(--border)"><td style="white-space:nowrap;padding:5px 8px">${(m.data||"").slice(8,10)}/${(m.data||"").slice(5,7)}</td><td style="padding:5px 8px">${esc(m.descricao||"")}</td><td class="sub" style="white-space:nowrap;padding:5px 8px">${esc(m.banco||"")}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}" style="text-align:right;white-space:nowrap;padding:5px 8px">${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nenhuma movimentação.</td></tr>`;
-  const ov=document.createElement("div");
-  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px";
-  ov.innerHTML=`<div style="background:var(--card,#fff);border-radius:14px;padding:16px;max-width:680px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:82vh;display:flex;flex-direction:column">
-    <div class="row" style="margin:0 0 10px;align-items:flex-start"><div><h2 style="margin:0">${esc(cat)}</h2><div class="sub">${items.length} movimento(s) · ${per} · total <b>${fmtBRL(tot)}</b></div></div><button id="drillX" class="btn ghost sm">✕</button></div>
-    <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${linhas}</tbody></table></div></div>`;
-  document.body.appendChild(ov);
-  const close=()=>ov.remove();
-  ov.onclick=e=>{if(e.target===ov)close();};
-  ov.querySelector("#drillX").onclick=close;
-  const onKey=e=>{if(e.key==="Escape"){close();document.removeEventListener("keydown",onKey);}};
-  document.addEventListener("keydown",onKey);
+  const linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.banco||""),fmtBRL(m.valor),m.sentido==='Entrada'?'in':'out')).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nenhuma movimentação.</td></tr>`;
+  drillModal(esc(cat),`${items.length} movimento(s) · ${per} · total <b>${fmtBRL(tot)}</b>`,linhas);
+}
+/* Drill-down do Fluxo de Caixa: célula (mês × tipo) mostra o que compõe o valor.
+   t: e=Entradas s=Saídas r=A receber p=A pagar */
+function fluxoDrill(k,t){
+  const tk=todayISO().slice(0,7);
+  const nomes={e:"Entradas",s:"Saídas",r:"A receber (previsto)",p:"A pagar (previsto)"};
+  let linhas="",tot=0,n=0;
+  if(t==="e"||t==="s"){
+    const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isInterno(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
+    n=items.length;tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
+    linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.categoria||m.banco||""),fmtBRL(m.valor),t==="e"?"in":"out")).join("");
+  }else{
+    const lista=t==="r"?DB.aReceber:DB.contasPagar;
+    const abertos=lista.filter(x=>t==="r"?((x.status||"").toLowerCase()!=="recebido"):((x.status||"").toLowerCase()==="aberto"));
+    const items=[];
+    abertos.forEach(x=>{
+      const venc=t==="r"?x.dataPrevista:x.vencimento, vk=monthKey(venc);
+      if(!vk)return;
+      const hit=(vk===k)||(x.recorrencia==="mensal"&&k>=vk)||(k===tk&&vk<tk&&!x.recorrencia); // inclui vencidos no mês corrente
+      if(!hit)return;
+      const vencido=vk<k;
+      items.push({venc,vencido,desc:t==="r"?x.linha:x.descricao,valor:Number(t==="r"?x.previstoLiquido:x.valor)||0});
+    });
+    n=items.length;tot=items.reduce((s,x)=>s+x.valor,0);
+    linhas=items.sort((a,b)=>a.venc<b.venc?-1:1).map(x=>_drillRow((x.venc||"").slice(8,10)+"/"+(x.venc||"").slice(5,7),esc(x.desc||"")+(x.vencido?' <span style="color:#dc2626;font-weight:700;font-size:11px">VENCIDO</span>':''),x.vencido?"em atraso":"previsto",fmtBRL(x.valor),t==="r"?"in":"out")).join("");
+  }
+  if(!linhas)linhas=`<tr><td colspan="4" class="sub" style="padding:12px">Nada neste mês.</td></tr>`;
+  drillModal(nomes[t]+" · "+mkLabel(k),`${n} item(ns) · total <b>${fmtBRL(tot)}</b>`,linhas);
 }
 function viewDRE(){ DRE_ANO=DRE_ANO||yearsList()[0]||new Date().getFullYear();DRE_MES=DRE_MES||new Date().getMonth()+1;
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);

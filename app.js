@@ -653,6 +653,25 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
 
 /* ===== DRE ===== */
 let DRE_MODE="ano",DRE_ANO=null,DRE_MES=null;
+/* Drill-down: clicar numa linha do DRE abre as movimentações que a compõem (mesmo período/filtro) */
+function dreDrill(cat){
+  const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
+  const items=DB.movimentos.filter(m=>inDre(m)&&!isInterno(m)&&(m.categoria||"Outras")===cat).sort((a,b)=>a.data<b.data?1:-1);
+  const tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
+  const per=DRE_MODE==="ano"?("ano "+DRE_ANO):(ML[DRE_MES-1]+"/"+DRE_ANO);
+  const linhas=items.map(m=>`<tr style="border-top:1px solid var(--border)"><td style="white-space:nowrap;padding:5px 8px">${(m.data||"").slice(8,10)}/${(m.data||"").slice(5,7)}</td><td style="padding:5px 8px">${esc(m.descricao||"")}</td><td class="sub" style="white-space:nowrap;padding:5px 8px">${esc(m.banco||"")}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}" style="text-align:right;white-space:nowrap;padding:5px 8px">${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nenhuma movimentação.</td></tr>`;
+  const ov=document.createElement("div");
+  ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px";
+  ov.innerHTML=`<div style="background:var(--card,#fff);border-radius:14px;padding:16px;max-width:680px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:82vh;display:flex;flex-direction:column">
+    <div class="row" style="margin:0 0 10px;align-items:flex-start"><div><h2 style="margin:0">${esc(cat)}</h2><div class="sub">${items.length} movimento(s) · ${per} · total <b>${fmtBRL(tot)}</b></div></div><button id="drillX" class="btn ghost sm">✕</button></div>
+    <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tbody>${linhas}</tbody></table></div></div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  ov.onclick=e=>{if(e.target===ov)close();};
+  ov.querySelector("#drillX").onclick=close;
+  const onKey=e=>{if(e.key==="Escape"){close();document.removeEventListener("keydown",onKey);}};
+  document.addEventListener("keydown",onKey);
+}
 function viewDRE(){ DRE_ANO=DRE_ANO||yearsList()[0]||new Date().getFullYear();DRE_MES=DRE_MES||new Date().getMonth()+1;
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
   const rows=DB.movimentos.filter(m=>inDre(m)&&!isInterno(m));
@@ -661,15 +680,16 @@ function viewDRE(){ DRE_ANO=DRE_ANO||yearsList()[0]||new Date().getFullYear();DR
     if(m.sentido==="Entrada"){receitas[m.categoria||"Outras"]=(receitas[m.categoria||"Outras"]||0)+m.valor;totRec+=m.valor;}
     else{grupos[g]=grupos[g]||{};grupos[g][m.categoria||"Outras"]=(grupos[g][m.categoria||"Outras"]||0)+m.valor;totDesp+=m.valor;}});
   const result=totRec-totDesp;const margem=totRec?(result/totRec*100):0;
-  const secReceita=`<tr style="background:#f0fdf4"><td class="h"><b>RECEITAS</b></td><td class="num in"><b>${fmtBRL(totRec)}</b></td></tr>${Object.entries(receitas).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td class="h" style="padding-left:22px">${esc(k)}</td><td class="num in">${fmtBRL(v)}</td></tr>`).join("")}`;
+  const secReceita=`<tr style="background:#f0fdf4"><td class="h"><b>RECEITAS</b></td><td class="num in"><b>${fmtBRL(totRec)}</b></td></tr>${Object.entries(receitas).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr class="dre-line" data-cat="${esc(k)}" style="cursor:pointer"><td class="h" style="padding-left:22px">${esc(k)} <span class="sub" style="font-size:10px">›</span></td><td class="num in">${fmtBRL(v)}</td></tr>`).join("")}`;
   const ordemG=[...DRE_ORDEM_DESP.filter(g=>grupos[g]),...Object.keys(grupos).filter(g=>!DRE_ORDEM_DESP.includes(g))];
-  const secDesp=ordemG.filter(g=>grupos[g]).map(g=>{const sub=grupos[g];const tg=Object.values(sub).reduce((a,b)=>a+b,0);return `<tr style="background:#fef2f2"><td class="h"><b>${g}</b></td><td class="num out"><b>−${fmtBRL(tg)}</b></td></tr>${Object.entries(sub).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr><td class="h" style="padding-left:22px">${esc(k)}</td><td class="num out">−${fmtBRL(v)}</td></tr>`).join("")}`;}).join("");
+  const secDesp=ordemG.filter(g=>grupos[g]).map(g=>{const sub=grupos[g];const tg=Object.values(sub).reduce((a,b)=>a+b,0);return `<tr style="background:#fef2f2"><td class="h"><b>${g}</b></td><td class="num out"><b>−${fmtBRL(tg)}</b></td></tr>${Object.entries(sub).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<tr class="dre-line" data-cat="${esc(k)}" style="cursor:pointer"><td class="h" style="padding-left:22px">${esc(k)} <span class="sub" style="font-size:10px">›</span></td><td class="num out">−${fmtBRL(v)}</td></tr>`).join("")}`;}).join("");
   $("#view").innerHTML=`<div class="row"><div><h1>DRE</h1><div class="sub">Demonstração de Resultado — ${DRE_MODE==="ano"?("ano "+DRE_ANO):(ML[DRE_MES-1]+"/"+DRE_ANO)}</div></div>
     <div class="controls" style="margin:0"><select id="dm"><option value="ano" ${DRE_MODE==="ano"?"selected":""}>Anual</option><option value="mes" ${DRE_MODE==="mes"?"selected":""}>Mensal</option></select><select id="da">${yearsList().map(y=>`<option ${y===DRE_ANO?"selected":""}>${y}</option>`).join("")}</select>${DRE_MODE==="mes"?`<select id="dmes">${ML.map((n,i)=>`<option value="${i+1}" ${i+1===DRE_MES?"selected":""}>${n}</option>`).join("")}</select>`:""}</div></div>
   <div class="kpis"><div class="kpi"><div class="lbl">Receita</div><div class="val in">${fmtBRL(totRec)}</div></div><div class="kpi"><div class="lbl">Despesas</div><div class="val out">${fmtBRL(totDesp)}</div></div><div class="kpi"><div class="lbl">Resultado</div><div class="val ${result>=0?'in':'out'}">${fmtBRL(result)}</div></div><div class="kpi"><div class="lbl">Margem</div><div class="val ${margem>=0?'in':'out'}">${margem.toFixed(1)}%</div></div></div>
   <div class="panel"><table class="cf"><tbody>${secReceita}${secDesp}<tr style="border-top:2px solid var(--fg)"><td class="h"><b>RESULTADO LÍQUIDO</b></td><td class="num ${result>=0?'in':'out'}"><b>${fmtBRL(result)}</b></td></tr></tbody></table>
    <div class="sub" style="margin-top:8px">Agrupamento pelo campo <b>Grupo no DRE</b> de cada categoria (Configurações › Linhas do DRE). Onde não houver grupo definido, cai na heurística pelo nome.</div></div>`;
   $("#dm").onchange=e=>{DRE_MODE=e.target.value;viewDRE();};$("#da").onchange=e=>{DRE_ANO=+e.target.value;viewDRE();};if($("#dmes"))$("#dmes").onchange=e=>{DRE_MES=+e.target.value;viewDRE();};
+  document.querySelectorAll("#view tr.dre-line").forEach(tr=>tr.onclick=()=>dreDrill(tr.dataset.cat));
 }
 
 /* ===== Orçamento ===== */

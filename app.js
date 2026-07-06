@@ -38,6 +38,7 @@ const SHELL_HTML = `
       <a data-route="movimentos"><span class="ico">↕</span> Movimentos</a>
       <a data-route="pagar"><span class="ico">▣</span> Contas a Pagar</a>
       <a data-route="receber"><span class="ico">◳</span> A Receber</a>
+      <a data-route="comissoes" id="navLP" style="display:none"><span class="ico">🤝</span> Comissões LP</a>
       <a data-route="cartoes"><span class="ico">▭</span> Cartões</a>
       <a data-route="importar"><span class="ico">⭱</span> Importar</a>
       <div class="grp">Sistema</div>
@@ -92,6 +93,7 @@ async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){tr
 /* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
 function syncChrome(){
   const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
+  const _lp=document.getElementById("navLP");if(_lp)_lp.style.display=VISAO==="PIPEX"?"":"none";
   try{renderTopSwitch();}catch(e){}
   const _env=document.getElementById("envBox");if(_env)_env.innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${esc(VISAO_LABEL)}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   try{const pb=document.getElementById("profileBox");if(pb&&pb.dataset.email!=null)renderProfile(pb.dataset.email);}catch(e){}
@@ -261,7 +263,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Motor de recorrência + números do período (Visão Geral) =====
@@ -512,6 +514,98 @@ function editReceber(row){const p=DB.aReceber.find(x=>x._row===row);if(!p)return
   }else{const rec=parcelado?"":v.recorrencia;if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.conta)});Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:v.status,recorrencia:rec});toast("Atualizado");}
   await afterWrite();}});}
 async function delPrev(coll,row){if(MODE==="live"){try{await sbDel("previstos",row);}catch(e){toast("Erro: "+e.message);return;}}DB[coll]=DB[coll].filter(x=>x._row!==row);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluído");await afterWrite();}
+
+/* ===== Comissões LP (PIPEX · divisão de comissão do Daniel) =====
+   Extrato .xls (HTML disfarçado) do Daniel → marca quem entra na divisão →
+   "Salvar mês" persiste em lp_comissao_meses/lp_comissao_itens e lança o
+   líquido em `previstos` (tipo=receber, conciliável como qualquer previsto).
+   Carteira + fluxo recorrente persistem em lp_carteira (scripts/lp_comissao.sql).
+   Fórmula: líquido = comissão × %divisão × (1 − %imposto). */
+let LP={cart:[],meses:[],itens:null,per:null,sel:{},q:"",pdiv:50,pimp:6,err:null,_demoItens:{}};
+const lpNum=s=>{s=String(s??"").trim();if(!s)return NaN;s=s.replace(/\./g,"").replace(",",".");const v=parseFloat(s);return isNaN(v)?NaN:v;};   // números BR do extrato (1.234,56)
+const lpISO=s=>{const m=String(s||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:String(s||"").slice(0,10);};
+const lpCalc=c=>{const div=c*LP.pdiv/100,imp=div*LP.pimp/100;return{div,imp,liq:div-imp};};
+const lpSit=it=>{const k=LP.cart.find(c=>c.apolice===it.apolice);return k?(k.no_fluxo?"fluxo":"carteira"):"fora";};
+async function lpLoad(){if(MODE!=="live"){if(!LP.cart.length)LP.cart=[{apolice:"2100001",segurado:"CLIENTE DEMO UM",no_fluxo:true,ativo:true},{apolice:"2100002",segurado:"CLIENTE DEMO DOIS",no_fluxo:false,ativo:true}];LP.err=null;return true;}
+  const[ca,ms]=await Promise.all([sb.from("lp_carteira").select("*").order("segurado"),sb.from("lp_comissao_meses").select("*").order("competencia",{ascending:false})]);
+  if(ca.error||ms.error){const e=(ca.error||ms.error).message;LP.err=/does not exist|relation|schema cache/i.test(e)?"Tabelas lp_* ainda não existem — rode scripts/lp_comissao.sql no SQL Editor do Supabase.":e;return false;}
+  LP.cart=ca.data||[];LP.meses=ms.data||[];LP.err=null;return true;}
+function lpParseExtrato(text){const doc=new DOMParser().parseFromString(text,"text/html");const agg={};let per=null;
+  [...doc.querySelectorAll("tr")].forEach(tr=>{const td=[...tr.querySelectorAll("td")];if(td.length<20)return;const cell=i=>(td[i]?.textContent||"").trim();
+    const ap=cell(7).replace(/\D/g,"");if(!ap)return;const com=lpNum(cell(19));if(isNaN(com))return;
+    if(!per)per={ini:cell(1),fim:cell(2),mes:cell(0)};
+    if(!agg[ap])agg[ap]={apolice:ap,segurado:cell(9),comissao:0,linhas:0};agg[ap].comissao+=com;agg[ap].linhas++;});
+  return{itens:Object.values(agg).map(c=>({...c,comissao:Math.round(c.comissao*100)/100})),per};}
+function lpFile(ev){const f=ev.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=e=>{try{const{itens,per}=lpParseExtrato(e.target.result);if(!itens.length){toast("Nenhuma linha reconhecida nesse arquivo");return;}
+    LP.itens=itens;LP.per=per;LP.q="";LP.sel={};itens.forEach(it=>{LP.sel[it.apolice]=lpSit(it)==="fluxo";});lpRender();toast(`${itens.length} clientes no extrato`);}catch(err){toast("Não consegui ler: "+err.message);}};
+  rd.readAsText(f,"ISO-8859-1");}
+function lpToggle(ap,v){LP.sel[ap]=v;lpRenderTable();}
+function lpSelAll(v){(LP.itens||[]).forEach(it=>{if(v){if(lpSit(it)!=="fora")LP.sel[it.apolice]=true;}else LP.sel[it.apolice]=false;});lpRenderTable();}
+function lpSelFluxo(){(LP.itens||[]).forEach(it=>LP.sel[it.apolice]=lpSit(it)==="fluxo");lpRenderTable();}
+function lpNovo(){LP.itens=null;LP.per=null;LP.sel={};lpRender();}
+function lpTotals(){let n=0,com=0,div=0,imp=0;(LP.itens||[]).forEach(it=>{if(LP.sel[it.apolice]){n++;const r=lpCalc(it.comissao);com+=it.comissao;div+=r.div;imp+=r.imp;}});return{n,com,div,imp,liq:div-imp};}
+function lpRenderTable(){const tb=document.getElementById("lpTb");if(!tb)return;const q=(LP.q||"").toUpperCase();
+  const ord=it=>({fluxo:0,carteira:1,fora:2}[lpSit(it)]);
+  const rows=[...(LP.itens||[])].sort((a,b)=>{const na=a.comissao<0,nb=b.comissao<0;if(na!==nb)return na?1:-1;if(ord(a)!==ord(b))return ord(a)-ord(b);return b.comissao-a.comissao;});
+  const gname=it=>it.comissao<0?"Estornos / cancelamentos":lpSit(it)==="fluxo"?"Já no fluxo (pré-marcados)":lpSit(it)==="carteira"?"Candidatos — na sua carteira":"Candidatos — fora da carteira";
+  let cur=null,html="";
+  rows.forEach(it=>{if(q&&!(it.segurado||"").toUpperCase().includes(q))return;const g=gname(it);if(g!==cur){cur=g;html+=`<tr class="lp-grp"><td colspan="8">${esc(g)}</td></tr>`;}
+    const on=!!LP.sel[it.apolice],r=lpCalc(it.comissao),sit=lpSit(it),neg=it.comissao<0?" lp-neg":"";
+    html+=`<tr${on?"":' class="lp-off"'}><td><input type="checkbox" ${on?"checked":""} onchange="lpToggle('${it.apolice}',this.checked)"></td><td>${esc(it.segurado)}</td><td><span class="chip">${esc(it.apolice)}</span></td><td><span class="chip lp-${sit==="carteira"?"cart":sit}">${sit==="fluxo"?"no fluxo":sit==="carteira"?"na carteira":"fora"}</span></td><td class="num${neg}">${fmtBRL(it.comissao)}</td><td class="num${neg}">${fmtBRL(r.div)}</td><td class="num">${fmtBRL(r.imp)}</td><td class="num${neg}">${fmtBRL(r.liq)}</td></tr>`;});
+  tb.innerHTML=html||`<tr><td colspan="8"><div class="empty">Nada bateu com a busca.</div></td></tr>`;
+  const t=lpTotals(),set=(id,v)=>{const x=document.getElementById(id);if(x)x.textContent=v;};
+  set("lpKSel",t.n);set("lpKCom",fmtBRL(t.com));set("lpKDiv",fmtBRL(t.div));set("lpKImp",fmtBRL(t.imp));set("lpKLiq",fmtBRL(t.liq));
+  const fd=document.getElementById("lpFDiv"),fi=document.getElementById("lpFImp");if(fd)fd.textContent=LP.pdiv+"%";if(fi)fi.textContent=LP.pimp+"%";}
+function lpRender(){const hist=(LP.meses||[]).map(m=>`<tr><td>${esc(m.mes_label||m.competencia)}</td><td>${fmtDate(m.periodo_ini)} → ${fmtDate(m.periodo_fim)}</td><td class="num">${fmtBRL(m.base)}</td><td class="num in">${fmtBRL(m.liquido)}</td><td><span class="pill ${m.status}">${esc(m.status)}</span>${m.recebido_em?` <span class="chip">${fmtDate(m.recebido_em)}</span>`:""}</td><td style="white-space:nowrap"><button class="btn ghost sm" onclick="lpVerMes('${m.competencia}')">Editar</button>${m.status==="aberto"?` <button class="btn ghost sm" onclick="lpMarcarRecebido('${m.competencia}')">Recebido ✓</button>`:""}</td></tr>`).join("");
+  const editor=LP.itens?`
+  <div class="panel"><div class="row" style="margin-bottom:10px"><div><h2 style="margin:0">Extrato ${esc((LP.per?.mes||"").split(" ")[0]||"")}</h2><div class="sub">Compensatório: <b>${esc(LP.per?.ini||"?")} → ${esc(LP.per?.fim||"?")}</b> · ${(LP.itens||[]).length} clientes · líquido = comissão × <b id="lpFDiv">${LP.pdiv}%</b> × (1 − <b id="lpFImp">${LP.pimp}%</b>)</div></div><button class="btn ghost sm" onclick="lpNovo()">Trocar extrato</button></div>
+    <div class="controls" style="margin-bottom:10px"><div class="fld"><label class="sub" style="margin:0">% Divisão</label><input type="number" min="0" max="100" step="1" value="${LP.pdiv}" oninput="LP.pdiv=+this.value||0;lpRenderTable()" style="width:80px"></div><div class="fld"><label class="sub" style="margin:0">% Imposto (Simples)</label><input type="number" min="0" max="100" step="0.1" value="${LP.pimp}" oninput="LP.pimp=+this.value||0;lpRenderTable()" style="width:80px"></div><div class="fld" style="flex:1"><label class="sub" style="margin:0">Buscar segurado</label><input placeholder="Buscar..." value="${esc(LP.q)}" oninput="LP.q=this.value;lpRenderTable()"></div></div>
+    <div class="kpis" style="margin-bottom:12px"><div class="kpi"><div class="lbl">Selecionados</div><div class="val" id="lpKSel">0</div></div><div class="kpi"><div class="lbl">Comissão (base)</div><div class="val" id="lpKCom">R$ 0</div></div><div class="kpi"><div class="lbl">Divisão</div><div class="val" id="lpKDiv">R$ 0</div></div><div class="kpi"><div class="lbl">Imposto</div><div class="val" id="lpKImp">R$ 0</div></div><div class="kpi"><div class="lbl">Líquido a receber</div><div class="val in" id="lpKLiq">R$ 0</div></div></div>
+    <div class="controls" style="margin-bottom:8px"><button class="btn ghost sm" onclick="lpSelAll(true)">Marcar todos da carteira</button><button class="btn ghost sm" onclick="lpSelFluxo()">Só os do fluxo</button><button class="btn ghost sm" onclick="lpSelAll(false)">Limpar</button></div>
+    <table><thead><tr><th style="width:34px"></th><th>Segurado</th><th>Apólice</th><th>Situação</th><th class="num">Comissão</th><th class="num">Divisão</th><th class="num">Imposto</th><th class="num">Líquido</th></tr></thead><tbody id="lpTb"></tbody></table>
+    <div class="controls" style="margin-top:12px;align-items:flex-end"><div class="fld"><label class="sub" style="margin:0">Vencimento (a receber)</label><input type="date" id="lpVenc" value="${lpISO(LP.per?.fim)||todayISO()}"></div><div class="fld"><label class="sub" style="margin:0">Conta destino</label><select id="lpConta">${bancoOpts().map(o=>`<option>${esc(o)}</option>`).join("")}</select></div><button class="btn" onclick="lpSalvarMes()">Salvar mês + lançar A Receber</button></div>
+    <div class="sub" style="margin-top:8px">Quem você marcar continua <b>no fluxo</b> nos próximos meses (persistido na carteira). Estornos negativos marcados abatem do total.</div>
+  </div>`:`
+  <div class="panel"><h2 style="margin:0 0 6px">Novo mês</h2><div class="sub" style="margin-bottom:10px">Anexe o extrato de comissão completo do Daniel (o .xls que a seguradora exporta). Eu agrego por apólice, cruzo com a sua carteira (${LP.cart.length} apólices) e pré-marco quem já está no fluxo.</div><input type="file" accept=".xls,.html,.htm" onchange="lpFile(event)"></div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Comissões LP</h1><div class="sub">Divisão de comissão do Life Planner (Daniel) — ${LP.pdiv}% dos clientes repassados, menos imposto · corte dia 20</div></div></div>
+  ${LP.err?`<div class="panel"><div class="empty">⚠ ${esc(LP.err)}</div></div>`:""}
+  <div class="panel"><h2 style="margin:0 0 8px">Meses fechados</h2><table><thead><tr><th>Mês</th><th>Período</th><th class="num">Base</th><th class="num">Líquido</th><th>Status</th><th></th></tr></thead><tbody>${hist||`<tr><td colspan="6"><div class="empty">Nenhum mês fechado ainda.</div></td></tr>`}</tbody></table></div>
+  ${editor}`;
+  lpRenderTable();}
+async function viewComissoesLP(){$("#view").innerHTML=`<div class="row"><div><h1>Comissões LP</h1><div class="sub">Carregando…</div></div></div>`;await lpLoad();lpRender();}
+async function lpSalvarMes(){const t=lpTotals();if(!LP.itens||!LP.itens.length){toast("Carregue um extrato primeiro");return;}
+  const comp=(lpISO(LP.per?.fim)||todayISO()).slice(0,7),label=(LP.per?.mes||"").split(" ")[0]||comp,venc=document.getElementById("lpVenc")?.value||lpISO(LP.per?.fim),conta=document.getElementById("lpConta")?.value||"",liq=Math.round(t.liq*100)/100,base=Math.round(t.com*100)/100,desc=`Comissão LP Daniel · ${label}`;
+  try{
+    if(MODE==="live"){
+      const exist=(LP.meses||[]).find(m=>m.competencia===comp);let pid=exist?.previsto_id||null;
+      if(pid){try{await sbUpd("previstos",pid,{descricao:desc,valor:liq,vencimento:venc||null,conta_id:contaId(conta)});}catch(e){pid=null;}}
+      if(!pid)pid=await sbIns("previstos",{descricao:desc,valor:liq,vencimento:venc||null,tipo:"receber",status:"aberto",visao:VISAO,conta_id:contaId(conta)});
+      const up=await sb.from("lp_comissao_meses").upsert({competencia:comp,mes_label:label,periodo_ini:lpISO(LP.per?.ini)||null,periodo_fim:lpISO(LP.per?.fim)||null,pct_div:LP.pdiv,pct_imp:LP.pimp,base,liquido:liq,previsto_id:pid},{onConflict:"competencia"});if(up.error)throw new Error(up.error.message);
+      const del=await sb.from("lp_comissao_itens").delete().eq("competencia",comp);if(del.error)throw new Error(del.error.message);
+      const rows=LP.itens.map(it=>({competencia:comp,apolice:it.apolice,segurado:it.segurado,comissao:it.comissao,linhas:it.linhas||0,situacao:lpSit(it),selecionado:!!LP.sel[it.apolice]}));
+      for(let i=0;i<rows.length;i+=200){const ins=await sb.from("lp_comissao_itens").insert(rows.slice(i,i+200));if(ins.error)throw new Error(ins.error.message);}
+      for(const it of LP.itens){const k=LP.cart.find(c=>c.apolice===it.apolice),on=!!LP.sel[it.apolice];
+        if(k){if(!!k.no_fluxo!==on){const u=await sb.from("lp_carteira").update({no_fluxo:on}).eq("apolice",it.apolice);if(!u.error)k.no_fluxo=on;}}
+        else if(on){const n=await sb.from("lp_carteira").insert({apolice:it.apolice,segurado:it.segurado,no_fluxo:true});if(!n.error)LP.cart.push({apolice:it.apolice,segurado:it.segurado,no_fluxo:true,ativo:true});}}
+    }else{
+      const exist=(LP.meses||[]).findIndex(m=>m.competencia===comp),row={competencia:comp,mes_label:label,periodo_ini:lpISO(LP.per?.ini),periodo_fim:lpISO(LP.per?.fim),pct_div:LP.pdiv,pct_imp:LP.pimp,base,liquido:liq,status:exist>=0?LP.meses[exist].status:"aberto"};
+      if(exist>=0)LP.meses[exist]={...LP.meses[exist],...row};else LP.meses.unshift(row);
+      LP._demoItens[comp]=LP.itens.map(it=>({...it,situacao:lpSit(it),selecionado:!!LP.sel[it.apolice]}));
+      LP.itens.forEach(it=>{const k=LP.cart.find(c=>c.apolice===it.apolice),on=!!LP.sel[it.apolice];if(k)k.no_fluxo=on;else if(on)LP.cart.push({apolice:it.apolice,segurado:it.segurado,no_fluxo:true,ativo:true});});
+      DB.aReceber.push({_row:"r"+Date.now(),linha:desc,dataPrevista:venc,previstoLiquido:liq,conta,status:"aberto",recorrencia:""});
+    }
+    toast(`Mês ${label} salvo · ${fmtBRL(liq)} lançado em A Receber`);LP.itens=null;LP.per=null;LP.sel={};if(MODE==="live"){DB=await loadData();await lpLoad();}lpRender();
+  }catch(e){toast("Erro ao salvar: "+e.message);}}
+async function lpVerMes(comp){const m=(LP.meses||[]).find(x=>x.competencia===comp);if(!m)return;
+  let its=[];if(MODE==="live"){const r=await sb.from("lp_comissao_itens").select("*").eq("competencia",comp);if(r.error){toast("Erro: "+r.error.message);return;}its=r.data||[];}else its=LP._demoItens[comp]||[];
+  LP.itens=its.map(x=>({apolice:x.apolice,segurado:x.segurado,comissao:Number(x.comissao||0),linhas:x.linhas||0}));
+  LP.per={ini:fmtDate(m.periodo_ini),fim:fmtDate(m.periodo_fim),mes:(m.mes_label||comp)+" (Mensal)"};LP.pdiv=Number(m.pct_div||50);LP.pimp=Number(m.pct_imp||6);LP.q="";LP.sel={};its.forEach(x=>LP.sel[x.apolice]=!!x.selecionado);lpRender();}
+async function lpMarcarRecebido(comp){const m=(LP.meses||[]).find(x=>x.competencia===comp);if(!m)return;
+  modal({title:"Marcar recebido",extraHTML:`<div class="sub">Confirmar recebimento de <b>${fmtBRL(m.liquido)}</b> (${esc(m.mes_label||comp)}) do Daniel?</div>`,saveLabel:"Recebido ✓",onSave:async()=>{const hoje=todayISO();
+    if(MODE==="live"){const u=await sb.from("lp_comissao_meses").update({status:"recebido",recebido_em:hoje}).eq("competencia",comp);if(u.error)throw new Error(u.error.message);if(m.previsto_id){try{await sbUpd("previstos",m.previsto_id,{status:"recebido"});}catch(e){}}DB=await loadData();await lpLoad();}
+    else{m.status="recebido";m.recebido_em=hoje;const p=DB.aReceber.find(x=>x.linha===`Comissão LP Daniel · ${m.mes_label}`);if(p)p.status="recebido";}
+    toast("Recebido ✓");lpRender();}});}
 
 /* ===== Cartões (lê dos movimentos lançados nas contas tipo cartão) ===== */
 const cardContas=()=>(DB.contas||[]).filter(c=>c.tipo==="cartao"||/cart/i.test(c.nome));
@@ -829,7 +923,7 @@ function viewCentral(){const c=CENTRAL||_finalizeCentral(_emptyPer());
   <div style="font-size:13px;color:var(--muted);margin:6px 2px 0">Escolha uma visão para abrir o detalhe.</div>
   ${grupos}`;
 }
-const ROUTES={central:viewCentral,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,pagar:viewPagar,receber:viewReceber,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,pagar:viewPagar,receber:viewReceber,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a){route(a.dataset.route);closeDrawer();}});
 /* ===== Drawer mobile (sidebar off-canvas) ===== */
 function openDrawer(){document.getElementById("sideNav").classList.add("open");document.getElementById("sideOv").classList.add("show");}

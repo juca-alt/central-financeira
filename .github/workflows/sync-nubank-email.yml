@@ -1,0 +1,44 @@
+name: Sync Nubank (extrato por e-mail) → Supabase
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "DRY_RUN (true = só simula, false = grava)"
+        required: false
+        default: "true"
+      sync_days:
+        description: "Janela de busca no Gmail (dias pra trás)"
+        required: false
+        default: "45"
+  # Piloto automático: DESLIGADO até validar (sem os secrets GMAIL_* o run falha e
+  # gera e-mail de erro). Quando cadastrar os secrets e rodar o workflow_dispatch com
+  # dry_run=false com sucesso, DESCOMENTE o bloco abaixo pra ligar o cron diário.
+  # O Nubank só manda o OFX quando você gera o extrato no app — o cron só recolhe
+  # o que já estiver na caixa; a dedup por hash evita duplicar em runs repetidos.
+  # schedule:
+  #   - cron: "20 9 * * *"   # 09:20 UTC = 06:20 BRT
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Rodar sync Nubank (e-mail)
+        env:
+          # --- Secrets (cadastre no GitHub) ---
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          NUBANK_CONTA_ID: ${{ secrets.NUBANK_CONTA_ID }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OWNER_USER_ID: ${{ secrets.OWNER_USER_ID }}
+          # --- Config não-sigilosa (fixa, igual aos outros syncs) ---
+          SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
+          NUBANK_VISAO: FAMILIA
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          SYNC_DAYS: ${{ github.event.inputs.sync_days || '45' }}
+        run: node scripts/sync-nubank-email.mjs

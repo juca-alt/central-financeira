@@ -150,3 +150,11 @@
     box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:13.5px;font-weight:600;transition:transform .3s ease;opacity:.98}
   #updBanner.show{transform:translateX(-50%) translateY(0)}
   #updBanner button{background:var(--primary);color:#fff;border:0;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer}
+
+  /* ===== Comissões LP (PIPEX) ===== */
+  tr.lp-grp td{background:#f1f5f9;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:6px 10px}
+  tr.lp-off{opacity:.45}
+  .lp-neg{color:var(--expense)}
+  .chip.lp-fluxo{background:#ccfbf1;color:#0f766e}
+  .chip.lp-cart{background:#fef3c7;color:#92400e}
+  .chip.lp-fora{background:#eef0f3;color:#6b7280}

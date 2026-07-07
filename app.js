@@ -521,15 +521,19 @@ async function delPrev(coll,row){if(MODE==="live"){try{await sbDel("previstos",r
    líquido em `previstos` (tipo=receber, conciliável como qualquer previsto).
    Carteira + fluxo recorrente persistem em lp_carteira (scripts/lp_comissao.sql).
    Fórmula: líquido = comissão × %divisão × (1 − %imposto). */
-let LP={cart:[],meses:[],itens:null,per:null,sel:{},q:"",pdiv:50,pimp:6,err:null,_demoItens:{}};
+let LP={cart:[],meses:[],itens:null,per:null,sel:{},q:"",qc:"",tab:"meses",pdiv:50,pimp:6,pover:20,fyc:{},fycComp:"",err:null,_demoItens:{}};
 const lpNum=s=>{s=String(s??"").trim();if(!s)return NaN;s=s.replace(/\./g,"").replace(",",".");const v=parseFloat(s);return isNaN(v)?NaN:v;};   // números BR do extrato (1.234,56)
 const lpISO=s=>{const m=String(s||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);return m?`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`:String(s||"").slice(0,10);};
 const lpCalc=c=>{const div=c*LP.pdiv/100,imp=div*LP.pimp/100;return{div,imp,liq:div-imp};};
 const lpSit=it=>{const k=LP.cart.find(c=>c.apolice===it.apolice);return k?(k.no_fluxo?"fluxo":"carteira"):"fora";};
-async function lpLoad(){if(MODE!=="live"){if(!LP.cart.length)LP.cart=[{apolice:"2100001",segurado:"CLIENTE DEMO UM",no_fluxo:true,ativo:true},{apolice:"2100002",segurado:"CLIENTE DEMO DOIS",no_fluxo:false,ativo:true}];LP.err=null;return true;}
+async function lpLoad(){if(MODE!=="live"){if(!LP.cart.length)LP.cart=[{apolice:"2100001",segurado:"CLIENTE DEMO UM",no_fluxo:true,acordo:true,status:"Ativa",premio:318.5,periodicidade:"Mensal",ativo:true},{apolice:"2100002",segurado:"CLIENTE DEMO DOIS",no_fluxo:false,acordo:false,status:"Ativa",premio:447.68,periodicidade:"Mensal",ativo:true}];if((LP.meses||[]).length){LP.fycComp=LP.meses[0].mes_label;LP.fyc={};(LP._demoItens[LP.meses[0].competencia]||[]).forEach(x=>LP.fyc[x.apolice]=Number(x.comissao||0));}LP.err=null;return true;}
   const[ca,ms]=await Promise.all([sb.from("lp_carteira").select("*").order("segurado"),sb.from("lp_comissao_meses").select("*").order("competencia",{ascending:false})]);
   if(ca.error||ms.error){const e=(ca.error||ms.error).message;LP.err=/does not exist|relation|schema cache/i.test(e)?"Tabelas lp_* ainda não existem — rode scripts/lp_comissao.sql no SQL Editor do Supabase.":e;return false;}
-  LP.cart=ca.data||[];LP.meses=ms.data||[];LP.err=null;return true;}
+  LP.cart=ca.data||[];LP.meses=ms.data||[];LP.err=null;
+  /* FYC por apólice do último mês fechado — base do override MFB e da previsão do acordo */
+  LP.fyc={};LP.fycComp="";
+  if(LP.meses.length){const it=await sb.from("lp_comissao_itens").select("apolice,comissao").eq("competencia",LP.meses[0].competencia);if(!it.error){LP.fycComp=LP.meses[0].mes_label||LP.meses[0].competencia;(it.data||[]).forEach(x=>LP.fyc[x.apolice]=Number(x.comissao||0));}}
+  return true;}
 function lpParseExtrato(text){const doc=new DOMParser().parseFromString(text,"text/html");const agg={};let per=null;
   [...doc.querySelectorAll("tr")].forEach(tr=>{const td=[...tr.querySelectorAll("td")];if(td.length<20)return;const cell=i=>(td[i]?.textContent||"").trim();
     const ap=cell(7).replace(/\D/g,"");if(!ap)return;const com=lpNum(cell(19));if(isNaN(com))return;
@@ -557,7 +561,13 @@ function lpRenderTable(){const tb=document.getElementById("lpTb");if(!tb)return;
   const t=lpTotals(),set=(id,v)=>{const x=document.getElementById(id);if(x)x.textContent=v;};
   set("lpKSel",t.n);set("lpKCom",fmtBRL(t.com));set("lpKDiv",fmtBRL(t.div));set("lpKImp",fmtBRL(t.imp));set("lpKLiq",fmtBRL(t.liq));
   const fd=document.getElementById("lpFDiv"),fi=document.getElementById("lpFImp");if(fd)fd.textContent=LP.pdiv+"%";if(fi)fi.textContent=LP.pimp+"%";}
-function lpRender(){const hist=(LP.meses||[]).map(m=>`<tr><td>${esc(m.mes_label||m.competencia)}</td><td>${fmtDate(m.periodo_ini)} → ${fmtDate(m.periodo_fim)}</td><td class="num">${fmtBRL(m.base)}</td><td class="num in">${fmtBRL(m.liquido)}</td><td><span class="pill ${m.status}">${esc(m.status)}</span>${m.recebido_em?` <span class="chip">${fmtDate(m.recebido_em)}</span>`:""}</td><td style="white-space:nowrap"><button class="btn ghost sm" onclick="lpVerMes('${m.competencia}')">Editar</button>${m.status==="aberto"?` <button class="btn ghost sm" onclick="lpMarcarRecebido('${m.competencia}')">Recebido ✓</button>`:""}</td></tr>`).join("");
+function lpRender(){const tab=(id,lab)=>`<button class="btn ${LP.tab===id?"":"ghost"} sm" onclick="lpTabSet('${id}')">${lab}</button>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Comissões LP</h1><div class="sub">Life Planner Daniel · acordo Pipe X (${LP.pdiv}% − ${LP.pimp}% imp.) · override MFB (${LP.pover}% s/ FYC)</div></div></div>
+  ${LP.err?`<div class="panel"><div class="empty">⚠ ${esc(LP.err)}</div></div>`:""}
+  <div class="controls" style="margin-bottom:12px">${tab("meses","📅 Meses / fechamento")}${tab("carteira","👥 Carteira de clientes")}</div><div id="lpBody"></div>`;
+  if(LP.tab==="carteira")lpRenderCarteira();else lpRenderMeses();}
+function lpTabSet(t){LP.tab=t;lpRender();}
+function lpRenderMeses(){const hist=(LP.meses||[]).map(m=>`<tr><td>${esc(m.mes_label||m.competencia)}</td><td>${fmtDate(m.periodo_ini)} → ${fmtDate(m.periodo_fim)}</td><td class="num">${fmtBRL(m.base)}</td><td class="num in">${fmtBRL(m.liquido)}</td><td><span class="pill ${m.status}">${esc(m.status)}</span>${m.recebido_em?` <span class="chip">${fmtDate(m.recebido_em)}</span>`:""}</td><td style="white-space:nowrap"><button class="btn ghost sm" onclick="lpVerMes('${m.competencia}')">Editar</button>${m.status==="aberto"?` <button class="btn ghost sm" onclick="lpMarcarRecebido('${m.competencia}')">Recebido ✓</button>`:""}</td></tr>`).join("");
   const editor=LP.itens?`
   <div class="panel"><div class="row" style="margin-bottom:10px"><div><h2 style="margin:0">Extrato ${esc((LP.per?.mes||"").split(" ")[0]||"")}</h2><div class="sub">Compensatório: <b>${esc(LP.per?.ini||"?")} → ${esc(LP.per?.fim||"?")}</b> · ${(LP.itens||[]).length} clientes · líquido = comissão × <b id="lpFDiv">${LP.pdiv}%</b> × (1 − <b id="lpFImp">${LP.pimp}%</b>)</div></div><button class="btn ghost sm" onclick="lpNovo()">Trocar extrato</button></div>
     <div class="controls" style="margin-bottom:10px"><div class="fld"><label class="sub" style="margin:0">% Divisão</label><input type="number" min="0" max="100" step="1" value="${LP.pdiv}" oninput="LP.pdiv=+this.value||0;lpRenderTable()" style="width:80px"></div><div class="fld"><label class="sub" style="margin:0">% Imposto (Simples)</label><input type="number" min="0" max="100" step="0.1" value="${LP.pimp}" oninput="LP.pimp=+this.value||0;lpRenderTable()" style="width:80px"></div><div class="fld" style="flex:1"><label class="sub" style="margin:0">Buscar segurado</label><input placeholder="Buscar..." value="${esc(LP.q)}" oninput="LP.q=this.value;lpRenderTable()"></div></div>
@@ -568,11 +578,42 @@ function lpRender(){const hist=(LP.meses||[]).map(m=>`<tr><td>${esc(m.mes_label|
     <div class="sub" style="margin-top:8px">Quem você marcar continua <b>no fluxo</b> nos próximos meses (persistido na carteira). Estornos negativos marcados abatem do total.</div>
   </div>`:`
   <div class="panel"><h2 style="margin:0 0 6px">Novo mês</h2><div class="sub" style="margin-bottom:10px">Anexe o extrato de comissão completo do Daniel (o .xls que a seguradora exporta). Eu agrego por apólice, cruzo com a sua carteira (${LP.cart.length} apólices) e pré-marco quem já está no fluxo.</div><input type="file" accept=".xls,.html,.htm" onchange="lpFile(event)"></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Comissões LP</h1><div class="sub">Divisão de comissão do Life Planner (Daniel) — ${LP.pdiv}% dos clientes repassados, menos imposto · corte dia 20</div></div></div>
-  ${LP.err?`<div class="panel"><div class="empty">⚠ ${esc(LP.err)}</div></div>`:""}
-  <div class="panel"><h2 style="margin:0 0 8px">Meses fechados</h2><table><thead><tr><th>Mês</th><th>Período</th><th class="num">Base</th><th class="num">Líquido</th><th>Status</th><th></th></tr></thead><tbody>${hist||`<tr><td colspan="6"><div class="empty">Nenhum mês fechado ainda.</div></td></tr>`}</tbody></table></div>
+  document.getElementById("lpBody").innerHTML=`<div class="panel"><h2 style="margin:0 0 8px">Meses fechados</h2><table><thead><tr><th>Mês</th><th>Período</th><th class="num">Base</th><th class="num">Líquido</th><th>Status</th><th></th></tr></thead><tbody>${hist||`<tr><td colspan="6"><div class="empty">Nenhum mês fechado ainda.</div></td></tr>`}</tbody></table></div>
   ${editor}`;
   lpRenderTable();}
+/* --- aba Carteira: base das duas frentes (override MFB 20% s/ FYC + acordo Pipe X) --- */
+function lpFator(){return LP.pdiv/100*(1-LP.pimp/100);}
+function lpRenderCarteira(){const ativas=LP.cart.filter(c=>/ativa/i.test(c.status||""));
+  const premioMes=ativas.filter(c=>/mensal/i.test(c.periodicidade||"")).reduce((s,c)=>s+Number(c.premio||0),0);
+  const fycTot=Object.values(LP.fyc).reduce((s,v)=>s+v,0),over=fycTot*LP.pover/100;
+  const noAcordo=LP.cart.filter(c=>c.acordo),prev=noAcordo.reduce((s,c)=>s+(LP.fyc[c.apolice]||0),0)*lpFator();
+  const nCli=new Set(LP.cart.map(c=>c.segurado)).size;
+  document.getElementById("lpBody").innerHTML=`
+  <div class="kpis"><div class="kpi"><div class="lbl">Clientes / apólices</div><div class="val">${nCli} / ${LP.cart.length}</div><div class="hint">${ativas.length} apólices ativas</div></div>
+    <div class="kpi"><div class="lbl">Prêmio mensal (ativas)</div><div class="val">${fmtBRL(premioMes)}</div></div>
+    <div class="kpi"><div class="lbl">FYC ${esc(LP.fycComp||"último mês")}</div><div class="val">${fmtBRL(fycTot)}</div><div class="hint">comissão do Daniel no mês</div></div>
+    <div class="kpi"><div class="lbl">Override MFB (${LP.pover}%)</div><div class="val in" id="lpKOver">${fmtBRL(over)}</div><div class="hint">sua receita PJ estimada/mês</div></div>
+    <div class="kpi"><div class="lbl">No acordo Pipe X</div><div class="val">${noAcordo.length}</div><div class="hint">apólices marcadas</div></div>
+    <div class="kpi"><div class="lbl">Previsão Pipe X/mês</div><div class="val in" id="lpKPrev">${fmtBRL(prev)}</div><div class="hint">${LP.pdiv}% × (1−${LP.pimp}%) s/ FYC do acordo</div></div></div>
+  <div class="panel"><div class="controls" style="margin-bottom:10px"><div class="fld"><label class="sub" style="margin:0">% Override MFB</label><input type="number" min="0" max="100" step="1" value="${LP.pover}" oninput="LP.pover=+this.value||0;lpRenderCarteira()" style="width:80px"></div><div class="fld" style="flex:1"><label class="sub" style="margin:0">Buscar cliente</label><input placeholder="Buscar..." value="${esc(LP.qc)}" oninput="LP.qc=this.value;lpRenderCartTable()"></div><button class="btn" onclick="lpPrevRecorrente()">Lançar previsão recorrente (${fmtBRL(prev)}/mês)</button></div>
+  <table><thead><tr><th>Segurado</th><th>Apólice</th><th>Status</th><th class="num">Prêmio</th><th class="num">FYC ${esc(LP.fycComp||"—")}</th><th class="num">Override ${LP.pover}%</th><th style="text-align:center">Acordo Pipe X</th><th class="num">Prev. Pipe X</th></tr></thead><tbody id="lpCartTb"></tbody></table>
+  <div class="sub" style="margin-top:8px">O <b>override</b> incide sobre o FYC de toda a produção do Daniel (sua receita MFB, visão PJ). A coluna <b>Acordo Pipe X</b> marca os clientes do acordo comercial (${LP.pdiv}% − imposto) — só eles entram na previsão de receita do Pipe X. FYC vem do último mês fechado na aba Meses.</div></div>`;
+  lpRenderCartTable();}
+function lpRenderCartTable(){const tb=document.getElementById("lpCartTb");if(!tb)return;const q=(LP.qc||"").toUpperCase();
+  const rows=[...LP.cart].sort((a,b)=>(b.acordo?1:0)-(a.acordo?1:0)||(a.segurado||"").localeCompare(b.segurado||"")||String(a.apolice).localeCompare(String(b.apolice)));
+  tb.innerHTML=rows.filter(c=>!q||(c.segurado||"").toUpperCase().includes(q)).map(c=>{const fyc=LP.fyc[c.apolice],canc=c.status&&!/ativa/i.test(c.status);
+    return`<tr${c.acordo?"":' class="lp-off"'}><td>${esc(c.segurado)}${c.no_fluxo?' <span class="chip lp-fluxo">no fluxo</span>':""}</td><td><span class="chip">${esc(c.apolice)}</span></td><td><span class="chip${canc?" lp-fora":""}">${esc(c.status||"—")}</span></td><td class="num">${c.premio!=null?fmtBRL(c.premio)+(c.periodicidade?`<span class="sub"> /${esc(String(c.periodicidade).toLowerCase().slice(0,3))}</span>`:""):"—"}</td><td class="num${fyc<0?" lp-neg":""}">${fyc!=null?fmtBRL(fyc):"—"}</td><td class="num">${fyc!=null?fmtBRL(fyc*LP.pover/100):"—"}</td><td style="text-align:center"><input type="checkbox" ${c.acordo?"checked":""} onchange="lpAcordo('${esc(c.apolice)}',this.checked)"></td><td class="num in">${c.acordo&&fyc!=null?fmtBRL(fyc*lpFator()):"—"}</td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty">Carteira vazia — rode a carga (carga-lp-carteira.local.sql).</div></td></tr>`;}
+async function lpAcordo(ap,v){const k=LP.cart.find(c=>String(c.apolice)===String(ap));if(!k)return;
+  if(MODE==="live"){const u=await sb.from("lp_carteira").update({acordo:v}).eq("apolice",k.apolice);if(u.error){toast("Erro: "+u.error.message);return;}}
+  k.acordo=v;lpRenderCarteira();}
+async function lpPrevRecorrente(){const prev=Math.round(LP.cart.filter(c=>c.acordo).reduce((s,c)=>s+(LP.fyc[c.apolice]||0),0)*lpFator()*100)/100;
+  if(!(prev>0)){toast("Previsão zerada — marque clientes do acordo e feche um mês na aba Meses (base FYC)");return;}
+  const DESC="Previsão comissão LP (acordo)";
+  const d=new Date(),m=d.getMonth()+2,yy=d.getFullYear()+Math.floor((m-1)/12),mm=((m-1)%12)+1,prox=`${yy}-${String(mm).padStart(2,"0")}-20`;
+  modal({title:"Previsão recorrente de receita",extraHTML:`<div class="sub">Cria/atualiza <b>1 previsto mensal</b> em A Receber de <b>${fmtBRL(prev)}</b> (FYC ${esc(LP.fycComp||"?")} do acordo × ${LP.pdiv}% × (1−${LP.pimp}%)), vencendo todo dia 20 a partir de ${fmtDate(prox)}. Ele aparece no Fluxo de Caixa como projeção. Quando fechar o mês real na aba Meses, o lançamento real entra separado — ajuste ou exclua a previsão se necessário.</div>`,saveLabel:"Lançar previsão",onSave:async()=>{
+    const ex=(DB.aReceber||[]).find(p=>p.linha===DESC);
+    if(ex){if(MODE==="live")await sbUpd("previstos",ex._row,{valor:prev,vencimento:prox});ex.previstoLiquido=prev;ex.dataPrevista=prox;toast("Previsão atualizada: "+fmtBRL(prev)+"/mês");}
+    else{const o={_row:"r"+Date.now(),linha:DESC,dataPrevista:prox,previstoLiquido:prev,conta:"",status:"aberto",recorrencia:"mensal"};if(MODE==="live")o._row=await sbIns("previstos",{descricao:DESC,valor:prev,vencimento:prox,tipo:"receber",status:"aberto",visao:VISAO,recorrencia:"mensal"});DB.aReceber.push(o);toast("Previsão recorrente lançada: "+fmtBRL(prev)+"/mês");}}});}
 async function viewComissoesLP(){$("#view").innerHTML=`<div class="row"><div><h1>Comissões LP</h1><div class="sub">Carregando…</div></div></div>`;await lpLoad();lpRender();}
 async function lpSalvarMes(){const t=lpTotals();if(!LP.itens||!LP.itens.length){toast("Carregue um extrato primeiro");return;}
   const comp=(lpISO(LP.per?.fim)||todayISO()).slice(0,7),label=(LP.per?.mes||"").split(" ")[0]||comp,venc=document.getElementById("lpVenc")?.value||lpISO(LP.per?.fim),conta=document.getElementById("lpConta")?.value||"",liq=Math.round(t.liq*100)/100,base=Math.round(t.com*100)/100,desc=`Comissão LP Daniel · ${label}`;
@@ -595,7 +636,7 @@ async function lpSalvarMes(){const t=lpTotals();if(!LP.itens||!LP.itens.length){
       LP.itens.forEach(it=>{const k=LP.cart.find(c=>c.apolice===it.apolice),on=!!LP.sel[it.apolice];if(k)k.no_fluxo=on;else if(on)LP.cart.push({apolice:it.apolice,segurado:it.segurado,no_fluxo:true,ativo:true});});
       DB.aReceber.push({_row:"r"+Date.now(),linha:desc,dataPrevista:venc,previstoLiquido:liq,conta,status:"aberto",recorrencia:""});
     }
-    toast(`Mês ${label} salvo · ${fmtBRL(liq)} lançado em A Receber`);LP.itens=null;LP.per=null;LP.sel={};if(MODE==="live"){DB=await loadData();await lpLoad();}lpRender();
+    toast(`Mês ${label} salvo · ${fmtBRL(liq)} lançado em A Receber`);LP.itens=null;LP.per=null;LP.sel={};if(MODE==="live")DB=await loadData();await lpLoad();lpRender();
   }catch(e){toast("Erro ao salvar: "+e.message);}}
 async function lpVerMes(comp){const m=(LP.meses||[]).find(x=>x.competencia===comp);if(!m)return;
   let its=[];if(MODE==="live"){const r=await sb.from("lp_comissao_itens").select("*").eq("competencia",comp);if(r.error){toast("Erro: "+r.error.message);return;}its=r.data||[];}else its=LP._demoItens[comp]||[];

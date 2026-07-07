@@ -1,0 +1,29 @@
+name: Carga Comissões LP → Supabase
+
+# Carga one-shot dos dados de Comissões LP (carteira/meses/itens/previstos).
+# O payload (JSON gzip+base64) chega via input — dados de clientes NUNCA
+# entram no repo (que é público). Requer as tabelas lp_* criadas antes
+# (scripts/lp_comissao.sql + lp_carteira_v2.sql no SQL Editor).
+# Logs imprimem só contagens.
+
+on:
+  workflow_dispatch:
+    inputs:
+      payload_b64:
+        description: "Payload JSON (gzip+base64) gerado pelo assistente"
+        required: true
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Carregar dados
+        env:
+          SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PAYLOAD_B64: ${{ github.event.inputs.payload_b64 }}
+        run: node scripts/lp-load.mjs

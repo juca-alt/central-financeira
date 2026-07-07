@@ -42,7 +42,7 @@ create table if not exists public.lp_comissao_meses (
   liquido      numeric not null default 0,      -- base x div x (1 - imp)
   status       text not null default 'aberto',  -- aberto | recebido
   recebido_em  date,
-  previsto_id  bigint,                          -- FK logico -> previstos.id (lancamento a receber)
+  previsto_id  uuid,                            -- FK logico -> previstos.id (lancamento a receber)
   criado_em    timestamptz not null default now()
 );
 

@@ -1,0 +1,50 @@
+name: Ajustes Comissões LP (P2/P3/P4)
+
+# Ajustes pontuais nos dados de Comissões LP via Supabase REST (service_role):
+#   P2 revisa a seleção do mês fechado (segue o fluxo dos marcados)
+#   P3 marca meses como recebido
+#   P4 (re)lança a previsão recorrente sobre os marcados
+# Sem dados de cliente no repo; logs só com agregados. Ver scripts/lp-fix.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recebidos:
+        description: 'Competências a marcar recebido (P3), ex.: 2026-04'
+        required: false
+        default: ''
+      fechado:
+        description: 'Mês fechado a revisar/projetar (P2/P4), ex.: 2026-06'
+        required: false
+        default: '2026-06'
+      hoje:
+        description: 'Data p/ recebido_em (ISO)'
+        required: false
+        default: '2026-07-07'
+      prox:
+        description: 'Vencimento da previsão recorrente (ISO)'
+        required: false
+        default: '2026-08-20'
+      dry:
+        description: 'Dry-run (1 = só lê e loga o plano)'
+        required: false
+        default: '0'
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Aplicar ajustes
+        env:
+          SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RECEBIDOS: ${{ github.event.inputs.recebidos }}
+          FECHADO: ${{ github.event.inputs.fechado }}
+          HOJE: ${{ github.event.inputs.hoje }}
+          PROX: ${{ github.event.inputs.prox }}
+          DRY: ${{ github.event.inputs.dry }}
+        run: node scripts/lp-fix.mjs

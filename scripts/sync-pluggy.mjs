@@ -14,6 +14,13 @@
 // auto-sync gratuito dispara sozinho pós-trial — a gente força o refresh
 // (gratuito de qualquer jeito) e lê o resultado. Comportamento previsível.
 //
+// ROTA MEU PLUGGY (gratuita, uso pessoal — meu.pluggy.ai): os bancos são
+// conectados no Meu Pluggy e entram na aplicação via conector "MeuPluggy"
+// (1 item por banco). Esses itens se atualizam DIARIAMENTE sozinhos e
+// continuam funcionando após o fim do trial de 15 dias. Se o PATCH de
+// refresh for negado pós-trial, o sync NÃO aborta: segue e lê o dado
+// diário que já está lá. Guia completo: scripts/PLUGGY.md.
+//
 // Categorização: mesma lógica do app (regras_classificacao + glossario_termos),
 // só em lançamentos novos.
 //
@@ -177,7 +184,14 @@ async function main() {
     console.log(`\n=== ${c.banco} (${c.visao}) ===`);
     try {
       console.log('   refresh do item (PATCH /items)…');
-      const st = await refreshItem(c.item_id);
+      let st;
+      try {
+        st = await refreshItem(c.item_id);
+      } catch (e) {
+        // Itens MeuPluggy pós-trial podem negar o PATCH — o dado diário já
+        // está atualizado do lado deles, então segue lendo o que tem.
+        st = `sem refresh (${String(e.message).slice(0, 120)})`;
+      }
       console.log(`   status: ${st}`);
 
       const accs = await getAccounts(c.item_id);

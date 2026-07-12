@@ -15,10 +15,10 @@ on:
         description: "Quantos dias pra trás"
         required: false
         default: "90"
-  # Piloto automático: DESLIGADO até a Fase B (sem os secrets PLUGGY_* o run falha e
-  # gera e-mail de erro). Quando conectar os bancos e cadastrar os secrets, DESCOMENTE
-  # o bloco abaixo pra ligar o cron diário (06h40 BRT). Folgado no rate-limit Pluggy.
-  # O sync força PATCH /items, então o dado vem fresco — não depende do auto-sync da Pluggy.
+  # Piloto automático: DESLIGADO até cadastrar os secrets PLUGGY_* (sem eles o run
+  # falha e gera e-mail de erro). Rota gratuita Meu Pluggy: siga scripts/PLUGGY.md,
+  # cadastre os secrets e DESCOMENTE o bloco abaixo pra ligar o cron diário (06h40 BRT).
+  # O sync tenta PATCH /items (se negado pós-trial, lê o dado diário do MeuPluggy).
   # schedule:
   #   - cron: "40 9 * * *"   # 09:40 UTC = 06:40 BRT
 

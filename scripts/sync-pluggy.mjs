@@ -31,8 +31,14 @@
 //   DRY_RUN   (default 'true')  → true = só simula, não grava
 //   SYNC_DAYS (default 90)      → janela pra trás em dias
 //   DISCOVER  (default 'false') → true = só LISTA os accounts de cada item
-//                                 (id, nome, tipo, saldo) pra você mapear o
-//                                 conta_id em pluggy_conexoes. Não grava nada.
+//                                 (id, nome, tipo, saldo) + as contas do app,
+//                                 pra mapear o conta_id. Não grava nada.
+//   ITEM_IDS  → lista de item_id separados por vírgula. Com DISCOVER=true,
+//               dispensa a tabela pluggy_conexoes (útil ANTES do mapeamento:
+//               conectou no Meu Pluggy, copiou os item ids, descobre tudo).
+//   MAPPING   → JSON [{item_id,conta_id,visao,banco,account_id?},...]:
+//               upserta pluggy_conexoes e SAI (não sincroniza). Permite fazer
+//               o mapeamento pelo próprio workflow, sem SQL Editor.
 // =====================================================================
 
 const CLIENT_ID = process.env.PLUGGY_CLIENT_ID;
@@ -43,8 +49,11 @@ const OWNER = process.env.OWNER_USER_ID || null;
 const DRY_RUN = String(process.env.DRY_RUN ?? 'true') === 'true';
 const DISCOVER = String(process.env.DISCOVER ?? 'false') === 'true';
 const DAYS = Number(process.env.SYNC_DAYS || 90);
+const ITEM_IDS = (process.env.ITEM_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const MAPPING = (process.env.MAPPING || '').trim();
 
-if (!CLIENT_ID || !CLIENT_SECRET || !SUPABASE_URL || !SERVICE_KEY) {
+// MAPPING só fala com o Supabase; o resto precisa também das credenciais Pluggy.
+if (!SUPABASE_URL || !SERVICE_KEY || (!MAPPING && (!CLIENT_ID || !CLIENT_SECRET))) {
   console.error('Faltam variáveis: PLUGGY_CLIENT_ID/SECRET, SUPABASE_URL/SERVICE_KEY.');
   process.exit(1);
 }
@@ -143,6 +152,21 @@ function buildSuggester(regras, glossario) {
 }
 
 async function main() {
+  // ---- Modo MAPPING: upserta pluggy_conexoes e sai. ----
+  if (MAPPING) {
+    let rows;
+    try { rows = JSON.parse(MAPPING); } catch (e) { throw new Error(`MAPPING não é JSON válido: ${e.message}`); }
+    if (!Array.isArray(rows) || !rows.length) throw new Error('MAPPING precisa ser um array não-vazio.');
+    for (const r of rows) {
+      if (!r.item_id || !r.conta_id || !r.visao) throw new Error(`MAPPING: item_id, conta_id e visao são obrigatórios (${JSON.stringify(r)})`);
+    }
+    await sbSend('POST', '/rest/v1/pluggy_conexoes?on_conflict=item_id', rows,
+      'resolution=merge-duplicates,return=minimal');
+    console.log(`MAPPING: ${rows.length} conexão(ões) gravadas em pluggy_conexoes:`);
+    rows.forEach(r => console.log(`   ${r.banco || '?'} (${r.visao}) item ${r.item_id} → conta ${r.conta_id}${r.account_id ? ` [account ${r.account_id}]` : ''}`));
+    return;
+  }
+
   const end = new Date();
   const start = new Date(); start.setDate(start.getDate() - DAYS);
   const from = iso(start);
@@ -152,15 +176,32 @@ async function main() {
   await pluggyAuth();
 
   console.log('2) Conexões mapeadas (pluggy_conexoes)…');
-  const conexoes = await sbGet('/rest/v1/pluggy_conexoes?select=item_id,conta_id,visao,banco,account_id,ativo&ativo=eq.true');
-  if (!conexoes.length) { console.log('   Nenhuma conexão ativa. Conecte os bancos e cadastre em pluggy_conexoes.'); return; }
-  console.log(`   ${conexoes.length} conexão(ões): ${conexoes.map(c => `${c.banco}/${c.visao}`).join(', ')}`);
+  let conexoes;
+  if (DISCOVER && ITEM_IDS.length) {
+    // Itens avulsos (antes do mapeamento existir): descobre direto pelos ids.
+    conexoes = ITEM_IDS.map(id => ({ item_id: id, banco: '(sem mapeamento)', visao: '?' }));
+    console.log(`   usando ITEM_IDS avulsos: ${ITEM_IDS.length} item(ns)`);
+  } else {
+    conexoes = await sbGet('/rest/v1/pluggy_conexoes?select=item_id,conta_id,visao,banco,account_id,ativo&ativo=eq.true');
+    if (!conexoes.length) { console.log('   Nenhuma conexão ativa. Conecte os bancos e cadastre em pluggy_conexoes.'); return; }
+    console.log(`   ${conexoes.length} conexão(ões): ${conexoes.map(c => `${c.banco}/${c.visao}`).join(', ')}`);
+  }
 
-  // Modo DISCOVER: só lista os accounts de cada item pra você pegar o account_id e ver os saldos.
+  // Modo DISCOVER: lista os accounts de cada item + as contas do app, pra montar o mapeamento.
   if (DISCOVER) {
+    try {
+      const contas = await sbGet('/rest/v1/contas?select=id,nome,banco,tipo,visao,ativo&order=visao,nome');
+      console.log('\n--- Contas do app (use o id como conta_id no mapeamento) ---');
+      contas.forEach(ct => console.log(`   ${ct.id} | ${ct.visao} | ${ct.nome}${ct.banco ? ` (${ct.banco})` : ''}${ct.tipo ? ` [${ct.tipo}]` : ''}${ct.ativo === false ? ' [INATIVA]' : ''}`));
+    } catch (e) { console.log('   (falha ao listar contas do app: ' + e.message + ')'); }
+
     for (const c of conexoes) {
       console.log(`\n=== ${c.banco} (${c.visao}) item ${c.item_id} ===`);
       try {
+        try {
+          const it = await pg(`/items/${c.item_id}`);
+          console.log(`   conector: ${it?.connector?.name || '?'} | status: ${it?.status || '?'}`);
+        } catch (e) { console.log('   (item inacessível: ' + e.message + ')'); }
         const accs = await getAccounts(c.item_id);
         accs.forEach(a => console.log(`   account ${a.id} | ${a.type}/${a.subtype} | "${a.name}" | saldo R$ ${Number(a.balance ?? 0).toFixed(2)}`));
         if (!accs.length) console.log('   (sem accounts — item ainda não sincronizou? rode sem DISCOVER ou aguarde)');

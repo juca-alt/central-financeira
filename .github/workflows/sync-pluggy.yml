@@ -8,9 +8,17 @@ on:
         required: false
         default: "true"
       discover:
-        description: "DISCOVER (true = só lista accounts/saldos pra mapear conta_id)"
+        description: "DISCOVER (true = só lista accounts/saldos + contas do app pra mapear conta_id)"
         required: false
         default: "false"
+      item_ids:
+        description: "item_ids avulsos (vírgula) — com DISCOVER, dispensa pluggy_conexoes"
+        required: false
+        default: ""
+      mapping:
+        description: "MAPPING JSON [{item_id,conta_id,visao,banco}] — só grava pluggy_conexoes e sai"
+        required: false
+        default: ""
       sync_days:
         description: "Quantos dias pra trás"
         required: false
@@ -40,5 +48,7 @@ jobs:
           SUPABASE_URL: https://mieqsiojvfiqrhectquc.supabase.co
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           DISCOVER: ${{ github.event.inputs.discover || 'false' }}
+          ITEM_IDS: ${{ github.event.inputs.item_ids || '' }}
+          MAPPING: ${{ github.event.inputs.mapping || '' }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
         run: node scripts/sync-pluggy.mjs

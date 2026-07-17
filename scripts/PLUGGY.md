@@ -44,11 +44,13 @@ Duas opções — as duas geram os `item_id` que o sync usa:
 
 ### 4. Mapear no Supabase
 1. Rode `scripts/pluggy_conexoes.sql` uma vez no SQL Editor (cria a tabela).
-2. Insira os mapeamentos `item_id → conta_id + visao` (a pluggy-connect.html
-   gera o SQL pronto; falta só colar o `conta_id` da tabela `contas`).
-3. Se um item tiver mais de um account (ex.: corrente + cartão), rode o
-   workflow com `DISCOVER=true` para listar os `account_id` e fixe o certo na
-   coluna `account_id` de `pluggy_conexoes`.
+2. Rota automatizada (sem SQL de insert): rode o workflow com
+   `discover=true` + `item_ids=<ids separados por vírgula>` — o log lista o
+   conector/accounts/saldos de cada item E as contas do app. Depois rode o
+   workflow com `mapping=[{"item_id":"…","conta_id":"…","visao":"FAMILIA","banco":"Nubank"},…]`
+   que ele grava o de-para em `pluggy_conexoes` sozinho.
+3. Se um item tiver mais de um account (ex.: corrente + cartão), inclua o
+   `account_id` certo no objeto do mapping.
 
 ### 5. GitHub Actions — secrets e primeiro run
 1. Cadastre em Settings → Secrets and variables → Actions:

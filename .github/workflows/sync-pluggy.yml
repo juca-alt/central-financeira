@@ -23,6 +23,10 @@ on:
         description: "Quantos dias pra trás"
         required: false
         default: "90"
+      probe_days:
+        description: "PROBE (>0 = só lista movimentos recentes do app e sai)"
+        required: false
+        default: "0"
   # Piloto automático: DESLIGADO até cadastrar os secrets PLUGGY_* (sem eles o run
   # falha e gera e-mail de erro). Rota gratuita Meu Pluggy: siga scripts/PLUGGY.md,
   # cadastre os secrets e DESCOMENTE o bloco abaixo pra ligar o cron diário (06h40 BRT).
@@ -51,4 +55,5 @@ jobs:
           ITEM_IDS: ${{ github.event.inputs.item_ids || '' }}
           MAPPING: ${{ github.event.inputs.mapping || '' }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
+          PROBE_DAYS: ${{ github.event.inputs.probe_days || '0' }}
         run: node scripts/sync-pluggy.mjs

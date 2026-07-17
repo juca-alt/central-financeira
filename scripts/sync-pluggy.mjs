@@ -51,9 +51,10 @@ const DISCOVER = String(process.env.DISCOVER ?? 'false') === 'true';
 const DAYS = Number(process.env.SYNC_DAYS || 90);
 const ITEM_IDS = (process.env.ITEM_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const MAPPING = (process.env.MAPPING || '').trim();
+const PROBE_DAYS = Number(process.env.PROBE_DAYS || 0);   // >0: só lista movimentos recentes e sai
 
-// MAPPING só fala com o Supabase; o resto precisa também das credenciais Pluggy.
-if (!SUPABASE_URL || !SERVICE_KEY || (!MAPPING && (!CLIENT_ID || !CLIENT_SECRET))) {
+// MAPPING/PROBE só falam com o Supabase; o resto precisa também das credenciais Pluggy.
+if (!SUPABASE_URL || !SERVICE_KEY || (!MAPPING && !PROBE_DAYS && (!CLIENT_ID || !CLIENT_SECRET))) {
   console.error('Faltam variáveis: PLUGGY_CLIENT_ID/SECRET, SUPABASE_URL/SERVICE_KEY.');
   process.exit(1);
 }
@@ -166,6 +167,19 @@ function buildSuggester(regras, glossario) {
 }
 
 async function main() {
+  // ---- Modo PROBE: lista movimentos recentes por conta (read-only) e sai.
+  //      Serve pra conferir de onde cada transação já vem (evita duplicar
+  //      com os syncs OFX/Organizze ao ligar um item novo). ----
+  if (PROBE_DAYS > 0) {
+    const d = new Date(); d.setDate(d.getDate() - PROBE_DAYS);
+    const contas = await sbGet('/rest/v1/contas?select=id,nome,visao');
+    const nome = Object.fromEntries(contas.map(c => [c.id, `${c.nome} (${c.visao})`]));
+    const movs = await sbGet(`/rest/v1/movimentos?select=data,valor,sinal,descricao_limpa,conta_id,hash&data=gte.${iso(d)}&order=data.desc&limit=300`);
+    console.log(`PROBE: ${movs.length} movimentos desde ${iso(d)}:`);
+    movs.forEach(m => console.log(`   ${m.data} ${m.sinal > 0 ? '+' : '-'}${m.valor} | ${nome[m.conta_id] || m.conta_id} | ${String(m.hash || '').slice(0, 18)} | ${String(m.descricao_limpa || '').slice(0, 60)}`));
+    return;
+  }
+
   // ---- Modo MAPPING: upserta pluggy_conexoes e sai. ----
   if (MAPPING) {
     let rows;

@@ -104,12 +104,14 @@ async function getAccounts(itemId) {
 }
 
 /* Pagina transações (GET /v2/transactions, cursor `after`) na janela [from, hoje].
-   O /transactions v1 por página foi APOSENTADO (410 ENDPOINT_DEPRECATED). */
+   O /transactions v1 por página foi APOSENTADO (410 ENDPOINT_DEPRECATED).
+   Atenção aos params do v2: é dateFrom (não from) e NÃO existe pageSize
+   (páginas fixas de 500) — mandar os antigos dá 400 "should not exist". */
 async function getTransactions(accountId, from) {
   const out = [];
   let after = null;
   for (let page = 0; page < 100; page++) {      // trava dura: 100×500 = 50k
-    const qs = `accountId=${accountId}&from=${from}&pageSize=500` +
+    const qs = `accountId=${accountId}&dateFrom=${from}` +
       (after ? `&after=${encodeURIComponent(after)}` : '');
     const r = await pg(`/v2/transactions?${qs}`);
     out.push(...(r?.results || []));

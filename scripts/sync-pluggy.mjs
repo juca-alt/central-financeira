@@ -103,15 +103,27 @@ async function getAccounts(itemId) {
   return r?.results || [];
 }
 
-/* Pagina transações (páginas de 500) na janela [from, hoje]. */
+/* Pagina transações (GET /v2/transactions, cursor `after`) na janela [from, hoje].
+   O /transactions v1 por página foi APOSENTADO (410 ENDPOINT_DEPRECATED). */
 async function getTransactions(accountId, from) {
   const out = [];
-  let page = 1, totalPages = 1;
-  while (page <= totalPages && page <= 100) {   // trava dura: 100×500 = 50k
-    const r = await pg(`/transactions?accountId=${accountId}&from=${from}&page=${page}&pageSize=500`);
+  let after = null;
+  for (let page = 0; page < 100; page++) {      // trava dura: 100×500 = 50k
+    const qs = `accountId=${accountId}&from=${from}&pageSize=500` +
+      (after ? `&after=${encodeURIComponent(after)}` : '');
+    const r = await pg(`/v2/transactions?${qs}`);
     out.push(...(r?.results || []));
-    totalPages = Number(r?.totalPages || 1);
-    page += 1;
+    const next = r?.next;
+    if (!next) break;
+    // `next` pode vir como URL completa (cursor no param `after`) ou cursor puro.
+    if (typeof next === 'string' && next.includes('after=')) {
+      try { after = new URL(next, PLUGGY).searchParams.get('after'); } catch { after = null; }
+    } else if (typeof next === 'string') {
+      after = next;
+    } else if (next && typeof next === 'object') {
+      after = next.after || next.cursor || null;
+    } else after = null;
+    if (!after) break;
   }
   return out;
 }

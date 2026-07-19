@@ -176,6 +176,15 @@
     display:grid;place-items:center;font-size:14px;color:transparent;transition:.15s;padding:0}
   .ck:hover{border-color:var(--income);color:#cbd5e1}
   .ct-row.paid .ck{background:var(--income);border-color:var(--income);color:#fff}
+  /* ranking de barras (Movimentos · visão Pessoal) */
+  .mvb{padding:7px 6px;border-radius:9px;cursor:pointer}
+  .mvb:hover{background:var(--primary-soft)}
+  .mvb.on{background:var(--primary-soft);outline:1px solid #c7d2fe}
+  .mvb-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:4px}
+  .mvb-nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mvb-val{font-size:12.5px;font-weight:700}
+  .mvb-val i{font-style:normal;color:var(--muted);font-weight:600;font-size:11px;margin-left:2px}
+
   /* hero da home Pessoal */
   .fam-hero{background:#0b1220;color:#fff;border:0}
   .fam-hero .lbl{font-size:12px;color:#94a3b8}

@@ -284,11 +284,13 @@ function stepRec(iso,kind,dir){let[y,m,d]=iso.split("-").map(Number);
   if(kind==="q")return addDaysISO(iso,14*dir);
   if(kind==="y")return(y+dir)+"-"+pad2(m)+"-"+pad2(Math.min(d,daysInMonth(y+dir,m)));
   let nm=m+dir,ny=y;while(nm>12){nm-=12;ny++;}while(nm<1){nm+=12;ny--;}return ny+"-"+pad2(nm)+"-"+pad2(Math.min(d,daysInMonth(ny,nm)));}
-/* datas de ocorrência de um previsto dentro de [de,ate]; sem recorrência = a própria data se cair no período */
+/* datas de ocorrência de um previsto dentro de [de,ate]; sem recorrência = a própria data se cair no período.
+   A série COMEÇA NA ÂNCORA e só anda PRA FRENTE — nunca rebobina. Âncora = próxima ocorrência devida:
+   mover o vencimento de jul→ago (ex.: mensalidade negociada) tira julho da série de verdade. */
 function ocorrencias(base,rec,de,ate){base=(base||"").slice(0,10);if(!base)return[];const kind=recKind(rec);
   if(!kind)return(base>=de&&base<=ate)?[base]:[];
-  let cur=base,g=0;while(cur>de&&g++<600)cur=stepRec(cur,kind,-1);
-  const out=[];g=0;while(cur<=ate&&g++<600){if(cur>=de)out.push(cur);cur=stepRec(cur,kind,1);}return out;}
+  let cur=base,g=0;while(cur<de&&g++<600)cur=stepRec(cur,kind,1);
+  const out=[];g=0;while(cur<=ate&&g++<600){out.push(cur);cur=stepRec(cur,kind,1);}return out;}
 const isPrevAberto=st=>{st=(st||"").toLowerCase();return st!=="pago"&&st!=="recebido"&&st!=="cancelado";};
 /* saldo somado só das contas correntes da visão (cartões contam à parte) */
 function saldoCorrente(){const b=contaSaldos();let t=0;b.forEach((v,n)=>{if(!isCartaoConta(n))t+=v;});return t;}
@@ -596,7 +598,17 @@ function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)retur
     Object.assign(p,{descricao:d1,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:""});
     for(let i=1;i<N;i++){const venc=addMonthsDate(v.vencimento,i),desc=`${base} (${i+1}/${N})`,o={_row:"p"+Date.now()+i,descricao:desc,vencimento:venc,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"aberto",recorrencia:""};if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:venc||null,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});DB.contasPagar.push(o);}
     toast(`${N} parcelas geradas`);
-  }else{const rec=parcelado?"":v.recorrencia;if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}
+  }else{const rec=parcelado?"":v.recorrencia,kindPg=recKind(rec);
+    if(kindPg&&isPrevAberto(p.status)&&v.status==="pago"){
+      /* pagar RECORRENTE pelo modal não mata a série: esta linha vira instância PAGA
+         e nasce um template aberto na próxima ocorrência (mesmo modelo do ✓ das Contas do mês) */
+      const nx=stepRec((v.vencimento||todayISO()).slice(0,10),kindPg,1);
+      if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:"pago",recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+      Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"pago",recorrencia:""});
+      const o={_row:"p"+Date.now(),descricao:v.descricao,vencimento:nx,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"aberto",recorrencia:rec};
+      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+      DB.contasPagar.push(o);toast("Pago ✓ · próxima ocorrência criada pra "+fmtDate(nx));
+    }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}}
   await afterWrite();}});}
 function viewReceber(){const rows=DB.aReceber;$("#view").innerHTML=`<div class="row"><div><h1>A Receber</h1><div class="sub">${rows.length} previstos</div></div><button class="btn" onclick="addReceber()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Data prevista</th><th>Descrição</th><th>Conta</th><th class="num">Previsto</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editReceber('${p._row}')">${fmtDate(p.dataPrevista)}</td><td style="cursor:pointer" onclick="editReceber('${p._row}')">${esc(p.linha)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td>${esc(p.conta||"—")}</td><td class="num in">${fmtBRL(p.previstoLiquido)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status!=="recebido"?`<button class="btn ghost sm" onclick="conciliar('receber','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}</tbody></table></div>`;}
 function receberFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"dataPrevista",label:"Data prevista",type:"date"},{name:"valor",label:"Valor (R$)",type:"number"},{name:"conta",label:"Conta destino",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
@@ -614,7 +626,16 @@ function editReceber(row){const p=DB.aReceber.find(x=>x._row===row);if(!p)return
     Object.assign(p,{linha:d1,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:v.status,recorrencia:""});
     for(let i=1;i<N;i++){const dt=addMonthsDate(v.dataPrevista,i),desc=`${base} (${i+1}/${N})`,o={_row:"r"+Date.now()+i,linha:desc,dataPrevista:dt,previstoLiquido:valor,conta:v.conta,status:"aberto",recorrencia:""};if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:dt||null,tipo:"receber",status:"aberto",visao:VISAO,recorrencia:null,conta_id:contaId(v.conta)});DB.aReceber.push(o);}
     toast(`${N} parcelas geradas`);
-  }else{const rec=parcelado?"":v.recorrencia;if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.conta)});Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:v.status,recorrencia:rec});toast("Atualizado");}
+  }else{const rec=parcelado?"":v.recorrencia,kindRc=recKind(rec);
+    if(kindRc&&isPrevAberto(p.status)&&v.status==="recebido"){
+      /* mesmo guard do pagar: recorrente recebida vira instância + novo template na próxima ocorrência */
+      const nx=stepRec((v.dataPrevista||todayISO()).slice(0,10),kindRc,1);
+      if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:"recebido",recorrencia:null,conta_id:contaId(v.conta)});
+      Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:"recebido",recorrencia:""});
+      const o={_row:"r"+Date.now(),linha:v.descricao,dataPrevista:nx,previstoLiquido:valor,conta:v.conta,status:"aberto",recorrencia:rec};
+      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"receber",status:"aberto",visao:VISAO,recorrencia:rec,conta_id:contaId(v.conta)});
+      DB.aReceber.push(o);toast("Recebido ✓ · próxima ocorrência criada pra "+fmtDate(nx));
+    }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.conta)});Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:v.status,recorrencia:rec});toast("Atualizado");}}
   await afterWrite();}});}
 async function delPrev(coll,row){if(MODE==="live"){try{await sbDel("previstos",row);}catch(e){toast("Erro: "+e.message);return;}}DB[coll]=DB[coll].filter(x=>x._row!==row);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluído");await afterWrite();}
 
@@ -1374,5 +1395,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(parseAmount("R$ 1.234,56")!==1234.56)f.push("parseAmount");
   if(parseAmount("-50,00")!==-50)f.push("parseAmount negativo");
   if(uhash("abc")!==uhash("abc"))f.push("uhash não-determinístico");
+  if(ocorrencias("2026-08-03","mensal","2026-07-01","2026-07-31").length)f.push("ocorrencias RETROATIVA (série antes da âncora — bug da mensalidade jul→ago)");
+  if((ocorrencias("2026-06-05","mensal","2026-07-01","2026-07-31")[0]||"")!=="2026-07-05")f.push("ocorrencias forward (projeção mensal)");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

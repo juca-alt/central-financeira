@@ -27,12 +27,13 @@ on:
         description: "PROBE (>0 = só lista movimentos recentes do app e sai)"
         required: false
         default: "0"
-  # Piloto automático: DESLIGADO até cadastrar os secrets PLUGGY_* (sem eles o run
-  # falha e gera e-mail de erro). Rota gratuita Meu Pluggy: siga scripts/PLUGGY.md,
-  # cadastre os secrets e DESCOMENTE o bloco abaixo pra ligar o cron diário (06h40 BRT).
-  # O sync tenta PATCH /items (se negado pós-trial, lê o dado diário do MeuPluggy).
-  # schedule:
-  #   - cron: "40 9 * * *"   # 09:40 UTC = 06:40 BRT
+  # Piloto automático LIGADO: cron diário às 06h40 BRT. Secrets PLUGGY_* já
+  # cadastrados. O GitHub só dispara schedule a partir da branch DEFAULT (main),
+  # então este cron só passa a rodar sozinho depois que a branch for mergeada.
+  # O sync tenta PATCH /items (se negado pós-trial, lê o dado diário do MeuPluggy);
+  # janela padrão de 7 dias + dedup por hash = sem duplicata em reexecuções.
+  schedule:
+    - cron: "40 9 * * *"   # 09:40 UTC = 06:40 BRT
 
 jobs:
   sync:

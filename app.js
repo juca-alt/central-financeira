@@ -91,7 +91,7 @@ try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}
 /* recalcula os derivados da visão (sem recarregar dados) */
 function applyVisao(code){VISAO=code;CUR_PROFILE=PROFILES.find(p=>p.code===code)||{code,label:code,grupo:"Negócios",path:""};VISAO_LABEL=CUR_PROFILE.label;IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";IS_PESSOAL=CUR_PROFILE.grupo==="Pessoal";VFILTER=[VISAO,"AMBOS"];try{localStorage.setItem(VISAO_KEY,code);}catch(e){}try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}}
 /* troca a visão ativa: recarrega dados da visão e abre a Visão Geral dela */
-async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){try{DB=await loadData();}catch(e){toast("Erro ao trocar visão: "+e.message);}}SEL.clear();route("dashboard");closeDrawer();}
+async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){try{DB=await loadData();}catch(e){toast("Erro ao trocar visão: "+e.message);}}SEL.clear();MV_MES=undefined;route("dashboard");closeDrawer();}
 /* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
 function syncChrome(){
   const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
@@ -241,10 +241,13 @@ const $=s=>document.querySelector(s);
 const el=h=>{const d=document.createElement("div");d.innerHTML=h.trim();return d.firstElementChild;};
 const bancoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>c.ativo!==false).map(c=>c.nome),...DB.movimentos.map(m=>m.banco)].filter(Boolean))];
 const cartaoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>/cart/i.test(c.nome)||c.tipo==="cartao").map(c=>c.nome),...DB.cartoes.map(c=>c.cartao)].filter(Boolean))];
-function catOptsByTipo(tipo){const out=[""];DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo)).forEach(p=>{out.push(p.nome);DB.categorias.filter(s=>s.parent_id===p.id).forEach(s=>out.push(p.nome+" › "+s.nome));});out.push("__new");return out;}
+/* tops ORDENADOS (pt) e sem duplicata de nome dentro do mesmo tipo — a lista crua era caótica */
+function catTopsSorted(tipo){const seen=new Set();return DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo)).filter(c=>{const k=(c.tipo||"")+"|"+String(c.nome||"").trim().toLowerCase();if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));}
+const catSubsSorted=p=>DB.categorias.filter(s=>s.parent_id===p.id).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));
+function catOptsByTipo(tipo){const out=[""];catTopsSorted(tipo).forEach(p=>{out.push(p.nome);catSubsSorted(p).forEach(s=>out.push(p.nome+" › "+s.nome));});out.push("__new");return out;}
 const catOpts=()=>catOptsByTipo("").filter(o=>o!=="__new");
 /* grupos por tipo p/ optgroup (subcategorias aninhadas sob o pai) */
-function catGroupsByTipo(tipo){const tops=DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo));const withSubs=[],gerais=[];tops.forEach(p=>{const subs=DB.categorias.filter(s=>s.parent_id===p.id);if(subs.length)withSubs.push({parent:p.nome,items:[p.nome,...subs.map(s=>p.nome+" › "+s.nome)]});else gerais.push(p.nome);});return{withSubs,gerais};}
+function catGroupsByTipo(tipo){const withSubs=[],gerais=[];catTopsSorted(tipo).forEach(p=>{const subs=catSubsSorted(p);if(subs.length)withSubs.push({parent:p.nome,items:[p.nome,...subs.map(s=>p.nome+" › "+s.nome)]});else gerais.push(p.nome);});return{withSubs,gerais};}
 function modal({title,fields,values={},extraHTML="",onSave,saveLabel="Salvar"}){
   const fldHTML=(fields||[]).map(f=>{const v=values[f.name]??f.default??"";
     if(f.type==="select")return `<div class="fld"><label>${esc(f.label)}</label><select data-n="${f.name}">${(f.options||[]).map(o=>{const val=typeof o==="object"?o.v:o,lab=typeof o==="object"?o.l:o;return`<option value="${esc(val)}" ${String(val)===String(v)?"selected":""}>${esc(lab||"—")}</option>`;}).join("")}</select></div>`;
@@ -348,7 +351,7 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
         if(isEdit){await editMovSave(m._row,{data,descricao:desc,valor:val,sentido,banco:banco2,categoria:leafCat(cat)});toast("Atualizado");}else{await lancarMov({data,descricao:desc,valor:val,sentido,banco:banco2,categoria:leafCat(cat)});toast("Lançado");}}
       close();await afterWrite();}catch(e){toast("Erro: "+e.message);btn.disabled=false;}};
 }
-function promptCat(tipo){return new Promise(res=>{modal({title:"Nova categoria ("+(tipo==="entrada"?"entrada":"saída")+")",fields:[{name:"nome",label:"Nome"}],saveLabel:"Criar",onSave:async v=>{if(!v.nome){toast("Nome");return false;}let id="cat"+Date.now();if(MODE==="live")id=await sbIns("categorias",{nome:v.nome,tipo:tipo,visao:"AMBOS"});DB.categorias.push({id,nome:v.nome,tipo:tipo,parent_id:null});toast("Categoria criada");res(v.nome);}});});}
+function promptCat(tipo){return new Promise(res=>{modal({title:"Nova categoria ("+(tipo==="entrada"?"entrada":"saída")+")",fields:[{name:"nome",label:"Nome"}],saveLabel:"Criar",onSave:async v=>{if(!v.nome){toast("Nome");return false;}let id="cat"+Date.now();if(MODE==="live")id=await sbIns("categorias",{nome:v.nome,tipo:tipo,visao:VISAO});DB.categorias.push({id,nome:v.nome,tipo:tipo,parent_id:null});toast("Categoria criada");res(v.nome);}});});}
 async function lancarMov(o){const row={_row:"d"+Date.now()+Math.random().toString(36).slice(2,5),data:o.data,descricao:o.descricao,valor:o.valor,sentido:o.sentido,banco:o.banco,categoria:o.categoria,mes:+o.data.slice(5,7),ano:+o.data.slice(0,4)};if(MODE==="live")row._row=await sbIns("movimentos",{data:o.data,descricao_original:o.descricao,descricao_limpa:o.descricao,valor:o.valor,sinal:o.sentido==="Entrada"?1:-1,conta_id:contaId(o.banco),categoria_id:catId(o.categoria),visao:VISAO,hash:uhash(o.descricao+o.data+o.valor)});DB.movimentos.unshift(row);}
 async function editMovSave(row,o){const m=DB.movimentos.find(x=>x._row===row);if(MODE==="live")await sbUpd("movimentos",row,{data:o.data,descricao_original:o.descricao,descricao_limpa:o.descricao,valor:o.valor,sinal:o.sentido==="Entrada"?1:-1,conta_id:contaId(o.banco),categoria_id:catId(o.categoria)});if(m)Object.assign(m,{...o,mes:+o.data.slice(5,7),ano:+o.data.slice(0,4)});}
 function editMovimento(row){const m=DB.movimentos.find(x=>x._row===row);if(m)movimentoModal(m);}
@@ -482,23 +485,59 @@ function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.
 
 /* ===== Movimentos (multi-seleção + edição inline) ===== */
 function toggleSel(id){if(SEL.has(id))SEL.delete(id);else SEL.add(id);renderMovTable(true);}
-let _movRows=[],_movPieRows=[],_movChart=null;
+let _movRows=[],_movPieRows=[],_movChart=null,MV_MES;   // MV_MES: undefined=não iniciado · null=Tudo · "YYYY-MM"
 const isCartaoConta=n=>{const c=(DB.contas||[]).find(x=>x.nome===n);return c?c.tipo==="cartao":/cart/i.test(n||"");};
+function mvMes(n){MV_MES=MV_MES?addMonth(MV_MES,n):todayISO().slice(0,7);viewMovimentos();}
+function mvMesTudo(){MV_MES=MV_MES?null:todayISO().slice(0,7);viewMovimentos();}
 function viewMovimentos(){
-  $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">${DB.movimentos.length} lançamentos · toque em categoria/valor pra editar na própria linha · a pizza filtra por categoria</div></div>
+  if(MV_MES===undefined)MV_MES=IS_PESSOAL?todayISO().slice(0,7):null;   // Família abre no mês atual; Negócios mantém "Tudo"
+  const isMob=window.matchMedia&&window.matchMedia("(max-width:920px)").matches;
+  const vizPanel=IS_PESSOAL
+    ?`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro <span class="sub" id="barsHint" style="font-weight:400"></span></h2><div id="movBars"></div></div>`
+    :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="${isMob?220:100}"></canvas></div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">toque em categoria/valor pra editar na própria linha</div></div>
    <div style="display:flex;gap:8px"><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
-  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort().map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
-  ${window.matchMedia&&window.matchMedia("(max-width:920px)").matches
-    ?`<div id="movWrap"></div><div class="panel" style="margin-top:12px"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="220"></canvas></div>`
-    :`<div class="panel" style="margin-bottom:12px"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="100"></canvas></div><div id="movWrap"></div>`}`;
+  <div class="controls" style="align-items:center">
+    <button class="btn ghost sm" onclick="mvMes(-1)" aria-label="Mês anterior">‹</button>
+    <div style="font-weight:660;min-width:88px;text-align:center">${MV_MES?mkLabel(MV_MES):"Tudo"}</div>
+    <button class="btn ghost sm" onclick="mvMes(1)" aria-label="Próximo mês">›</button>
+    <button class="btn ${MV_MES?"ghost":""} sm" onclick="mvMesTudo()">${MV_MES?"Ver tudo":"Mês atual"}</button>
+    <span class="sub" id="movSum" style="margin-left:auto"></span>
+  </div>
+  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
+  ${isMob?`<div id="movWrap"></div>${vizPanel}`:`${vizPanel}<div id="movWrap"></div>`}`;
   window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value;
-    const base=DB.movimentos.filter(m=>(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco))));
+    const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco))));
     _movPieRows=base;
+    const ent=base.filter(m=>m.sentido==="Entrada"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0),sai=base.filter(m=>m.sentido==="Saída"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0);
+    const sum=$("#movSum");if(sum)sum.innerHTML=`<b class="in">+ ${fmtK(ent)}</b> · <b class="out">− ${fmtK(sai)}</b> · saldo <b class="${ent-sai>=0?"in":"out"}">${fmtBRL(ent-sai)}</b>`;
     _movRows=base.filter(m=>(c===""||(c==="__none"?!m.categoria:m.categoria===c))).sort((a,b)=>b.data.localeCompare(a.data));renderMovTable();};
   const _filtD=debounce(window._movFilter,180);
   $("#fq").oninput=_filtD;
   ["fs","fb","fc","ft"].forEach(id=>{$("#"+id).onchange=window._movFilter;});window._movFilter();
 }
+/* ranking de barras (visão Pessoal): top 8 + "outras" — legível onde a pizza de 25 fatias não era */
+const MV_PAL=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d"];
+function renderMovBars(){const box=$("#movBars");if(!box)return;
+  const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isInterno(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
+  const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
+  const hint=$("#barsHint");if(hint)hint.textContent=cats.length?`— ${cats.length} categorias · toque numa barra p/ filtrar`:"";
+  if(!cats.length){box.innerHTML=`<div class="empty">Sem despesas no filtro.</div>`;return;}
+  const tot=cats.reduce((s,c)=>s+c[1],0),top=cats.slice(0,8),rest=cats.slice(8),restTot=rest.reduce((s,c)=>s+c[1],0);
+  const fcSel=$("#fc"),cur=fcSel?fcSel.value:"";
+  const bar=(nome,val,cor,extra)=>{const pct=tot?val/tot*100:0;const on=cur&&(cur===nome||(nome==="sem cat."&&cur==="__none"));
+    return`<div class="mvb ${on?"on":""}" onclick="${extra||`mvBarPick('${esc(nome).replace(/'/g,"\\'")}')`}" role="button" tabindex="0">
+      <div class="mvb-top"><span class="mvb-nm">${esc(nome)}</span><span class="mvb-val num">${fmtBRL(val)} <i>${pct.toFixed(0)}%</i></span></div>
+      <div class="bar"><i style="width:${Math.max(2,pct)}%;background:${cor}"></i></div></div>`;};
+  box.innerHTML=top.map((c,i)=>bar(c[0],c[1],c[0]==="sem cat."?"#d97706":MV_PAL[i%MV_PAL.length])).join("")
+    +(rest.length?bar(`outras (${rest.length})`,restTot,"#94a3b8","mvBarRest()"):"");
+  window._mvRest=rest;
+}
+function mvBarPick(nome){const s=$("#fc");if(!s)return;const v=nome==="sem cat."?"__none":nome;s.value=(s.value===v)?"":v;window._movFilter();}
+function mvBarRest(){const rest=window._mvRest||[];const tot=rest.reduce((s,c)=>s+c[1],0);
+  drillModal("Outras categorias",`${rest.length} categoria(s) · total <b>${fmtBRL(tot)}</b>`,
+    rest.map(c=>`<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="mvBarPick('${esc(c[0]).replace(/'/g,"\\'")}');this.closest('div[style*=fixed]')?.remove()"><td style="padding:6px 8px">${esc(c[0])}</td><td class="num" style="text-align:right;padding:6px 8px">${fmtBRL(c[1])}</td></tr>`).join(""));}
+function renderMovViz(){if(IS_PESSOAL)renderMovBars();else renderMovPie();}
 function renderMovPie(){const cv=$("#chMovCat");if(!cv)return;if(_movChart){_movChart.destroy();_movChart=null;}
   const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isInterno(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
   const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
@@ -522,7 +561,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
         <div class="ct-main"><b>${esc(m.descricao)}</b><small><span class="chip ${m.categoria?"":"none"}" onclick="event.stopPropagation();mvCatEdit('${m._row}',this)" title="Tocar pra trocar a categoria">${esc(m.categoria||"definir categoria")}</span> · ${esc(m.banco)}</small></div>
         <div class="ct-val num ${m.sentido==="Entrada"?"in":"out"}" onclick="event.stopPropagation();mvValEdit('${m._row}',this)" title="Tocar pra editar o valor">${m.sentido==="Entrada"?"+":"−"} ${fmtBRL(m.valor)}</div>
       </div>`).join("")}</div>`;}).join("")||`<div class="empty">Nenhum.</div>`)+`<div class="sub">${_movRows.length} resultado(s)</div>`;
-    if(!skipPie)renderMovPie();return;}
+    if(!skipPie)renderMovViz();return;}
   let html=`<div class="panel" style="padding:0;overflow:hidden"><table><thead><tr><th></th><th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${
    _movRows.map(m=>`<tr class="${SEL.has(m._row)?'sel':''}">
      <td onclick="toggleSel('${m._row}')"><input type="checkbox" class="cb" ${SEL.has(m._row)?'checked':''}></td>
@@ -534,7 +573,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
    </tbody></table></div><div class="sub">${_movRows.length} resultado(s)</div>`;
   if(SEL.size)html+=`<div class="bulkbar"><b>${SEL.size} selecionado(s)</b><button class="btn sm" onclick="bulkCategorizar()">Definir categoria</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();renderMovTable(true)" style="margin-left:auto">Limpar</button></div>`;
   wrap.innerHTML=html;
-  if(!skipPie)renderMovPie();
+  if(!skipPie)renderMovViz();
 }
 function inlineEdit(td,row,field){ if(td.classList.contains("editing"))return; const m=DB.movimentos.find(x=>x._row===row); if(!m)return;
   td.classList.add("editing"); let inp;
@@ -572,7 +611,58 @@ function mvValEdit(row,el){const m=DB.movimentos.find(x=>x._row===row);if(!m||el
   inp.addEventListener("blur",commit);inp.addEventListener("keydown",e=>{if(e.key==="Enter")inp.blur();if(e.key==="Escape"){done=true;renderMovTable(true);}});}
 function bulkCategorizar(){modal({title:`Categoria em ${SEL.size} movimento(s)`,fields:[{name:"categoria",label:"Categoria",type:"select",options:catOpts()}],onSave:async v=>{const cat=leafCat(v.categoria),cid=catId(v.categoria),ids=[...SEL];if(MODE==="live")for(const id of ids)await sbUpd("movimentos",id,{categoria_id:cid});ids.forEach(id=>{const m=DB.movimentos.find(x=>x._row===id);if(m)m.categoria=cat;});toast(`${ids.length} categorizados`);await afterWrite();}});}
 function bulkExcluir(){confirmDel(`Excluir ${SEL.size} movimento(s)?`,async()=>{const ids=[...SEL];if(MODE==="live")for(const id of ids){try{await sbDel("movimentos",id);}catch(e){}}DB.movimentos=DB.movimentos.filter(x=>!SEL.has(x._row));toast(`${ids.length} excluídos`);await afterWrite();});}
-async function autoCategorizar(){const semCat=DB.movimentos.filter(m=>!m.categoria&&!isInterno(m));let n=0;const upd=[];for(const m of semCat){const s=suggestCategoria(m.descricao);if(s){m.categoria=s;upd.push([m._row,catId(s)]);n++;}}if(!n){toast("Nada para auto-categorizar");return;}if(MODE==="live")for(const[id,cid]of upd){try{await sbUpd("movimentos",id,{categoria_id:cid});}catch(e){}}toast(`${n} categorizados automaticamente`);await afterWrite();}
+/* ===== Auto-categorizar v2: aprende do PRÓPRIO histórico + preview editável =====
+   O v1 só usava regras/glossário (vazios nas visões pessoais → "não funciona").
+   Agora: além das regras, todo movimento JÁ categorizado ensina — descrição
+   normalizada (sem números) vira chave de 3/2/1 tokens → categoria mais frequente. */
+const mvNorm=s=>String(s||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\d+/g," ").replace(/[^A-Z ]/g," ").replace(/\s+/g," ").trim();
+function histSuggester(){
+  const maps=[new Map(),new Map(),new Map()];   // chaves de 3, 2 e 1 token(s)
+  DB.movimentos.filter(m=>m.categoria&&!isInterno(m)).forEach(m=>{
+    const tk=mvNorm(m.descricao).split(" ").filter(Boolean);if(!tk.length)return;
+    [3,2,1].forEach((n,i)=>{if(tk.length<n)return;const k=m.sentido+"|"+tk.slice(0,n).join(" ");
+      let e=maps[i].get(k);if(!e){e={};maps[i].set(k,e);}e[m.categoria]=(e[m.categoria]||0)+1;});
+  });
+  const best=e=>Object.entries(e).sort((a,b)=>b[1]-a[1])[0];
+  return m=>{const tk=mvNorm(m.descricao).split(" ").filter(Boolean);if(!tk.length)return"";
+    for(let i=0;i<3;i++){const n=[3,2,1][i];if(tk.length<n)continue;const e=maps[i].get(m.sentido+"|"+tk.slice(0,n).join(" "));
+      if(e){const b=best(e);if(b&&(n>1||b[1]>=3))return b[0];}}   // 1 token só com 3+ confirmações (menos ruído)
+    return"";};
+}
+function autoCategorizar(){
+  const semCat=DB.movimentos.filter(m=>!m.categoria&&!isInterno(m)&&(!MV_MES||monthKey(m.data)===MV_MES));
+  if(!semCat.length){toast(MV_MES?"Nada sem categoria em "+mkLabel(MV_MES)+" — troque pra “Ver tudo” pra varrer o resto":"Tudo categorizado 🎉");return;}
+  const hist=histSuggester();
+  const itens=semCat.map(m=>({m,sug:suggestCategoria(m.descricao)||hist(m)})).sort((a,b)=>(b.sug?1:0)-(a.sug?1:0)||b.m.data.localeCompare(a.m.data));
+  const nSug=itens.filter(x=>x.sug).length,CAP=150;
+  const opts=tipo=>catOptsByTipo(tipo).filter(o=>o!=="__new");
+  const rows=itens.slice(0,CAP).map((x,i)=>{const tipo=x.m.sentido==="Entrada"?"entrada":"saida";
+    let list=opts(tipo);
+    /* sugestão que é subcategoria casa pelo final; categoria fora da lista da visão entra como opção extra */
+    const hit=x.sug?(list.find(o=>o===x.sug)||list.find(o=>o.endsWith("› "+x.sug))||""):"";
+    if(x.sug&&!hit)list=[x.sug,...list];
+    const selVal=hit||x.sug||"";
+    return`<tr style="border-top:1px solid var(--border)">
+    <td style="padding:6px 4px"><input type="checkbox" class="cb" data-ac="${i}" ${x.sug?"checked":""}></td>
+    <td style="padding:6px 8px"><b style="font-weight:550;font-size:12.5px">${esc(x.m.descricao)}</b><div class="sub" style="font-size:10.5px;margin:0">${fmtDate(x.m.data)} · ${esc(x.m.banco)} · <span class="${x.m.sentido==="Entrada"?"in":"out"}">${fmtBRL(x.m.valor)}</span></div></td>
+    <td style="padding:6px 4px"><select data-acsel="${i}" style="max-width:170px;font-size:12px">${list.map(o=>`<option value="${esc(o)}" ${o===selVal?"selected":""}>${o||"—"}</option>`).join("")}</select>${x.sug?`<div class="sub" style="font-size:9.5px;margin:1px 0 0">✨ do seu histórico</div>`:""}</td></tr>`;}).join("");
+  const bg=el(`<div class="modal-bg"><div class="modal" style="width:min(680px,96vw)"><h3>✨ Auto-categorizar</h3><div class="body" style="gap:6px">
+    <div class="sub" style="margin:0">${semCat.length} sem categoria${MV_MES?" em "+mkLabel(MV_MES):""} · <b>${nSug}</b> com sugestão aprendida do que você já categorizou. Revise e aplique — nada é gravado sem você confirmar.${semCat.length>CAP?` <b>(mostrando ${CAP}; rode de novo pro resto)</b>`:""}</div>
+    <div style="overflow:auto;max-height:56vh"><table style="width:100%;border-collapse:collapse"><tbody>${rows}</tbody></table></div>
+  </div><div class="foot"><button class="btn ghost" data-act="cancel">Cancelar</button><button class="btn" data-act="apply">Aplicar marcados</button></div></div></div>`);
+  document.body.appendChild(bg);const close=()=>bg.remove();
+  bg.addEventListener("click",e=>{if(e.target===bg)close();});bg.querySelector('[data-act=cancel]').onclick=close;
+  bg.querySelector('[data-act=apply]').onclick=async()=>{
+    const btn=bg.querySelector('[data-act=apply]');btn.disabled=true;let n=0;
+    for(let i=0;i<Math.min(itens.length,CAP);i++){
+      const ck=bg.querySelector(`[data-ac="${i}"]`),sel=bg.querySelector(`[data-acsel="${i}"]`);
+      if(!ck||!ck.checked||!sel||!sel.value)continue;
+      const cat=leafCat(sel.value);
+      try{if(MODE==="live")await sbUpd("movimentos",itens[i].m._row,{categoria_id:catId(sel.value)});itens[i].m.categoria=cat;n++;}catch(e){}
+    }
+    close();toast(n?`${n} categorizados ✓`:"Nenhum marcado com categoria");if(n)await afterWrite();
+  };
+}
 
 /* ===== Conciliação ===== */
 function scoreMatch(m,valor,data){const dv=Math.abs(m.valor-valor);if(dv>Math.max(0.5,valor*0.02))return 0;const dd=data?Math.abs((new Date(m.data)-new Date(data))/864e5):999;if(dd>30)return 0;return 100-dd-(dv/Math.max(valor,1))*20;}
@@ -1186,8 +1276,8 @@ function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
 function editConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;modal({title:"Editar conta",fields:contaFields(c.tipo),values:{...c},onSave:async v=>{if(MODE==="live")await sbUpd("contas",id,{nome:v.nome,banco:v.banco||null,tipo:v.tipo});Object.assign(c,{nome:v.nome,banco:v.banco,tipo:v.tipo});toast("Atualizada");await afterWrite();}});}
 function delConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;confirmDel(`Excluir "${c.nome}"? (lançamentos vinculados podem bloquear)`,async()=>{if(MODE==="live"){try{await sbDel("contas",id);}catch(e){toast("Não dá: há lançamentos nessa conta. Edite-os antes.");return;}}DB.contas=DB.contas.filter(x=>x.id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
-function addCat(tipo){modal({title:"Nova categoria",fields:[{name:"nome",label:"Nome"},{name:"tipo",label:"Tipo",type:"select",options:[{v:"entrada",l:"Entrada"},{v:"saida",l:"Saída"}],default:tipo}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:v.tipo,parent_id:null};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:v.tipo,visao:"AMBOS"});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
-function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;modal({title:"Nova subcategoria de "+p.nome,fields:[{name:"nome",label:"Nome"}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:p.tipo,parent_id:pid};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:p.tipo,visao:"AMBOS",parent_id:pid});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
+function addCat(tipo){modal({title:"Nova categoria",fields:[{name:"nome",label:"Nome"},{name:"tipo",label:"Tipo",type:"select",options:[{v:"entrada",l:"Entrada"},{v:"saida",l:"Saída"}],default:tipo}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:v.tipo,parent_id:null};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:v.tipo,visao:VISAO});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
+function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;modal({title:"Nova subcategoria de "+p.nome,fields:[{name:"nome",label:"Nome"}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:p.tipo,parent_id:pid};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:p.tipo,visao:VISAO,parent_id:pid});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
 function editCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;modal({title:"Editar categoria",fields:[{name:"nome",label:"Nome"}],values:{nome:c.nome},onSave:async v=>{if(!v.nome){toast("Nome");return false;}if(MODE==="live")await sbUpd("categorias",id,{nome:v.nome});c.nome=v.nome;toast("Atualizada");await afterWrite();}});}
 function delCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const subs=DB.categorias.filter(s=>s.parent_id===id).length;confirmDel(`Excluir "${c.nome}"${subs?` e ${subs} subcategorias`:""}?`,async()=>{if(MODE==="live"){try{await sbDel("categorias",id);}catch(e){toast("Erro: "+e.message);return;}}DB.categorias=DB.categorias.filter(x=>x.id!==id&&x.parent_id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 

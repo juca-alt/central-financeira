@@ -1280,7 +1280,34 @@ function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta")
 function editConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;modal({title:"Editar conta",fields:contaFields(c.tipo),values:{...c},onSave:async v=>{if(MODE==="live")await sbUpd("contas",id,{nome:v.nome,banco:v.banco||null,tipo:v.tipo});Object.assign(c,{nome:v.nome,banco:v.banco,tipo:v.tipo});toast("Atualizada");await afterWrite();}});}
 function delConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;confirmDel(`Excluir "${c.nome}"? (lançamentos vinculados podem bloquear)`,async()=>{if(MODE==="live"){try{await sbDel("contas",id);}catch(e){toast("Não dá: há lançamentos nessa conta. Edite-os antes.");return;}}DB.contas=DB.contas.filter(x=>x.id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 function addCat(tipo){modal({title:"Nova categoria",fields:[{name:"nome",label:"Nome"},{name:"tipo",label:"Tipo",type:"select",options:[{v:"entrada",l:"Entrada"},{v:"saida",l:"Saída"}],default:tipo}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:v.tipo,parent_id:null};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:v.tipo,visao:VISAO});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
-function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;modal({title:"Nova subcategoria de "+p.nome,fields:[{name:"nome",label:"Nome"}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:p.tipo,parent_id:pid};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:p.tipo,visao:VISAO,parent_id:pid});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
+/* Gerenciador de subcategorias: ADICIONA QUANTAS QUISER sem fechar o modal
+   (Enter ou botão; aceita várias separadas por vírgula), lista as existentes
+   e mostra erro por item se o servidor recusar. */
+function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;
+  const bg=el(`<div class="modal-bg"><div class="modal"><h3>Subcategorias de ${esc(p.nome)}</h3><div class="body" style="gap:8px">
+    <div class="sub" style="margin:0">Quantas quiser — digite e dê Enter. Dica: separe várias por vírgula pra criar de uma vez.</div>
+    <div style="display:flex;gap:8px"><input id="subNew" placeholder="Ex.: Mensalidade, Material, Uniforme" style="flex:1"><button class="btn" id="subAdd">Adicionar</button></div>
+    <div id="subList" style="max-height:40vh;overflow:auto"></div>
+  </div><div class="foot"><button class="btn ghost" id="subClose">Fechar</button></div></div></div>`);
+  document.body.appendChild(bg);
+  const render=()=>{const subs=catSubsSorted(p);bg.querySelector('#subList').innerHTML=subs.length?subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--border)"><span class="chip">${esc(s.nome)}</span><span style="flex:1"></span><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></div>`).join(""):`<div class="empty" style="padding:12px">Nenhuma ainda.</div>`;};
+  const close=()=>{bg.remove();viewConfig();};
+  bg.querySelector('#subClose').onclick=close;bg.addEventListener('click',e=>{if(e.target===bg)close();});
+  const add=async()=>{const inp=bg.querySelector('#subNew');const nomes=inp.value.split(",").map(s=>s.trim()).filter(Boolean);
+    if(!nomes.length){toast("Digite o nome da subcategoria");return;}
+    let ok=0;
+    for(const nome of nomes){
+      if(DB.categorias.some(s=>s.parent_id===pid&&String(s.nome).toLowerCase()===nome.toLowerCase())){toast(`"${nome}" já existe nessa categoria`);continue;}
+      const o={id:"cat"+Date.now()+Math.random().toString(36).slice(2,4),nome,tipo:p.tipo,parent_id:pid};
+      try{if(MODE==="live")o.id=await sbIns("categorias",{nome,tipo:p.tipo,visao:VISAO,parent_id:pid});DB.categorias.push(o);ok++;}
+      catch(e){toast(`Não criou "${nome}": ${e.message}`);}
+    }
+    if(ok){toast(ok>1?`${ok} subcategorias criadas ✓`:"Subcategoria criada ✓");inp.value="";render();}
+    inp.focus();};
+  bg.querySelector('#subAdd').onclick=add;
+  bg.querySelector('#subNew').addEventListener('keydown',e=>{if(e.key==="Enter"){e.preventDefault();add();}});
+  render();bg.querySelector('#subNew').focus();
+}
 function editCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;modal({title:"Editar categoria",fields:[{name:"nome",label:"Nome"}],values:{nome:c.nome},onSave:async v=>{if(!v.nome){toast("Nome");return false;}if(MODE==="live")await sbUpd("categorias",id,{nome:v.nome});c.nome=v.nome;toast("Atualizada");await afterWrite();}});}
 function delCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const subs=DB.categorias.filter(s=>s.parent_id===id).length;confirmDel(`Excluir "${c.nome}"${subs?` e ${subs} subcategorias`:""}?`,async()=>{if(MODE==="live"){try{await sbDel("categorias",id);}catch(e){toast("Erro: "+e.message);return;}}DB.categorias=DB.categorias.filter(x=>x.id!==id&&x.parent_id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 

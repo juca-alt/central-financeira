@@ -1269,7 +1269,10 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     const secD=(tipo,t)=>{const arr=DB.categorias.filter(c=>c.tipo===tipo).sort((a,b)=>(a.parent_id?1:0)-(b.parent_id?1:0)||a.nome.localeCompare(b.nome));return `<div class="panel"><h2>${t} (${arr.length})</h2><table><thead><tr><th>Categoria</th><th>Grupo no DRE</th></tr></thead><tbody>${arr.map(c=>`<tr><td>${c.parent_id?"↳ ":""}<b>${esc(c.nome)}</b></td><td>${optG(c)}</td></tr>`).join("")||`<tr><td colspan="2"><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
     body=`<div class="sub" style="margin-bottom:10px">Defina em qual linha do DRE cada categoria entra. <b>Em branco = automático</b> (heurística pelo nome). Receitas costumam ficar em "Receitas"; despesas em Custos / Operacionais / Impostos / Outras.</div>`+secD("saida","Saídas")+secD("entrada","Entradas");
   }
-  else{const tops=DB.categorias.filter(c=>!c.parent_id);const sec=(tipo,t)=>{const arr=tops.filter(c=>c.tipo===tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=DB.categorias.filter(s=>s.parent_id===p.id);return`<tr><td><b>${esc(p.nome)}</b></td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span></td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};body=sec("entrada","Entradas")+sec("saida","Saídas");}
+  else{const amb=c=>(c.visao||"AMBOS")==="AMBOS"?` <span class="chip" title="Compartilhada: aparece em TODOS os módulos">🌐 compartilhada</span>`:"";
+    const sec=(tipo,t)=>{const arr=catTopsSorted(tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=catSubsSorted(p);return`<tr><td><b>${esc(p.nome)}</b>${amb(p)}</td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span>${amb(s)}</td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
+    const nAmb=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").length;
+    body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
   $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
@@ -1281,6 +1284,58 @@ function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;moda
 function editCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;modal({title:"Editar categoria",fields:[{name:"nome",label:"Nome"}],values:{nome:c.nome},onSave:async v=>{if(!v.nome){toast("Nome");return false;}if(MODE==="live")await sbUpd("categorias",id,{nome:v.nome});c.nome=v.nome;toast("Atualizada");await afterWrite();}});}
 function delCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const subs=DB.categorias.filter(s=>s.parent_id===id).length;confirmDel(`Excluir "${c.nome}"${subs?` e ${subs} subcategorias`:""}?`,async()=>{if(MODE==="live"){try{await sbDel("categorias",id);}catch(e){toast("Erro: "+e.message);return;}}DB.categorias=DB.categorias.filter(x=>x.id!==id&&x.parent_id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 
+/* ===== Organizar categorias por módulo (visão) =====
+   Legado: quase tudo nasceu "AMBOS" → categoria de negócio vazava pra Família e vice-versa.
+   Analisa ONDE cada compartilhada é usada (movimentos+cartões+previstos de TODAS as visões) e
+   sugere destino. REGRA DE SEGURANÇA: só sugere mover quando o uso é EXCLUSIVO de um módulo —
+   mover nunca tira o nome de um lançamento de outro módulo. Sistema (transferência/fatura/
+   saldo inicial) fica compartilhada. Preview editável; nada grava sem confirmar. */
+async function catOrganizar(){
+  const alvo=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").sort((a,b)=>(a.parent_id?1:0)-(b.parent_id?1:0)||String(a.nome).localeCompare(String(b.nome),"pt"));
+  if(!alvo.length){toast("Nenhuma categoria compartilhada — módulos já organizados 🎉");return;}
+  toast("Analisando o uso em todos os módulos…");
+  const uso=new Map();const conta=(id,v)=>{if(!id||!v)return;let e=uso.get(id);if(!e){e={};uso.set(id,e);}e[v]=(e[v]||0)+1;};
+  if(MODE==="live"){
+    const qs=await Promise.all([
+      sb.from("movimentos").select("categoria_id,visao").not("categoria_id","is",null).limit(50000),
+      sb.from("cartao_transacoes").select("categoria_id,visao").not("categoria_id","is",null).limit(50000),
+      sb.from("previstos").select("categoria_id,visao").not("categoria_id","is",null).limit(20000)]);
+    for(const q of qs){if(q.error){toast("Erro na análise: "+q.error.message);return;}(q.data||[]).forEach(r=>conta(r.categoria_id,r.visao));}
+  }else{DB.movimentos.forEach(m=>conta(catId(m.categoria),VISAO));}
+  const SISTEMA=/transfer|fatura|saldo inicial/i;
+  const parentSug=new Map();
+  const plano=alvo.map(c=>{
+    const u=uso.get(c.id)||{},vs=Object.keys(u);
+    let sug="AMBOS",why="";
+    if(SISTEMA.test(c.nome||"")){sug="AMBOS";why="sistema — fica compartilhada";}
+    else if(vs.length===1){sug=vs[0];why=`uso só em ${vs[0]} (${u[vs[0]]}×)`;}
+    else if(vs.length===0){sug=c.parent_id?(parentSug.get(c.parent_id)||"AMBOS"):"AMBOS";why=c.parent_id&&sug!=="AMBOS"?"segue a categoria-mãe":"sem uso — você decide";}
+    else{sug="AMBOS";why="usada em "+vs.map(v=>`${v} ${u[v]}×`).join(" · ")+" — fica compartilhada";}
+    if(!c.parent_id)parentSug.set(c.id,sug);
+    return{c,sug,why};
+  });
+  const nMove=plano.filter(p=>p.sug!=="AMBOS").length;
+  const optDest=sel=>[["AMBOS","🌐 compartilhada"],...PROFILES.map(p=>[p.code,p.icon+" "+p.label])].map(([v,l])=>`<option value="${v}" ${v===sel?"selected":""}>${l}</option>`).join("");
+  const rows=plano.map((p,i)=>`<tr style="border-top:1px solid var(--border)">
+    <td style="padding:6px 8px">${p.c.parent_id?"↳ ":""}<b style="font-weight:550;font-size:12.5px">${esc(p.c.nome)}</b> <span class="chip">${p.c.tipo==="entrada"?"entrada":"saída"}</span><div class="sub" style="font-size:10.5px;margin:0">${esc(p.why)}</div></td>
+    <td style="padding:6px 4px"><select data-org="${i}" style="font-size:12px">${optDest(p.sug)}</select></td></tr>`).join("");
+  const bg=el(`<div class="modal-bg"><div class="modal" style="width:min(640px,96vw)"><h3>🧹 Organizar categorias por módulo</h3><div class="body" style="gap:6px">
+    <div class="sub" style="margin:0">${alvo.length} compartilhada(s) analisadas · <b>${nMove}</b> com uso exclusivo de um módulo (sugeridas pra migrar). Mover é seguro: só sugerimos quando NENHUM outro módulo usa. Ajuste o destino se quiser e aplique.</div>
+    <div style="overflow:auto;max-height:56vh"><table style="width:100%;border-collapse:collapse"><tbody>${rows}</tbody></table></div>
+  </div><div class="foot"><button class="btn ghost" data-act="cancel">Cancelar</button><button class="btn" data-act="apply">Aplicar organização</button></div></div></div>`);
+  document.body.appendChild(bg);const close=()=>bg.remove();
+  bg.addEventListener("click",e=>{if(e.target===bg)close();});bg.querySelector('[data-act=cancel]').onclick=close;
+  bg.querySelector('[data-act=apply]').onclick=async()=>{
+    const btn=bg.querySelector('[data-act=apply]');btn.disabled=true;let n=0,err=0;
+    for(let i=0;i<plano.length;i++){
+      const sel=bg.querySelector(`[data-org="${i}"]`);if(!sel)continue;
+      const dest=sel.value,c=plano[i].c;
+      if(dest===(c.visao||"AMBOS"))continue;
+      try{if(MODE==="live")await sbUpd("categorias",c.id,{visao:dest});c.visao=dest;n++;}catch(e){err++;}
+    }
+    close();toast(n?`${n} categoria(s) organizadas ✓${err?` · ${err} com erro`:""}`:"Nada pra mudar");if(n)await afterWrite();
+  };
+}
 async function setGrupoDre(id,val){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const prev=c.grupo_dre;c.grupo_dre=val||null;try{if(MODE==="live")await sbUpd("categorias",id,{grupo_dre:val||null});toast(val?("→ "+val):"Grupo removido (auto)");}catch(e){c.grupo_dre=prev;toast("Erro: "+e.message);}}
 
 /* ===== Router + Init ===== */

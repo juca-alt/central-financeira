@@ -1045,7 +1045,10 @@ function viewCartoes(){const cards=cardContas();
   const aberta=fs.find(f=>f.status==="aberta");
   const totCompras=movs.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
   const melhorDia=(cfg.f%31)+1;
-  const showFs=fs.slice(-10).reverse(); // fatura mais recente primeiro
+  /* régua ancorada na fatura ATUAL: até 6 passadas + atual + 3 futuras
+     (com parcelas projetadas até 2027, slice(-10) só mostrava futuro) */
+  let _ci=fs.findIndex(f=>f.venc>=hoje); if(_ci<0)_ci=fs.length-1;
+  const showFs=fs.slice(Math.max(0,_ci-6),_ci+4).reverse(); // mais recente primeiro
   $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Faturas por fechamento (dia ${cfg.f}) · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</div></div>
     ${cards.length>1?`<select onchange="CART_SEL=this.value;FAT_SEL=null;viewCartoes()">${cards.map(c=>`<option ${c.nome===CART_SEL?"selected":""}>${esc(c.nome)}</option>`).join("")}</select>`:""}</div>
    <div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 12px">${showFs.map(f=>`

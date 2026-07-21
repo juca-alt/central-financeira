@@ -149,6 +149,19 @@ async function sbSend(method, path, body, prefer) {
   return txt ? JSON.parse(txt) : null;
 }
 
+/* ---- Nome do estabelecimento, sem o embrulho de cada fonte ----
+   'Pix enviado: "Cp :60746948-DEGUTTI"' e 'PIX ENVIADO - Cp :60746948-DEGUTTI'
+   viram os dois DEGUTTI, pra o guard de conteúdo comparar maçã com maçã. */
+function nomeChave(desc) {
+  return String(desc || '')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/^(PIX|TED|DOC)\s+(ENVIADO|RECEBIDO|ENVIADA|RECEBIDA)(\s+INTERNO)?/, '')
+    .replace(/\bCP\s*:?\s*\d+-?/g, '')
+    .replace(/[^A-Z]/g, '')
+    .slice(0, 24);
+}
+
 /* ---- Categorização: regras + glossário (mesma lógica do app/sync Inter) ---- */
 function buildSuggester(regras, glossario) {
   const gl = (glossario || []).filter(g => g.categoria_sugerida_id)
@@ -293,6 +306,35 @@ async function main() {
           ...(OWNER ? { user_id: OWNER } : {}),
         });
       }
+      /* GUARD DE CONTEÚDO (21/07) — o dedup por hash só enxerga o que o PRÓPRIO Pluggy
+         gravou. O mesmo lançamento vindo de carga manual/extrato PDF tem outro hash e
+         entrava de novo (foi o que duplicou 22–28/06 e o que um dispatch de 90 dias
+         re-gravaria inteiro). Aqui a comparação é por CONTEÚDO e é count-aware:
+         cada linha existente só "absorve" um candidato.
+         - data igual + valor + sinal  → sempre pula;
+         - ±3 dias (o Pluggy às vezes data 1–2 dias depois do extrato) → só pra
+           lançamento com mais de 7 dias e com o mesmo nome de estabelecimento, pra
+           não engolir uma compra nova de valor repetido (ex.: o café de R$ 14). */
+      const jaTem = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&data=gte.${from}&select=data,valor,sinal,descricao_original&limit=20000`);
+      const pool = jaTem.map(e => ({ data: e.data, valor: Number(e.valor), sinal: e.sinal, nome: nomeChave(e.descricao_original), usado: false }));
+      const hoje = new Date().toISOString().slice(0, 10);
+      const diasAtras = d => Math.round((new Date(hoje) - new Date(d)) / 864e5);
+      const antes = rows.length;
+      const novos = rows.filter(r => {
+        const exato = pool.find(p => !p.usado && p.data === r.data && p.valor === r.valor && p.sinal === r.sinal);
+        if (exato) { exato.usado = true; return false; }
+        if (diasAtras(r.data) > 7) {
+          const nome = nomeChave(r.descricao_original);
+          const perto = pool.find(p => !p.usado && p.valor === r.valor && p.sinal === r.sinal
+            && Math.abs(Math.round((new Date(p.data) - new Date(r.data)) / 864e5)) <= 3
+            && nome && p.nome && (p.nome.includes(nome) || nome.includes(p.nome)));
+          if (perto) { perto.usado = true; return false; }
+        }
+        return true;
+      });
+      rows.length = 0; rows.push(...novos);
+      if (antes !== rows.length) console.log(`   guard de conteúdo: ${antes - rows.length} já existiam com outro hash (carga manual/extrato) — não regravados`);
+
       const comCat = rows.filter(r => r.categoria_id).length;
       console.log(`   novos a gravar: ${rows.length} (dedup pulou ${txs.length - rows.length}); ${comCat} já categorizados`);
 

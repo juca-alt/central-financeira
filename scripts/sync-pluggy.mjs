@@ -303,11 +303,21 @@ async function main() {
           await sbSend('POST', '/rest/v1/movimentos', rows.slice(i, i + 200), 'return=minimal');
         }
         // Saldo real do banco → card usa contas.saldo_atual (não a soma cega).
+        // GUARD (21/07): item MeuPluggy não aceita refresh (PATCH /items → 400) e pode ficar
+        // dias parado. Se o app já conhece movimento MAIS NOVO que a última transação que o
+        // Pluggy tem, o saldo dele está atrasado — não sobrescrever (senão o extrato conferido
+        // na mão volta pro valor velho todo dia de manhã).
         const saldo = Number(acc.balance ?? NaN);
-        if (Number.isFinite(saldo)) {
+        const pluggyLast = txs.map(t => String(t.date || '').slice(0, 10)).filter(Boolean).sort().pop() || null;
+        const [ultimo] = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&select=data&order=data.desc&limit=1`);
+        const dbLast = ultimo?.data || null;
+        const atrasado = pluggyLast && dbLast && dbLast > pluggyLast;
+        if (Number.isFinite(saldo) && !atrasado) {
           await sbSend('PATCH', `/rest/v1/contas?id=eq.${c.conta_id}`,
             { saldo_atual: saldo, saldo_atualizado_em: new Date().toISOString() }, 'return=minimal');
           console.log(`   saldo gravado: R$ ${saldo.toFixed(2)}`);
+        } else if (atrasado) {
+          console.log(`   ⚠ saldo NÃO gravado: Pluggy parou em ${pluggyLast} e o app já tem ${dbLast} (saldo do Pluggy R$ ${saldo.toFixed(2)} está atrasado)`);
         }
         console.log(`   OK — ${rows.length} gravados.`);
       }

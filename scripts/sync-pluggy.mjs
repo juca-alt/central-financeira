@@ -201,7 +201,7 @@ async function main() {
     for (const r of rows) {
       if (!r.item_id || !r.conta_id || !r.visao) throw new Error(`MAPPING: item_id, conta_id e visao são obrigatórios (${JSON.stringify(r)})`);
     }
-    await sbSend('POST', '/rest/v1/pluggy_conexoes?on_conflict=item_id', rows,
+    await sbSend('POST', '/rest/v1/pluggy_conexoes?on_conflict=item_id,account_id', rows,
       'resolution=merge-duplicates,return=minimal');
     console.log(`MAPPING: ${rows.length} conexão(ões) gravadas em pluggy_conexoes:`);
     rows.forEach(r => console.log(`   ${r.banco || '?'} (${r.visao}) item ${r.item_id} → conta ${r.conta_id}${r.account_id ? ` [account ${r.account_id}]` : ''}`));

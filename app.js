@@ -1034,7 +1034,12 @@ function viewCartoes(){const cards=cardContas();
   // agrupa por FATURA (data de fechamento)
   const fat=new Map();movs.forEach(m=>{const k=faturaMes(m.data,cfg.f);if(!fat.has(k))fat.set(k,{fk:k,compras:0,pagtos:0,n:0,txs:[]});const f=fat.get(k);f.txs.push(m);if(m.sentido==="Saída"){f.compras+=m.valor;f.n++;}else f.pagtos+=m.valor;});
   const fs=[...fat.values()].sort((a,b)=>a.fk.localeCompare(b.fk));
-  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;f.status=(f.compras>0&&f.pagtos>=f.compras)?"paga":(f.venc<hoje?"vencida":"aberta");});
+  /* Status por SALDO DEVEDOR ACUMULADO (modelo Inter): pagamento feito depois do
+     fechamento entra na janela seguinte mas quita a fatura mais antiga em aberto.
+     Fatura fechada é paga se o total pago até hoje cobre as compras acumuladas até ela. */
+  const totalPag=fs.reduce((s,f)=>s+f.pagtos,0);let cumC=0;
+  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;cumC+=f.compras;
+    f.status=f.venc<hoje?((totalPag+0.01>=cumC)?"paga":"vencida"):"aberta";});
   if(!FAT_SEL||!fat.has(FAT_SEL))FAT_SEL=(fs.find(f=>f.status==="aberta")||fs[fs.length-1]||{fk:""}).fk;
   const sel=fat.get(FAT_SEL)||{fk:"",compras:0,pagtos:0,n:0,txs:[],venc:""};
   const aberta=fs.find(f=>f.status==="aberta");

@@ -361,6 +361,19 @@ async function main() {
         } else if (atrasado) {
           console.log(`   ⚠ saldo NÃO gravado: Pluggy parou em ${pluggyLast} e o app já tem ${dbLast} (saldo do Pluggy R$ ${saldo.toFixed(2)} está atrasado)`);
         }
+        // VERIFICAÇÃO DIÁRIA (cartão): dívida calculada pelos lançamentos vs dívida real
+        // do banco. Divergência estável = gap de histórico (ok, informativo); divergência
+        // que CRESCE de um dia pro outro = duplicata ou lançamento perdido → investigar.
+        if (String(acc.type).toUpperCase() === 'CREDIT' && Number.isFinite(saldo)) {
+          let dev = 0;
+          for (let off = 0; ; off += 1000) {
+            const page = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&select=valor,sinal&limit=1000&offset=${off}`);
+            for (const r of page) dev += (r.sinal < 0 ? 1 : -1) * Number(r.valor);
+            if (page.length < 1000) break;
+          }
+          const diff = dev - saldo;
+          console.log(`   verificação cartão: lançamentos R$ ${dev.toFixed(2)} vs banco R$ ${saldo.toFixed(2)} → ${Math.abs(diff) <= 50 ? '✔ confere' : `⚠ Δ R$ ${diff.toFixed(2)} (gap de histórico se estável; duplicata se cresceu)`}`);
+        }
         console.log(`   OK — ${rows.length} gravados.`);
       }
     } catch (e) {

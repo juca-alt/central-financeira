@@ -1034,12 +1034,25 @@ function viewCartoes(){const cards=cardContas();
   // agrupa por FATURA (data de fechamento)
   const fat=new Map();movs.forEach(m=>{const k=faturaMes(m.data,cfg.f);if(!fat.has(k))fat.set(k,{fk:k,compras:0,pagtos:0,n:0,txs:[]});const f=fat.get(k);f.txs.push(m);if(m.sentido==="Saída"){f.compras+=m.valor;f.n++;}else f.pagtos+=m.valor;});
   const fs=[...fat.values()].sort((a,b)=>a.fk.localeCompare(b.fk));
-  /* Status por SALDO DEVEDOR ACUMULADO (modelo Inter): pagamento feito depois do
-     fechamento entra na janela seguinte mas quita a fatura mais antiga em aberto.
-     Fatura fechada é paga se o total pago até hoje cobre as compras acumuladas até ela. */
-  const totalPag=fs.reduce((s,f)=>s+f.pagtos,0);let cumC=0;
-  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;cumC+=f.compras;
-    f.status=f.venc<hoje?((totalPag+0.01>=cumC)?"paga":"vencida"):"aberta";});
+  /* Status ANCORADO NO BANCO (fonte da verdade = saldo_atual que o Pluggy grava:
+     é a dívida real do cartão hoje). Se a dívida real cabe nas faturas ainda não
+     vencidas, NENHUMA fatura fechada está em aberto — independente de gaps de
+     histórico (pagamentos anteriores à janela de sync que não estão na base).
+     Fallback sem saldo do banco: saldo devedor acumulado (pagamento pós-fechamento
+     quita a fatura mais antiga). */
+  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;});
+  const totalPag=fs.reduce((s,f)=>s+f.pagtos,0),totCompras0=fs.reduce((s,f)=>s+f.compras,0);
+  const _cta=cards.find(x=>x.nome===CART_SEL);
+  const bancoDev=(_cta&&_cta.saldo_atual!=null&&isFinite(+_cta.saldo_atual))?+_cta.saldo_atual:null;
+  if(bancoDev!=null){
+    const abertasLiq=fs.filter(f=>f.venc>=hoje).reduce((s,f)=>s+Math.max(0,f.saldo),0);
+    let excesso=bancoDev-abertasLiq; // o que a dívida real NÃO explica pelas faturas correntes/futuras
+    fs.slice().reverse().forEach(f=>{ if(f.venc>=hoje){f.status="aberta";return;}
+      if(excesso>1){f.status="vencida";excesso-=Math.max(0,f.saldo);}else f.status="paga";});
+  }else{
+    let cumC=0;
+    fs.forEach(f=>{cumC+=f.compras;f.status=f.venc<hoje?((totalPag+0.01>=cumC)?"paga":"vencida"):"aberta";});
+  }
   if(!FAT_SEL||!fat.has(FAT_SEL))FAT_SEL=(fs.find(f=>f.status==="aberta")||fs[fs.length-1]||{fk:""}).fk;
   const sel=fat.get(FAT_SEL)||{fk:"",compras:0,pagtos:0,n:0,txs:[],venc:""};
   const aberta=fs.find(f=>f.status==="aberta");
@@ -1061,6 +1074,7 @@ function viewCartoes(){const cards=cardContas();
     <div class="kpi"><div class="lbl">Compras da fatura</div><div class="val out">${fmtBRL(sel.compras)}</div><div class="hint">pagamentos ${fmtBRL(sel.pagtos)}</div></div>
     <div class="kpi"><div class="lbl">Total no cartão</div><div class="val out">${fmtBRL(totCompras)}</div><div class="hint">${movs.length} lançamentos</div></div>
     <div class="kpi"><div class="lbl">📅 Fatura aberta</div><div class="val">${aberta?fmtDate(aberta.venc):"—"}</div><div class="hint">${aberta?fmtBRL(aberta.saldo):"em dia"}</div></div></div>
+   ${bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`<div class="sub" style="margin:-4px 0 10px">🏦 Conferência com o banco: dívida real <b>${fmtBRL(bancoDev)}</b> · saldo dos lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'· <b style="color:#16a34a">✔ confere</b>':`· Δ ${fmtBRL(d)} <span title="Diferença normalmente = pagamentos/compras anteriores à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ histórico fora da janela</span>`}</div>`})():""}
    <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table></div>`;}
 function gerarFatura(fk){const cartao=CART_SEL,cfg=faturaCfg(cartao);const comp=fk.slice(5,7)+"/"+fk.slice(0,4);const due=faturaVenc(fk,cfg.v);

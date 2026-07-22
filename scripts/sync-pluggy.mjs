@@ -244,7 +244,7 @@ async function main() {
           console.log(`   conector: ${it?.connector?.name || '?'} | status: ${it?.status || '?'}`);
         } catch (e) { console.log('   (item inacessível: ' + e.message + ')'); }
         const accs = await getAccounts(c.item_id);
-        accs.forEach(a => console.log(`   account ${a.id} | ${a.type}/${a.subtype} | "${a.name}" | saldo R$ ${Number(a.balance ?? 0).toFixed(2)}`));
+        accs.forEach(a => console.log(`   account ${a.id} | ${a.type}/${a.subtype} | "${a.name}" | saldo R$ ${Number(a.balance ?? 0).toFixed(2)}${a.creditData ? ` | creditData ${JSON.stringify({closeDay: a.creditData.balanceCloseDate, dueDay: a.creditData.balanceDueDate, limite: a.creditData.creditLimit, disponivel: a.creditData.availableCreditLimit})}` : ''}`));
         if (!accs.length) console.log('   (sem accounts — item ainda não sincronizou? rode sem DISCOVER ou aguarde)');
       } catch (e) { console.log('   erro:', e.message); }
     }

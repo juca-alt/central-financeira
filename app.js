@@ -1045,8 +1045,10 @@ function viewCartoes(){const cards=cardContas();
   const _cta=cards.find(x=>x.nome===CART_SEL);
   const bancoDev=(_cta&&_cta.saldo_atual!=null&&isFinite(+_cta.saldo_atual))?+_cta.saldo_atual:null;
   if(bancoDev!=null){
-    const abertasLiq=fs.filter(f=>f.venc>=hoje).reduce((s,f)=>s+Math.max(0,f.saldo),0);
-    let excesso=bancoDev-abertasLiq; // o que a dívida real NÃO explica pelas faturas correntes/futuras
+    /* compara com compras BRUTAS não-vencidas: pagamento antecipado na corrente já
+       reduziu a dívida do banco, então descontá-lo aqui contaria em dobro */
+    const abertasBrutas=fs.filter(f=>f.venc>=hoje).reduce((s,f)=>s+f.compras,0);
+    let excesso=bancoDev-abertasBrutas; // o que a dívida real NÃO explica pelas faturas correntes/futuras
     fs.slice().reverse().forEach(f=>{ if(f.venc>=hoje){f.status="aberta";return;}
       if(excesso>1){f.status="vencida";excesso-=Math.max(0,f.saldo);}else f.status="paga";});
   }else{

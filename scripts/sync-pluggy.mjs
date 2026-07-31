@@ -353,13 +353,18 @@ async function main() {
         const pluggyLast = txs.map(t => String(t.date || '').slice(0, 10)).filter(Boolean).sort().pop() || null;
         const [ultimo] = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&select=data&order=data.desc&limit=1`);
         const dbLast = ultimo?.data || null;
-        const atrasado = pluggyLast && dbLast && dbLast > pluggyLast;
+        // FURO CORRIGIDO (31/07): item congelado devolve ZERO transações na janela →
+        // pluggyLast ficava null, o guard não disparava e o saldo velho voltava por cima
+        // do extrato conferido (Inter PF: 129,39 → 428,43, o saldo de 15/07). Agora
+        // "sem transação nenhuma" também conta como atrasado: conta parada tem saldo
+        // parado, então não gravar é inofensivo; gravar é que estraga.
+        const atrasado = !!(dbLast && (!pluggyLast || dbLast > pluggyLast));
         if (Number.isFinite(saldo) && !atrasado) {
           await sbSend('PATCH', `/rest/v1/contas?id=eq.${c.conta_id}`,
             { saldo_atual: saldo, saldo_atualizado_em: new Date().toISOString() }, 'return=minimal');
           console.log(`   saldo gravado: R$ ${saldo.toFixed(2)}`);
         } else if (atrasado) {
-          console.log(`   ⚠ saldo NÃO gravado: Pluggy parou em ${pluggyLast} e o app já tem ${dbLast} (saldo do Pluggy R$ ${saldo.toFixed(2)} está atrasado)`);
+          console.log(`   ⚠ saldo NÃO gravado: Pluggy parou em ${pluggyLast || 'nenhuma transação na janela'} e o app já tem ${dbLast} (saldo do Pluggy R$ ${saldo.toFixed(2)} está atrasado)`);
         }
         // VERIFICAÇÃO DIÁRIA (cartão): dívida calculada pelos lançamentos vs dívida real
         // do banco. Divergência estável = gap de histórico (ok, informativo); divergência

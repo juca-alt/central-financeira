@@ -201,3 +201,9 @@
   .chip.lp-fluxo{background:#ccfbf1;color:#0f766e}
   .chip.lp-cart{background:#fef3c7;color:#92400e}
   .chip.lp-fora{background:#eef0f3;color:#6b7280}
+
+/* ---- Configurações › Acessos (permissão por visão) ---- */
+.acc-cb{display:inline-flex;align-items:center;gap:5px;margin-right:10px;font-size:.82rem;color:var(--muted,#8b95a5);cursor:pointer;white-space:nowrap}
+.acc-cb input{width:15px;height:15px;accent-color:var(--acc,#4f6bff);cursor:pointer}
+.acc-cb input:disabled{cursor:not-allowed;opacity:.5}
+.acc-cb:hover{color:inherit}

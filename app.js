@@ -363,7 +363,9 @@ function periodControls(){let inner="";if(PERIOD.mode==="ano")inner=`<select id=
   return`<div class="controls"><select id="pMode"><option value="ano" ${PERIOD.mode==="ano"?"selected":""}>Por ano</option><option value="mes" ${PERIOD.mode==="mes"?"selected":""}>Por mês</option><option value="range" ${PERIOD.mode==="range"?"selected":""}>Período</option></select>${inner}</div>`;}
 function wirePeriod(){$("#pMode").onchange=e=>{PERIOD.mode=e.target.value;if(PERIOD.mode==="mes"&&!PERIOD.mes)PERIOD.mes=new Date().getMonth()+1;viewDashboard();};if($("#pAno"))$("#pAno").onchange=e=>{PERIOD.ano=+e.target.value;viewDashboard();};if($("#pMes"))$("#pMes").onchange=e=>{PERIOD.mes=+e.target.value;viewDashboard();};if($("#pDe"))$("#pDe").onchange=e=>{PERIOD.de=e.target.value;viewDashboard();};if($("#pAte"))$("#pAte").onchange=e=>{PERIOD.ate=e.target.value;viewDashboard();};}
 let _charts=[];
-function contaSaldos(){const b=new Map();(DB.contas||[]).forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});(DB.contas||[]).forEach(c=>{if(c.saldo_atual!=null)b.set(c.nome,Number(c.saldo_atual));});return b;}
+/* conta ARQUIVADA (ativo=false) some dos painéis, mas nada é apagado: se ela ainda tiver
+   movimento, o laço abaixo recria a linha — o que some é só a conta zerada que só polui. */
+function contaSaldos(){const b=new Map();const ativas=(DB.contas||[]).filter(c=>c.ativo!==false);ativas.forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});ativas.forEach(c=>{if(c.saldo_atual!=null)b.set(c.nome,Number(c.saldo_atual));});return b;}
 function contasPanel(){const b=contaSaldos();
   const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
   const fmtTs=ts=>{try{return new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return'';}};
@@ -1284,6 +1286,90 @@ function viewOrcamento(){ ORC_MES=ORC_MES||todayISO().slice(0,7); const orc=load
 
 /* ===== Configurações (contas/cartões/categorias) ===== */
 let CFG_TAB="contas";
+
+/* ===== ACESSOS (multiusuário por visão) =====================================
+   Permissão mora em app_usuarios/usuario_visoes, chaveada por E-MAIL — assim dá
+   pra pré-autorizar alguém ANTES do primeiro login (o user_id só nasce no login).
+   Enquanto a migração `scripts/acessos-multiusuario-2026-08-01.sql` não rodar, as
+   tabelas não existem: PERM.legacy=true e o app segue como era (tudo liberado). */
+let PERM={admin:false,legacy:true,email:"",visoes:{}};
+const podeVer   =c=>PERM.legacy||PERM.admin||!!(PERM.visoes[c]&&PERM.visoes[c].ler);
+const podeEditar=c=>PERM.legacy||PERM.admin||!!(PERM.visoes[c]&&PERM.visoes[c].escrever);
+const visoesVisiveis=()=>PROFILES.filter(p=>podeVer(p.code));
+
+async function loadPerm(){
+  PERM={admin:false,legacy:true,email:"",visoes:{}};
+  if(MODE!=="live")return;
+  try{
+    const{data:s}=await sb.auth.getSession();
+    PERM.email=((s&&s.session&&s.session.user&&s.session.user.email)||"").toLowerCase();
+    const[u,v]=await Promise.all([
+      sb.from("app_usuarios").select("admin,nome").eq("email",PERM.email).maybeSingle(),
+      sb.from("usuario_visoes").select("visao,ler,escrever").eq("email",PERM.email)]);
+    /* tabela ainda não existe (migração não rodou) → mantém o comportamento antigo */
+    if(u.error&&/(does not exist|schema cache)/i.test(u.error.message||""))return;
+    PERM.legacy=false;
+    PERM.admin=!!(u.data&&u.data.admin);
+    ((v&&v.data)||[]).forEach(r=>PERM.visoes[r.visao]={ler:r.ler!==false,escrever:!!r.escrever});
+  }catch(e){/* qualquer falha → legacy, nunca trancar o app por causa disso */}
+}
+
+/* Painel de administração: só aparece pra quem é admin. */
+function acessosPanel(){
+  const codes=PROFILES.map(p=>p.code);
+  const users=(ACESSOS.users||[]);
+  const cel=(u,code)=>{const p=(ACESSOS.perm[u.email]||{})[code]||{};
+    const cb=(campo,on)=>`<label class="acc-cb"><input type="checkbox" ${on?"checked":""} ${u.admin?"disabled":""} onchange="acessoSet('${esc(u.email)}','${code}','${campo}',this.checked)"><span>${campo==="ler"?"ver":"editar"}</span></label>`;
+    return `<td>${u.admin?`<span class="chip">tudo</span>`:cb("ler",p.ler)+cb("escrever",p.escrever)}</td>`;};
+  return `<div class="panel">
+    <h2>Quem tem acesso <button class="btn sm" onclick="acessoAdd()">+ Pessoa</button></h2>
+    <div class="sub" style="margin-bottom:10px">A pessoa entra com o Google dela e só enxerga o que estiver marcado aqui. Pode cadastrar o e-mail <b>antes</b> do primeiro login. <b>Ver</b> = leitura; <b>editar</b> = pode lançar e alterar.</div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Pessoa</th>${codes.map(c=>`<th>${esc(PROFILES.find(p=>p.code===c).label)}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${users.map(u=>`<tr>
+      <td><b>${esc(u.nome||u.email.split("@")[0])}</b>${u.admin?` <span class="chip">admin</span>`:""}<div class="sub" style="margin:0">${esc(u.email)}</div></td>
+      ${codes.map(c=>cel(u,c)).join("")}
+      <td class="num">${u.email===PERM.email?`<span class="chip">você</span>`:`<button class="btn danger sm" onclick="acessoDel('${esc(u.email)}')">Remover</button>`}</td>
+    </tr>`).join("")||`<tr><td colspan="${codes.length+2}"><div class="empty">Ninguém cadastrado ainda.</div></td></tr>`}</tbody></table></div>
+  </div>`;
+}
+let ACESSOS={users:[],perm:{}};
+async function acessosLoad(){
+  const[u,v]=await Promise.all([
+    sb.from("app_usuarios").select("email,nome,admin").order("admin",{ascending:false}),
+    sb.from("usuario_visoes").select("email,visao,ler,escrever")]);
+  if(u.error)throw new Error(u.error.message);
+  ACESSOS.users=u.data||[];ACESSOS.perm={};
+  ((v&&v.data)||[]).forEach(r=>{(ACESSOS.perm[r.email]=ACESSOS.perm[r.email]||{})[r.visao]={ler:r.ler,escrever:r.escrever};});
+}
+async function acessoSet(email,visao,campo,valor){
+  const atual=(ACESSOS.perm[email]||{})[visao]||{ler:false,escrever:false};
+  const row={email,visao,ler:campo==="ler"?valor:!!atual.ler,escrever:campo==="escrever"?valor:!!atual.escrever};
+  if(row.escrever)row.ler=true;                    /* quem edita, vê */
+  if(!row.ler)row.escrever=false;                  /* tirou o ver, tira o editar */
+  const{error}=await sb.from("usuario_visoes").upsert(row,{onConflict:"email,visao"});
+  if(error){toast("Erro: "+error.message);return;}
+  (ACESSOS.perm[email]=ACESSOS.perm[email]||{})[visao]=row;
+  toast("Acesso atualizado ✓");viewConfig();
+}
+function acessoAdd(){
+  modal({title:"Dar acesso a alguém",fields:[
+    {name:"email",label:"E-mail do Google dela(e)"},
+    {name:"nome",label:"Nome (como você chama)"}],
+    onSave:async v=>{
+      const email=(v.email||"").trim().toLowerCase();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast("E-mail inválido");return false;}
+      const{error}=await sb.from("app_usuarios").upsert({email,nome:v.nome||null,admin:false},{onConflict:"email"});
+      if(error){toast("Erro: "+error.message);return false;}
+      await acessosLoad();toast("Cadastrada ✓ — agora marque as visões");viewConfig();
+    }});
+}
+async function acessoDel(email){
+  modal({title:"Remover acesso",fields:[],extraHTML:`<div class="sub">Tira <b>${esc(email)}</b> do app. Nenhum lançamento é apagado — só o acesso.</div>`,saveLabel:"Remover",onSave:async()=>{
+    const{error}=await sb.from("app_usuarios").delete().eq("email",email);
+    if(error){toast("Erro: "+error.message);return false;}
+    await acessosLoad();toast("Acesso removido");viewConfig();
+  }});
+}
 function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''}" onclick="CFG_TAB='${id}';viewConfig()">${lbl}</button>`;
   let body="";
   if(CFG_TAB==="contas"||CFG_TAB==="cartoes"){const isCard=CFG_TAB==="cartoes";const list=(DB.contas||[]).filter(c=>isCard?(c.tipo==="cartao"||/cart/i.test(c.nome)):!(c.tipo==="cartao"||/cart/i.test(c.nome)));
@@ -1297,7 +1383,8 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     const sec=(tipo,t)=>{const arr=catTopsSorted(tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=catSubsSorted(p);return`<tr><td><b>${esc(p.nome)}</b>${amb(p)}</td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span>${amb(s)}</td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
     const nAmb=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").length;
     body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
-  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}</div>${body}`;
+  if(CFG_TAB==="acessos")body=PERM.admin?acessosPanel():`<div class="panel"><div class="empty">Só o administrador vê esta aba.</div></div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}${PERM.admin?tab("acessos","👥 Acessos"):""}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
@@ -1447,7 +1534,8 @@ function closeDrawer(){const s=document.getElementById("sideNav"),o=document.get
 /* ===== Seletor de perfil PJ ↔ PF ===== */
 function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}
 /* itens do menu de visões (usado pelo seletor do topo) */
-function visaoMenuItems(){return `<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+PROFILES.filter(p=>p.grupo===g).map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join("")).join("");}
+/* o menu só oferece as visões que a pessoa pode ver (admin vê todas) */
+function visaoMenuItems(){const vis=visoesVisiveis();return `<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>{const arr=vis.filter(p=>p.grupo===g);return arr.length?`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+arr.map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join(""):"";}).join("");}
 /* aplica a escolha do menu (Central consolidada ou uma visão) */
 function visaoPick(code){if(code==="__central"){route("central");return;}if(code===VISAO&&CURRENT!=="central"){route("dashboard");return;}setVisao(code);}
 /* SELETOR DE VISÃO no topo: mostra onde estou (visão ativa ou Central) e troca */
@@ -1517,6 +1605,13 @@ async function bootApp(){
     try{const{data}=await sb.auth.getSession();renderProfile(data&&data.session&&data.session.user&&data.session.user.email);}catch(e){renderProfile();}}
   if(_booted)return;_booted=true;
   try{const d=new Date();PERIOD.ano=d.getFullYear();PERIOD.mes=d.getMonth()+1;PERIOD.mode="mes";
+    await loadPerm();
+    if(!PERM.legacy&&!PERM.admin&&!visoesVisiveis().length){
+      document.getElementById("view").innerHTML=`<div class="panel"><h2>Acesso ainda não liberado</h2><div class="sub">Sua conta (<b>${esc(PERM.email)}</b>) entrou, mas ainda não tem nenhuma visão liberada. Peça pro Gustavo marcar em <b>Configurações › Acessos</b>.</div></div>`;
+      return;}
+    /* caiu numa visão que essa pessoa não pode ver → manda pra primeira liberada */
+    if(!podeVer(VISAO)){const primeira=visoesVisiveis()[0];if(primeira)applyVisao(primeira.code);}
+    if(PERM.admin){try{await acessosLoad();}catch(e){}}
     DB=await loadData();
     try{CENTRAL=await loadCentral();}catch(e){CENTRAL=_finalizeCentral(_emptyPer());}
     route("central");}   /* app único: entra pela Central consolidada */

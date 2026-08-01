@@ -78,6 +78,20 @@ $$ select
           and (case when escrita then p.escrever else p.ler end)
      ) $$;
 
+-- Sobrecarga pra coluna `visao` do tipo TEXT (nem toda tabela usa o enum:
+-- pluggy_conexoes, por exemplo, guarda visao como texto). Sem isso o
+-- create policy quebra com "function app_pode(text) does not exist".
+create or replace function public.app_pode(v text, escrita boolean default false)
+  returns boolean language sql stable security definer set search_path = public as
+$$ select
+     public.app_is_admin()
+     or exists (
+       select 1 from public.usuario_visoes p
+        where p.email = public.app_email()
+          and (p.visao::text = v or v = 'AMBOS')
+          and (case when escrita then p.escrever else p.ler end)
+     ) $$;
+
 -- ---------- 4. RLS DO PROPRIO CADASTRO -------------------------------
 alter table public.app_usuarios  enable row level security;
 alter table public.usuario_visoes enable row level security;
@@ -119,7 +133,9 @@ begin
        and c.table_name not like 'pipex%'
        and c.table_name not like 'bkp\_%'
        and c.table_name not like 'movimentos\_backup%'
-       and c.table_name not in ('usuario_visoes')
+       -- pluggy_conexoes tem visao TEXT e vira admin-only no passo 6:
+       -- fica de fora daqui pra nao criar politica que sera derrubada logo depois
+       and c.table_name not in ('usuario_visoes','pluggy_conexoes')
   loop
     execute format('alter table public.%I enable row level security', t);
 

@@ -162,3 +162,65 @@ DELETE FROM movimentos
 WHERE id IN (SELECT id FROM bkp_movimentos_dup_desloc_20260730);
 
 -- REVERTER: INSERT INTO movimentos SELECT * FROM bkp_movimentos_dup_desloc_20260730;
+
+
+-- =====================================================================
+-- VERSAO 1 CLIQUE (atomica e auto-verificavel) ------------------------
+-- Faz backup + delete dos dois blocos numa transacao so. Se a contagem
+-- nao bater 52 (bloco 1) ou 9 (bloco 2), levanta erro e NADA e alterado.
+-- =====================================================================
+DO $$
+DECLARE n int;
+BEGIN
+  CREATE TEMP TABLE _alvo ON COMMIT DROP AS
+  WITH g AS (
+    SELECT id, conta_id, data, valor, sinal,
+      CASE WHEN hash LIKE 'pluggy\_%' OR hash LIKE 'inter\_%' THEN 0
+           WHEN hash LIKE 'nu\_%' THEN 1
+           WHEN hash LIKE 'pru\_%' OR hash LIKE 'extpf\_%' THEN 2
+           WHEN hash LIKE 'load%' THEN 3
+           WHEN hash LIKE 'v2\_%' THEN 4
+           WHEN hash LIKE 'organizze%' THEN 5 ELSE 6 END AS prio,
+      CASE WHEN hash LIKE 'pluggy\_%' THEN 'pluggy' WHEN hash LIKE 'inter\_%' THEN 'inter'
+           WHEN hash LIKE 'nu\_%' THEN 'nu' WHEN hash LIKE 'pru\_%' THEN 'pru'
+           WHEN hash LIKE 'extpf\_%' THEN 'extpf' WHEN hash LIKE 'load%' THEN 'load'
+           WHEN hash LIKE 'v2\_%' THEN 'v2' WHEN hash LIKE 'organizze%' THEN 'organizze'
+           ELSE 'outro' END AS fonte
+    FROM movimentos
+    WHERE conta_id IN ('9225d426-84a9-4b0b-a28b-d5fc23a3600d',
+                       '60c8d610-7c7f-48f9-9209-badb38c1aa80',
+                       '30b25937-05d8-4350-bc0e-fc5219b6e661')),
+  pf AS (SELECT conta_id,data,valor,sinal,fonte,COUNT(*) c FROM g GROUP BY 1,2,3,4,5),
+  mt AS (SELECT conta_id,data,valor,sinal,MAX(c) quantas FROM pf GROUP BY 1,2,3,4),
+  rk AS (SELECT g.id, m.quantas,
+           ROW_NUMBER() OVER (PARTITION BY g.conta_id,g.data,g.valor,g.sinal ORDER BY g.prio, g.id) rn
+         FROM g JOIN mt m ON m.conta_id=g.conta_id AND m.data=g.data
+                         AND m.valor=g.valor AND m.sinal=g.sinal)
+  SELECT id FROM rk WHERE rn > quantas;
+
+  SELECT count(*) INTO n FROM _alvo;
+  IF n <> 52 THEN RAISE EXCEPTION 'BLOCO 1: esperado 52 linhas, veio % — nada foi alterado', n; END IF;
+
+  CREATE TABLE bkp_movimentos_dup_20260730 AS
+    SELECT * FROM movimentos WHERE id IN (SELECT id FROM _alvo);
+  DELETE FROM movimentos WHERE id IN (SELECT id FROM _alvo);
+
+  CREATE TABLE bkp_movimentos_dup_desloc_20260730 AS
+    SELECT * FROM movimentos WHERE id IN (
+      '4fc38231-d23a-468e-892e-f0dc0f1f95f6','a0294694-5c64-440a-9c7f-ac4860b3aef2',
+      '04c716b1-7bf4-4da3-8856-881c9c3494db','07e39bf4-e221-438c-b3a8-6ff6ca745424',
+      '7a25281a-ddbe-48d8-b91a-82cb74c9738f','a333a7f4-be99-4a67-a2e8-112f2a0f7ebc',
+      '40e2b37d-178c-4938-ac44-e9911f447475','a375e3d6-f325-4d31-9829-4d0e10df3f6d',
+      '9ac53286-581e-4e4f-9b2c-903f35ee0ef5');
+  SELECT count(*) INTO n FROM bkp_movimentos_dup_desloc_20260730;
+  IF n <> 9 THEN RAISE EXCEPTION 'BLOCO 2: esperado 9 linhas, veio % — rollback', n; END IF;
+  DELETE FROM movimentos WHERE id IN (SELECT id FROM bkp_movimentos_dup_desloc_20260730);
+END $$;
+
+SELECT c.nome, COUNT(*) AS movimentos,
+       SUM(m.valor*m.sinal)::numeric(12,2) AS soma_cega, c.saldo_atual
+FROM movimentos m JOIN contas c ON c.id=m.conta_id
+WHERE m.conta_id IN ('9225d426-84a9-4b0b-a28b-d5fc23a3600d',
+                     '60c8d610-7c7f-48f9-9209-badb38c1aa80',
+                     '30b25937-05d8-4350-bc0e-fc5219b6e661')
+GROUP BY c.nome, c.saldo_atual;

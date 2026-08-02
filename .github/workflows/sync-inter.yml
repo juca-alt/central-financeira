@@ -13,7 +13,14 @@ on:
         default: "30"
   # Piloto automático: roda a cada 3h (extrato + saldo sempre frescos; validado 2026-06-23)
   schedule:
-    - cron: "30 */3 * * *"   # a cada 3h (00:30, 03:30 ... 21:30 UTC) → dado nunca >3h atrasado
+    # A cada 1h (02/08, era 3h): API oficial do Inter entrega dado em tempo real,
+    # o dedup por hash impede duplicata e o repo e publico (Actions gratis).
+    - cron: "30 * * * *"   # todo :30 → dado nunca >1h atrasado
+
+# Nunca dois syncs ao mesmo tempo (cron horário + botão ⚡ do app podiam se cruzar).
+concurrency:
+  group: sync-inter
+  cancel-in-progress: false
 
 jobs:
   sync:

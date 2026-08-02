@@ -265,6 +265,19 @@ function confirmDel(msg,onYes){modal({title:"Confirmar",extraHTML:`<div class="s
 
 /* ===== reload após gravar (bug: totais recalculam) ===== */
 async function afterWrite(){ if(MODE==="live"){ try{DB=await loadData();}catch(e){toast("Reload: "+e.message);} } SEL.clear(); (ROUTES[CURRENT]||viewDashboard)(); }
+/* Botão ⚡ Atualizar bancos: Edge Function sync-agora → refresh Pluggy + workflow_dispatch dos syncs */
+async function syncBancos(){const btn=()=>document.getElementById("btnSyncBancos");
+  if(MODE!=="live"){toast("Sync só no modo live (logado)");return;}
+  const b=btn(); if(b){b.disabled=true;b.textContent="⏳ Disparando…";}
+  try{
+    const tok=sb?((await sb.auth.getSession()).data.session?.access_token||CONFIG.SUPABASE_ANON_KEY):CONFIG.SUPABASE_ANON_KEY;
+    const r=await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/sync-agora`,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${tok}`,"apikey":CONFIG.SUPABASE_ANON_KEY},body:"{}"});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(j.error||("HTTP "+r.status));
+    if(j.ok){ toast("Sync disparado (Pluggy + Inter PJ) — recarrego em ~2 min"); const b2=btn(); if(b2)b2.textContent="⏳ Sincronizando…";
+      setTimeout(async()=>{await afterWrite();toast("Saldos recarregados");},120000);
+    } else { toast("Sync parcial: "+(typeof j.github==="string"?j.github:JSON.stringify(j.github)).slice(0,140)); const b3=btn(); if(b3){b3.disabled=false;b3.textContent="⚡ Atualizar bancos";} }
+  }catch(e){ toast("Sync: "+e.message); const b4=btn(); if(b4){b4.disabled=false;b4.textContent="⚡ Atualizar bancos";} }}
 
 /* ===== período ===== */
 const yearsList=()=>[...new Set((DB.movimentos||[]).map(m=>m.ano).filter(Boolean))].sort((a,b)=>b-a);
@@ -373,7 +386,7 @@ function contasPanel(){const b=contaSaldos();
   const items=[...b.entries()].filter(([n,v])=>!isCartaoConta(n)&&(v!==0||n!=="(sem conta)")).sort((a,b)=>b[1]-a[1]);
   if(!items.length)return'';
   const rows=items.map(([n,v])=>{const liveTs=meta.get(n);const tag=liveTs?`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${fmtTs(liveTs)}</div>`:'';return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
-  return`<div class="panel"><h2>Saldo por conta</h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
+  return`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Saldo por conta <button class="btn ghost sm" id="btnSyncBancos" onclick="syncBancos()" title="Pede refresh no Pluggy e dispara os syncs (Pluggy + Inter PJ) agora">⚡ Atualizar bancos</button></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 function cartoesPanel(){const b=contaSaldos();
   const items=[...b.entries()].filter(([n,v])=>isCartaoConta(n)).sort((a,b)=>a[1]-b[1]);
   if(!items.length)return'';

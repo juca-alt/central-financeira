@@ -20,9 +20,9 @@ on:
         required: false
         default: ""
       sync_days:
-        description: "Quantos dias pra trás"
+        description: "Quantos dias pra trás (7 = padrão seguro; janela grande reprocessa muita base)"
         required: false
-        default: "90"
+        default: "7"
       probe_days:
         description: "PROBE (>0 = só lista movimentos recentes do app e sai)"
         required: false
@@ -33,7 +33,17 @@ on:
   # O sync tenta PATCH /items (se negado pós-trial, lê o dado diário do MeuPluggy);
   # janela padrão de 7 dias + dedup por hash = sem duplicata em reexecuções.
   schedule:
-    - cron: "40 9 * * *"   # 09:40 UTC = 06:40 BRT
+    # A cada 2h (02/08): o dado do MeuPluggy chega 1x/dia mas em hora imprevisível,
+    # entao rodar de 2 em 2h faz o app pegar a atualizacao logo que ela existe.
+    # Seguro: dedup por conteudo + guard de saldo já provados (rodadas repetidas
+    # gravam 0); repo publico = minutos de Actions ilimitados; 12 execucoes/dia
+    # e volume baixo pra API da Pluggy.
+    - cron: "40 */2 * * *"   # :40 de 2 em 2h UTC
+
+# Nunca dois syncs ao mesmo tempo (cron + botão ⚡ do app podiam se cruzar).
+concurrency:
+  group: sync-pluggy
+  cancel-in-progress: false
 
 jobs:
   sync:

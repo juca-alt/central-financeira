@@ -262,17 +262,28 @@ async function main() {
   ]);
   const suggest = buildSuggester(regras, glossario);
 
+  // Um item costuma servir 2 conexões (conta + cartão do mesmo banco). O PATCH é
+  // por ITEM, então tentar uma vez por conexão dobrava as chamadas à toa.
+  const refreshFeito = new Map();   // item_id → status
+  const falhas = [];                // conexões que estouraram: viram exit 1 no fim
+
   for (const c of conexoes) {
     console.log(`\n=== ${c.banco} (${c.visao}) ===`);
     try {
-      console.log('   refresh do item (PATCH /items)…');
       let st;
-      try {
-        st = await refreshItem(c.item_id);
-      } catch (e) {
-        // Itens MeuPluggy pós-trial podem negar o PATCH — o dado diário já
-        // está atualizado do lado deles, então segue lendo o que tem.
-        st = `sem refresh (${String(e.message).slice(0, 120)})`;
+      if (refreshFeito.has(c.item_id)) {
+        st = `${refreshFeito.get(c.item_id)} [mesmo item da conexão anterior]`;
+      } else {
+        console.log('   refresh do item (PATCH /items)…');
+        try {
+          st = await refreshItem(c.item_id);
+        } catch (e) {
+          // Item criado no MeuPluggy NUNCA aceita PATCH ("MeuPluggy item cant be
+          // updated", 400) — é limitação do conector, não do plano. Quem atualiza
+          // é o próprio MeuPluggy, 1x/dia. Seguir lendo o que já está lá.
+          st = `sem refresh (${String(e.message).slice(0, 120)})`;
+        }
+        refreshFeito.set(c.item_id, st);
       }
       console.log(`   status: ${st}`);
 
@@ -342,7 +353,11 @@ async function main() {
         rows.slice(0, 8).forEach(r => console.log(`   [dry] ${r.data} ${r.sinal > 0 ? '+' : '-'}${r.valor} ${r.descricao_limpa.slice(0, 55)}`));
       } else {
         for (let i = 0; i < rows.length; i += 200) {
-          await sbSend('POST', '/rest/v1/movimentos', rows.slice(i, i + 200), 'return=minimal');
+          // on_conflict=hash (02/08): sem isso, um hash que escapasse do set `have`
+          // (dois runs simultâneos — cron + botão ⚡) devolvia 409 e derrubava o LOTE
+          // inteiro de 200 linhas, abortando a conexão antes de gravar o saldo.
+          await sbSend('POST', '/rest/v1/movimentos?on_conflict=hash', rows.slice(i, i + 200),
+            'resolution=ignore-duplicates,return=minimal');
         }
         // Saldo real do banco → card usa contas.saldo_atual (não a soma cega).
         // GUARD (21/07): item MeuPluggy não aceita refresh (PATCH /items → 400) e pode ficar
@@ -350,8 +365,15 @@ async function main() {
         // Pluggy tem, o saldo dele está atrasado — não sobrescrever (senão o extrato conferido
         // na mão volta pro valor velho todo dia de manhã).
         const saldo = Number(acc.balance ?? NaN);
-        const pluggyLast = txs.map(t => String(t.date || '').slice(0, 10)).filter(Boolean).sort().pop() || null;
-        const [ultimo] = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&select=data&order=data.desc&limit=1`);
+        // FURO CORRIGIDO (02/08): as duas pontas comparavam datas FUTURAS (parcelas de
+        // cartão vão até 2027, e um agendamento lançado à mão também). Bastava um
+        // lançamento futuro no app pra `dbLast > pluggyLast` virar verdade PARA SEMPRE
+        // e o saldo daquela conta nunca mais atualizar, em silêncio. Agora os dois lados
+        // olham só o que já aconteceu — maçã com maçã.
+        const hoje = new Date().toISOString().slice(0, 10);
+        const pluggyLast = txs.map(t => String(t.date || '').slice(0, 10))
+          .filter(d => d && d <= hoje).sort().pop() || null;
+        const [ultimo] = await sbGet(`/rest/v1/movimentos?conta_id=eq.${c.conta_id}&data=lte.${hoje}&select=data&order=data.desc&limit=1`);
         const dbLast = ultimo?.data || null;
         // FURO CORRIGIDO (31/07): item congelado devolve ZERO transações na janela →
         // pluggyLast ficava null, o guard não disparava e o saldo velho voltava por cima
@@ -383,11 +405,21 @@ async function main() {
       }
     } catch (e) {
       console.log(`   ⚠ erro em ${c.banco}: ${e.message}`);   // um banco falhar não derruba os outros
+      falhas.push(`${c.banco} (${c.visao}): ${e.message}`);
     }
   }
 
   if (DRY_RUN) console.log('\nDRY_RUN=true — nada gravado. Rode com DRY_RUN=false para gravar.');
   else console.log('\nOK — sync Pluggy concluído.');
+
+  // OBSERVABILIDADE (02/08): antes, um item que falhasse na leitura só virava uma
+  // linha de log e o workflow ficava VERDE — dava pra ficar semanas sem sincronizar
+  // sem ninguém perceber. Agora falha de conexão reprova o run.
+  if (falhas.length) {
+    console.error(`\n❌ ${falhas.length} de ${conexoes.length} conexões falharam:`);
+    falhas.forEach(f => console.error(`   - ${f}`));
+    process.exit(1);
+  }
 }
 
 main().catch(e => { console.error('ERRO:', e.message); process.exit(1); });

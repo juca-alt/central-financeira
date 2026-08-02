@@ -118,7 +118,8 @@ const addMonth=(k,n)=>{let[y,m]=k.split("-").map(Number);m+=n;y+=Math.floor((m-1
 
 const INTERNO_CAT_RX=/transfer[eê]ncia|saldo inicial|aplica[cç][aã]o|investiment|resgate|pagamento fatura/i;
 const INTERNO_DESC_RX=/\b(aplica[cç][aã]o|resgate|pagamento\s+fatura|fatura\s+cart[aã]o|transfer[eê]ncia\s+interna|transf\s+entre\s+contas)\b/i;
-const isInterno=m=>INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
+const isForaTotais=m=>/fora do extrato/i.test(m.banco||"");// convenção: conta com "(fora do extrato)" no nome não entra em KPIs/gráficos
+const isInterno=m=>isForaTotais(m)||INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
 /* Inter-visão: transferências entre as PRÓPRIAS entidades do Gustavo (Outliers↔PF/Família/Jucá, fluxo Rebeca-RC).
    Na visão individual contam como receita/despesa (útil p/ orçamento); na Central consolidada são NETADAS
    p/ não duplicar (o dinheiro já foi contado uma vez na origem). Detecta por contraparte + tag em observacao. */

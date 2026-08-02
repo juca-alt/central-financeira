@@ -12,6 +12,9 @@
 --   mai: só 12 reais). 431/432 têm categoria.
 --   Saldo exibido NÃO muda em nenhuma opção (saldo_atual é override).
 --
+-- DECISÃO 01/08 (Gustavo: "siga o caminho recomendado") = BLOCO B (mover),
+-- complementado no app pela v6.3.0: conta com "(fora do extrato)" no nome
+-- sai de KPIs/gráficos (via isInterno). RODAR SÓ O BLOCO B.
 -- ESTE ARQUIVO TEM 2 BLOCOS INDEPENDENTES — RODAR NO MÁXIMO UM,
 -- conforme a decisão do Gustavo:
 --   BLOCO A = APAGAR as 436 (com backup bkp_movimentos_razao_20260801)

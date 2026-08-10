@@ -207,3 +207,64 @@
 .acc-cb input{width:15px;height:15px;accent-color:var(--acc,#4f6bff);cursor:pointer}
 .acc-cb input:disabled{cursor:not-allowed;opacity:.5}
 .acc-cb:hover{color:inherit}
+
+/* ===== MODO FINANCEIRO · Contas a Pagar (rota "financeiro") =====
+   Painel vivo do dashboard `contas_agosto_2026.html`. Só usa tokens do app
+   (--card/--border/--muted/--expense/--income), então acompanha o tema. */
+.fp-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.fp-kpis .kpi{min-width:0}
+.fp-kpis .kpi .val.cr{color:var(--expense)}
+.fp-kpis .kpi .val.gd{color:var(--income)}
+.fp-views{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:13px}
+.fp-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;align-items:start;margin-top:18px}
+.fp-vcard{position:relative;overflow:hidden;padding-left:20px;min-width:0}
+.fp-vcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c,var(--primary))}
+.fp-vh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.fp-dot{width:10px;height:10px;border-radius:3px;background:var(--c,var(--primary));flex:none}
+.fp-vt{font-weight:660;font-size:14.5px}
+.fp-vtag{font-size:11px;color:var(--muted)}
+.fp-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.fp-line:first-of-type{border-top:0}
+.fp-line .k{color:var(--muted)}
+.fp-line .q{font-size:11px;color:var(--muted);margin-left:5px}
+.fp-line .v{font-weight:620;font-variant-numeric:tabular-nums}
+.fp-line.tot{border-top:1.5px solid var(--border);margin-top:3px;padding-top:9px;font-size:14px}
+.fp-line.tot .v{font-weight:750}
+.fp-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted);margin-bottom:4px}
+.fp-legend .li{display:flex;align-items:center;gap:6px}
+.fp-chart{display:flex;align-items:flex-end;gap:10px;height:200px;padding-top:16px;overflow-x:auto;min-width:0}
+.fp-col{flex:1;min-width:36px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px}
+.fp-stack{width:100%;max-width:52px;display:flex;flex-direction:column-reverse;gap:2px}
+.fp-seg{border-radius:4px 4px 0 0;min-height:3px;background:var(--c,var(--primary))}
+.fp-cval{font-size:11px;font-weight:620;font-variant-numeric:tabular-nums;white-space:nowrap}
+.fp-cday{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.fp-col.late .fp-cday{color:var(--expense);font-weight:700}
+.fp-lboxes{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+.fp-lbox{flex:1;min-width:165px;background:var(--chip);border:1px solid var(--border);border-radius:12px;padding:11px 13px}
+.fp-lbox.red{background:#fee2e2;border-color:#fecaca}
+.fp-lbox .ll{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;color:var(--muted)}
+.fp-lbox .lv{font-size:17px;font-weight:720;margin-top:4px;font-variant-numeric:tabular-nums}
+.fp-lbox.red .lv{color:var(--expense)}
+.fp-lbox .lm{font-size:11px;color:var(--muted);margin-top:2px}
+.fp-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:650;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.fp-badge.est{background:#fef3c7;color:#92400e}
+.fp-badge.late{background:#fee2e2;color:#b91c1c}
+.fp-badge.pago{background:#dcfce7;color:#166534}
+.fp-badge.open{background:var(--chip);color:#374151}
+.fp-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;min-width:0}
+.fp-wrap table{min-width:560px}
+.fp-day{font-variant-numeric:tabular-nums;white-space:nowrap}
+.fp-day.late{color:var(--expense);font-weight:650}
+.fp-desc{font-weight:550;color:var(--fg)}
+.fp-obs{color:var(--muted);font-size:11px;margin-top:2px;max-width:340px}
+tr.fp-tr{cursor:pointer}
+tr.fp-tr:hover td{background:#fafbfe}
+.fp-act{white-space:nowrap;width:1%;padding-right:0}
+.fp-act .btn{padding:4px 10px;font-weight:700}
+.fp-fil{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fp-fil button{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+.fp-fil button.on{color:#fff;border-color:transparent;background:var(--c,var(--primary))}
+.fp-fil button.on .fp-dot{background:#fff}
+@media(max-width:1180px){.fp-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:1320px){.fp-grid2{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:660px){.fp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.fp-chart{height:192px}.fp-wrap table{min-width:440px}.fp-desc{font-size:12.5px}}

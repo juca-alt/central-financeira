@@ -30,6 +30,7 @@ const SHELL_HTML = `
     <div class="vsw" id="vswBox"></div>
     <nav class="nav" id="nav">
       <a data-route="central" class="active"><span class="ico">◎</span> Central</a>
+      <a data-route="financeiro"><span class="ico">💳</span> Modo Financeiro</a>
       <a data-route="dashboard"><span class="ico">▦</span> Visão Geral</a>
       <a data-route="fluxo"><span class="ico">📈</span> Fluxo de Caixa</a>
       <a data-route="dre" id="navDre"><span class="ico">📊</span> DRE</a>
@@ -71,12 +72,13 @@ const FORCE_DEMO=/[?&]demo=1/.test(location.search);   // ?demo=1 → dados de e
 const sb=(HAS_KEY&&!FORCE_DEMO)?supabase.createClient(CONFIG.SUPABASE_URL,CONFIG.SUPABASE_ANON_KEY):null;
 const MODE=(HAS_KEY&&!FORCE_DEMO)?"live":"demo";
 /* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (legado, migrando p/ app único). */
+/* `cor` = identidade visual da frente (Modo Financeiro: barras, badges e chips) */
 const PROFILES=[
-  {code:"PJ",      label:"Outliers MFB", grupo:"Negócios", path:"",       icon:"🏢"},
-  {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢"},
-  {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢"},
-  {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠"},
-  {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑"},
+  {code:"PJ",      label:"Outliers MFB", grupo:"Negócios", path:"",       icon:"🏢", cor:"#2a78d6", corBg:"#e5effb"},
+  {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢", cor:"#7c3aed", corBg:"#eee9fd"},
+  {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢", cor:"#0891b2", corBg:"#e0f3f8"},
+  {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠", cor:"#eb6834", corBg:"#fdeade"},
+  {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑", cor:"#16a34a", corBg:"#dff5e6"},
 ];
 /* Visão ativa — MUTÁVEL. App único: a Central troca a visão em runtime (setVisao). */
 const VISAO_KEY="cfin_visao";
@@ -264,7 +266,7 @@ function modal({title,fields,values={},extraHTML="",onSave,saveLabel="Salvar"}){
 function confirmDel(msg,onYes){modal({title:"Confirmar",extraHTML:`<div class="sub">${esc(msg)}</div>`,saveLabel:"Excluir",onSave:()=>{onYes();}});}
 
 /* ===== reload após gravar (bug: totais recalculam) ===== */
-async function afterWrite(){ if(MODE==="live"){ try{DB=await loadData();}catch(e){toast("Reload: "+e.message);} } SEL.clear(); (ROUTES[CURRENT]||viewDashboard)(); }
+async function afterWrite(){ if(MODE==="live"){ try{DB=await loadData();}catch(e){toast("Reload: "+e.message);} } SEL.clear(); try{FP.dados=null;}catch(e){} /* Modo Financeiro relê previstos */ (ROUTES[CURRENT]||viewDashboard)(); }
 /* Botão ⚡ Atualizar bancos: Edge Function sync-agora → refresh Pluggy + workflow_dispatch dos syncs */
 async function syncBancos(){const btn=()=>document.getElementById("btnSyncBancos");
   if(MODE!=="live"){toast("Sync só no modo live (logado)");return;}
@@ -1537,7 +1539,254 @@ function viewCentral(){const c=CENTRAL||_finalizeCentral(_emptyPer());
   <div style="font-size:13px;color:var(--muted);margin:6px 2px 0">Escolha uma visão para abrir o detalhe.</div>
   ${grupos}`;
 }
-const ROUTES={central:viewCentral,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+/* =====================================================================
+   MODO FINANCEIRO · Contas a Pagar  (rota "financeiro")
+   Versão VIVA do dashboard `contas_agosto_2026.html`: lê `previstos`
+   (tipo=pagar) de TODAS as visões que a pessoa pode ver — por isso NÃO
+   usa DB.contasPagar, que é só da visão aberta.
+   BUCKETS = iguais aos do dashboard estático: linhas JÁ CADASTRADAS,
+   sem projeção de recorrência (quem projeta recorrente é a Visão Geral /
+   Contas do mês). Assim os números batem 1:1 com a tabela.
+   ESCRITA: o ✓ respeita `podeEditar(visao da linha)` e, em linha
+   recorrente, usa o MESMO modelo do ✓ das Contas do mês — nasce uma
+   instância PAGA no dia e o template rola pra próxima ocorrência (pagar
+   agosto não mata a série). Não lança movimento: aqui as contas vêm de
+   várias visões e o extrato (Pluggy/Inter) traz o débito real.
+   ===================================================================== */
+let FP={mes:null,vis:new Set(),dados:null,carregando:false,erro:""},FP_UNDO={},FP_GEN=0;
+const FP_EST_RX=/perspectiva|estimativa/i;
+const fpProfile=c=>PROFILES.find(p=>p.code===c)||{code:c,label:c==="AMBOS"?"Compartilhado":c,grupo:"",icon:"●",cor:"#64748b",corBg:"#eef0f3"};
+const fpSum=a=>a.reduce((s,r)=>s+r.valor,0);
+const fpDDMM=s=>(s||"").slice(8,10)+"/"+(s||"").slice(5,7);
+const fpPago=r=>String(r.status||"").toLowerCase()==="pago";
+
+/* carrega previstos a pagar de todas as visões visíveis (RLS filtra o resto) */
+async function fpLoad(){
+  if(MODE==="demo"){
+    const rows=(DB.contasPagar||[]).filter(p=>p.vencimento).map(p=>({id:p._row,desc:p.descricao||"",valor:Math.abs(Number(p.valor)||0),venc:(p.vencimento||"").slice(0,10),status:p.status||"aberto",rec:p.recorrencia||"",visao:VISAO,conta:p.banco||"",categoria:p.categoria||"",obs:"",conta_id:null,categoria_id:null,est:FP_EST_RX.test(p.descricao||"")}));
+    return{rows,semVenc:0};
+  }
+  const codes=visoesVisiveis().map(p=>p.code).concat("AMBOS");
+  const[pv,ct,cg]=await Promise.all([
+    sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,recorrencia,visao,conta_id,categoria_id,observacao").eq("tipo","pagar").in("visao",codes).order("vencimento").limit(20000),
+    sb.from("contas").select("id,nome").in("visao",codes),
+    sb.from("categorias").select("id,nome").in("visao",codes)]);
+  /* visão nova ainda não provisionada no enum → vazio em vez de quebrar (igual loadData) */
+  if([pv,ct,cg].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02")))return{rows:[],semVenc:0};
+  if(pv.error)throw new Error(pv.error.message);
+  const cn=new Map((((ct||{}).data)||[]).map(c=>[c.id,c.nome])),kn=new Map((((cg||{}).data)||[]).map(c=>[c.id,c.nome]));
+  const todas=(pv.data||[]);
+  const rows=todas.filter(p=>p.vencimento).map(p=>({
+    id:p.id,desc:p.descricao||"",valor:Math.abs(Number(p.valor)||0),venc:String(p.vencimento).slice(0,10),
+    status:p.status||"aberto",rec:p.recorrencia||"",visao:p.visao,conta_id:p.conta_id||null,categoria_id:p.categoria_id||null,
+    conta:cn.get(p.conta_id)||"",categoria:kn.get(p.categoria_id)||"",obs:p.observacao||"",
+    est:FP_EST_RX.test(p.descricao||"")}));
+  return{rows,semVenc:todas.length-rows.length};
+}
+
+/* buckets do mês selecionado + recortes de visão */
+function fpCalc(){
+  const mk=FP.mes,{de,ate}=monthBounds(+mk.slice(0,4),+mk.slice(5,7)),hoje=todayISO();
+  const rows=(FP.dados.rows||[]).filter(r=>!FP.vis.size||FP.vis.has(r.visao));
+  const ab=rows.filter(r=>isPrevAberto(r.status));           /* exclui pago e cancelado */
+  const noMes=r=>r.venc>=de&&r.venc<=ate;
+  const mesAberto=ab.filter(noMes).sort((a,b)=>a.venc<b.venc?-1:1);
+  const mesPago=rows.filter(r=>fpPago(r)&&noMes(r)).sort((a,b)=>a.venc<b.venc?-1:1);
+  const atras=ab.filter(r=>r.venc<de).sort((a,b)=>a.venc<b.venc?-1:1);
+  const prox=ab.filter(r=>r.venc>ate).sort((a,b)=>a.venc<b.venc?-1:1);
+  const vencidasNoMes=mesAberto.filter(r=>r.venc<hoje);
+  return{mk,de,ate,hoje,rows,ab,mesAberto,mesPago,atras,prox,vencidasNoMes};
+}
+
+/* ---- interações ---- */
+function fpMes(n){FP.mes=addMonth(FP.mes,n);viewFinanceiro();}
+function fpHojeMes(){FP.mes=todayISO().slice(0,7);viewFinanceiro();}
+function fpVisTgl(code){if(!code){FP.vis.clear();}else if(FP.vis.has(code)){FP.vis.delete(code);}else{FP.vis.add(code);}viewFinanceiro();}
+function fpRecarregar(){FP.dados=null;FP.erro="";viewFinanceiro();}
+
+/* ---- render ---- */
+function viewFinanceiro(){
+  if(!FP.mes)FP.mes=todayISO().slice(0,7);
+  if(FP.erro){
+    $("#view").innerHTML=`<div class="row"><div><h1>Modo Financeiro</h1><div class="sub">Contas a pagar · todas as visões que você enxerga</div></div></div>
+      <div class="panel"><h2>Não consegui carregar</h2><div class="sub">${esc(FP.erro)}</div><div style="margin-top:12px"><button class="btn" onclick="fpRecarregar()">Tentar de novo</button></div></div>`;
+    return;}
+  if(!FP.dados){
+    /* geração: uma recarga disparada depois de gravar SEMPRE vence a que estava no ar
+       (senão a resposta antiga voltava por cima e mostrava o valor pré-baixa) */
+    const gen=++FP_GEN;FP.carregando=true;
+    fpLoad().then(d=>{if(gen===FP_GEN)FP.dados=d;},e=>{if(gen===FP_GEN)FP.erro=e.message||String(e);})
+      .then(()=>{if(gen!==FP_GEN)return;FP.carregando=false;if(CURRENT==="financeiro")viewFinanceiro();});
+    $("#view").innerHTML=`<div class="row"><div><h1>Modo Financeiro</h1><div class="sub">Contas a pagar · todas as visões que você enxerga</div></div></div><div class="panel"><div class="empty">Carregando contas…</div></div>`;
+    return;}
+
+  const c=fpCalc(),hoje=c.hoje;
+  const codesComLinha=[...new Set((FP.dados.rows||[]).map(r=>r.visao))];
+  const podeAlgo=codesComLinha.some(cd=>podeEditar(cd));
+
+  /* filtros por frente */
+  const chip=(code,label,cor)=>`<button class="${(!code&&!FP.vis.size)||(code&&FP.vis.has(code))?"on":""}" style="--c:${cor||"var(--primary)"}" onclick="fpVisTgl(${code?`'${code}'`:""})">${code?`<span class="fp-dot" style="--c:${cor}"></span>`:"◎ "}${esc(label)}</button>`;
+  const filtros=`<div class="fp-fil">${chip("","Todas")}${codesComLinha.map(cd=>{const p=fpProfile(cd);return chip(cd,p.label,p.cor);}).join("")}</div>`;
+
+  /* KPIs — “total em aberto” e “próximos” são de TODAS as competências */
+  const kpi=(lbl,val,hint,cls)=>`<div class="kpi"><div class="lbl">${lbl}</div><div class="val ${cls||""}">${fmtBRL(val)}</div><div class="hint">${hint}</div></div>`;
+  const kpis=`<div class="fp-kpis">
+    ${kpi("Total em aberto",fpSum(c.ab),c.ab.length+" conta(s) · todas as competências")}
+    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) no mês")}
+    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd")}
+    ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) vencida(s) antes do mês","cr")}
+    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) a vencer")}
+  </div>`;
+
+  /* card por frente */
+  const cards=codesComLinha.filter(cd=>!FP.vis.size||FP.vis.has(cd)).map(cd=>{
+    const p=fpProfile(cd),f=a=>a.filter(r=>r.visao===cd);
+    const abV=f(c.ab),mAb=f(c.mesAberto),mPg=f(c.mesPago),atr=f(c.atras),px=f(c.prox);
+    const ln=(k,arr,cls)=>`<div class="fp-line"><span class="k">${k}<span class="q">${arr.length}</span></span><span class="v ${arr.length&&cls?cls:""}">${fmtBRL(fpSum(arr))}</span></div>`;
+    return `<div class="panel fp-vcard" style="--c:${p.cor}">
+      <div class="fp-vh"><span class="fp-dot"></span><span class="fp-vt">${esc(p.label)}</span><span class="fp-vtag">· ${esc(p.grupo==="Pessoal"?"Vida":p.grupo||"—")}</span></div>
+      ${ln("A pagar em "+mkLabel(c.mk),mAb)}
+      ${ln("Já pago no mês",mPg,"in")}
+      ${ln("Atrasado",atr,"out")}
+      ${ln("Próximos meses",px)}
+      <div class="fp-line tot"><span class="k">Total em aberto</span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
+    </div>`;}).join("");
+
+  /* gráfico: dia de vencimento × frente (só o que está EM ABERTO no mês) */
+  const byDay={};
+  c.mesAberto.forEach(r=>{(byDay[r.venc]=byDay[r.venc]||{tot:0,por:{},itens:[]});byDay[r.venc].tot+=r.valor;byDay[r.venc].por[r.visao]=(byDay[r.venc].por[r.visao]||0)+r.valor;byDay[r.venc].itens.push(r);});
+  const dias=Object.keys(byDay).sort(),maxDia=Math.max(1,...dias.map(d=>byDay[d].tot));
+  const chart=dias.length?`<div class="fp-chart">${dias.map(d=>{
+    const o=byDay[d],late=d<hoje,h=v=>Math.max(3,Math.round(v/maxDia*145));
+    const segs=Object.keys(o.por).map(cd=>`<div class="fp-seg" style="--c:${fpProfile(cd).cor};height:${h(o.por[cd])}px"></div>`).join("");
+    const tip=fmtDate(d)+" — "+o.itens.map(i=>i.desc+": "+fmtBRL(i.valor)).join(" · ");
+    return `<div class="fp-col ${late?"late":""}" title="${esc(tip)}">
+      <div class="fp-cval">${fmtK(o.tot)}</div><div class="fp-stack">${segs}</div><div class="fp-cday">${fpDDMM(d)}</div></div>`;}).join("")}</div>`
+    :`<div class="empty">Nada em aberto vencendo em ${mkLabel(c.mk)}.</div>`;
+  const legenda=`<div class="fp-legend">${codesComLinha.filter(cd=>!FP.vis.size||FP.vis.has(cd)).map(cd=>{const p=fpProfile(cd);return `<span class="li"><span class="fp-dot" style="--c:${p.cor}"></span> ${esc(p.label)}</span>`;}).join("")}<span class="li" style="margin-left:auto"><span style="color:var(--expense)">●</span> dia já vencido</span></div>`;
+
+  /* tabelas */
+  const badgeV=cd=>{const p=fpProfile(cd);return `<span class="fp-badge" style="background:${p.corBg};color:${p.cor}">${esc(p.label)}</span>`;};
+  const situacao=r=>fpPago(r)?`<span class="fp-badge pago">✓ Paga</span>`
+    :(r.venc<hoje?`<span class="fp-badge late">● Vencida</span>`
+    :(r.est?`<span class="fp-badge est">~ Estimativa</span>`:`<span class="fp-badge open">A pagar</span>`));
+  const acao=r=>{
+    if(fpPago(r))return FP_UNDO[r.id]?`<button class="btn ghost sm" title="Desfazer a baixa" onclick="event.stopPropagation();fpUndo('${r.id}')">↩︎</button>`:"";
+    return podeEditar(r.visao)?`<button class="btn ghost sm" title="Marcar como paga" onclick="event.stopPropagation();fpPay('${r.id}')" aria-label="Marcar como paga">✓</button>`:"";};
+  /* ação na 1ª coluna: no celular o ✓ fica sempre à vista (mesmo lugar do ✓ das Contas do mês) */
+  const tr=(r,comSit)=>`<tr class="fp-tr" onclick="fpDetalhe('${r.id}')">
+    <td class="fp-act">${acao(r)}</td>
+    <td class="fp-day ${(!fpPago(r)&&r.venc<hoje)?"late":""}">${fpDDMM(r.venc)}</td>
+    <td><div class="fp-desc">${esc(r.desc)}</div>${r.conta||r.categoria?`<div class="fp-obs">${esc([r.conta,r.categoria].filter(Boolean).join(" · "))}</div>`:""}</td>
+    <td>${badgeV(r.visao)}</td>
+    ${comSit?`<td>${situacao(r)}</td>`:""}
+    <td class="num out">${fmtBRL(r.valor)}</td></tr>`;
+  const tabela=(list,comSit,vazio)=>`<div class="fp-wrap"><table><thead><tr><th></th><th>Venc.</th><th>Conta</th><th>Frente</th>${comSit?"<th>Situação</th>":""}<th class="num">Valor</th></tr></thead>
+    <tbody>${list.map(r=>tr(r,comSit)).join("")||`<tr><td colspan="${comSit?6:5}"><div class="empty">${esc(vazio)}</div></td></tr>`}</tbody></table></div>`;
+
+  const semVenc=FP.dados.semVenc?`<div class="sub" style="margin:-6px 2px 12px">⚠️ ${FP.dados.semVenc} conta(s) sem data de vencimento ficaram de fora — abra <b>Contas a Pagar</b> na visão delas pra datar.</div>`:"";
+
+  $("#view").innerHTML=`
+  <div class="row">
+    <div><h1>Modo Financeiro · Contas a Pagar</h1><div class="sub">${mkLabel(c.mk)} — ${codesComLinha.length} frente(s) que você enxerga, separadas e consolidadas${podeAlgo?" · toque no ✓ pra dar baixa":""}</div></div>
+    <div class="controls" style="margin:0">
+      <button class="btn ghost sm" onclick="fpMes(-1)" aria-label="Mês anterior">‹</button>
+      <div style="font-weight:660;min-width:92px;text-align:center">${mkLabel(c.mk)}</div>
+      <button class="btn ghost sm" onclick="fpMes(1)" aria-label="Próximo mês">›</button>
+      ${c.mk!==todayISO().slice(0,7)?`<button class="btn ghost sm" onclick="fpHojeMes()">hoje</button>`:""}
+      <button class="btn sm" onclick="addPagar()" title="Lança na visão aberta (${esc(VISAO_LABEL)})">+ Nova</button>
+    </div>
+  </div>
+  <div class="controls">${filtros}<button class="btn ghost sm" style="margin-left:auto" onclick="fpRecarregar()">↻ Atualizar</button></div>
+  ${semVenc}
+  ${kpis}
+  <div class="secttl"><span>Visão separada</span><span class="sub" style="margin:0;text-transform:none;letter-spacing:0;font-weight:500">cada frente com o próprio subtotal</span></div>
+  <div class="fp-views">${cards||`<div class="panel"><div class="empty">Nenhuma conta a pagar cadastrada nas visões que você enxerga.</div></div>`}</div>
+  <div class="secttl" style="margin-top:20px"><span>Por dia de vencimento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAberto))}</span></div>
+  <div class="panel">
+    ${legenda}
+    ${chart}
+    <div class="fp-lboxes">
+      <div class="fp-lbox red"><div class="ll">Atrasado · meses anteriores</div><div class="lv">${fmtBRL(fpSum(c.atras))}</div><div class="lm">${c.atras.length} conta(s) vencida(s) antes de ${mkLabel(c.mk)}</div></div>
+      <div class="fp-lbox"><div class="ll">Já vencido dentro do mês</div><div class="lv">${fmtBRL(fpSum(c.vencidasNoMes))}</div><div class="lm">${c.vencidasNoMes.length} conta(s) do mês que já passaram do vencimento</div></div>
+      <div class="fp-lbox"><div class="ll">A pagar em ${mkLabel(c.mk)}</div><div class="lv">${fmtBRL(fpSum(c.mesAberto))}</div><div class="lm">${c.mesAberto.length} conta(s) a vencer/vencidas no mês</div></div>
+    </div>
+  </div>
+  <div class="secttl" style="margin-top:20px"><span>Detalhamento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAberto))} em aberto</span></div>
+  ${tabela([...c.mesAberto,...c.mesPago].sort((a,b)=>a.venc<b.venc?-1:(a.venc>b.venc?1:0)),true,"Nenhuma conta em "+mkLabel(c.mk)+".")}
+  <div class="fp-grid2">
+    <div>
+      <div class="secttl" style="margin-top:0"><span class="out">Atrasadas · meses anteriores</span><span class="num">${fmtBRL(fpSum(c.atras))}</span></div>
+      ${tabela(c.atras,false,"Nada atrasado. 🎉")}
+    </div>
+    <div>
+      <div class="secttl" style="margin-top:0"><span>Próximos meses</span><span class="num">${fmtBRL(fpSum(c.prox))}</span></div>
+      ${tabela(c.prox,false,"Nada lançado pra frente.")}
+    </div>
+  </div>
+  <div class="sub" style="margin:10px 2px 30px">Lê a tabela <code>previstos</code> (tipo “pagar”) ao vivo. Mostra as contas <b>já cadastradas</b> — recorrentes não são projetados aqui (quem projeta é a Visão Geral / Contas do mês). Itens com “PERSPECTIVA/ESTIMATIVA” na descrição vêm marcados como estimativa.</div>`;
+}
+
+/* detalhe da linha: no mesmo escopo abre o editor de sempre; fora dele, leitura + atalho */
+function fpDetalhe(id){
+  const r=(FP.dados&&FP.dados.rows||[]).find(x=>x.id===id);if(!r)return;
+  const p=fpProfile(r.visao),mesma=(r.visao===VISAO||VFILTER.indexOf(r.visao)>=0);
+  const info=[["Vencimento",fmtDate(r.venc)],["Valor",fmtBRL(r.valor)],["Frente",p.label],["Situação",fpPago(r)?"Paga":(r.venc<todayISO()?"Vencida":"A pagar")],
+    ["Conta",r.conta||"—"],["Categoria",r.categoria||"—"],["Recorrência",r.rec||"pontual"]];
+  const body=`<div style="display:flex;flex-direction:column;gap:7px">
+    ${info.map(([k,v])=>`<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px"><span class="sub" style="margin:0">${esc(k)}</span><b style="font-weight:600">${esc(v)}</b></div>`).join("")}
+    ${r.obs?`<div class="sub" style="margin-top:6px;white-space:pre-wrap">${esc(r.obs)}</div>`:""}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      ${(!fpPago(r)&&podeEditar(r.visao))?`<button class="btn sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpPay('${r.id}')">✓ Marcar como paga</button>`:""}
+      ${mesma?`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());editPagar('${r.id}')">✏️ Editar</button>`
+             :`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpAbrirEm('${r.visao}')">Abrir em ${esc(p.label)} ›</button>`}
+    </div></div>`;
+  modal({title:r.desc,extraHTML:body});
+}
+async function fpAbrirEm(code){await setVisao(code);route(IS_PESSOAL?"contas":"pagar");}
+
+/* ✓ dar baixa — recorrente rola a série (não mata), pontual só muda o status */
+async function fpPay(id){
+  const r=(FP.dados&&FP.dados.rows||[]).find(x=>x.id===id);if(!r||fpPago(r))return;
+  const p=fpProfile(r.visao);
+  if(!podeEditar(r.visao)){toast("Você não pode editar a visão "+p.label);return;}
+  if(MODE!=="live"){toast("Modo demo: a baixa não é gravada");return;}
+  const kind=recKind(r.rec),und={id,visao:r.visao,inst:null,tpl:null,prevAnchor:null};
+  try{
+    if(kind){
+      /* mesmo modelo do ✓ das Contas do mês: instância PAGA no dia + template rola */
+      und.inst=await sbIns("previstos",{descricao:r.desc,valor:r.valor,vencimento:r.venc,tipo:"pagar",status:"pago",visao:r.visao,recorrencia:null,conta_id:r.conta_id,categoria_id:r.categoria_id,observacao:r.obs||null});
+      const nx=stepRec(r.venc,kind,1);
+      await sbUpd("previstos",r.id,{vencimento:nx});
+      und.tpl=r.id;und.prevAnchor=r.venc;
+      FP_UNDO[und.inst]=und;
+      toast("Paga ✓ · próxima ocorrência em "+fmtDate(nx));
+    }else{
+      await sbUpd("previstos",r.id,{status:"pago"});
+      FP_UNDO[r.id]={...und,simples:true};
+      toast("Paga ✓");
+    }
+  }catch(e){toast("Erro: "+e.message);return;}
+  await fpAfterWrite(r.visao);
+}
+/* ↩︎ desfazer (só o que foi baixado nesta sessão) */
+async function fpUndo(id){
+  const und=FP_UNDO[id];if(!und)return;
+  try{
+    if(und.simples){await sbUpd("previstos",id,{status:"aberto"});}
+    else{await sbDel("previstos",und.inst);await sbUpd("previstos",und.tpl,{vencimento:und.prevAnchor});}
+    delete FP_UNDO[id];toast("Desfeito — voltou pra aberto");
+  }catch(e){toast("Erro: "+e.message);return;}
+  await fpAfterWrite(und.visao);
+}
+/* recarrega o painel; se a linha era da visão aberta, recarrega o DB dela também */
+async function fpAfterWrite(visao){
+  FP.dados=null;
+  if(VFILTER.indexOf(visao)>=0){try{DB=await loadData();}catch(e){}}
+  viewFinanceiro();
+}
+
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}

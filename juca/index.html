@@ -4,33 +4,34 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Central Financeira</title>
-<!-- PWA -->
-<link rel="manifest" href="manifest.webmanifest" />
+<meta name="robots" content="noindex" />
 <meta name="theme-color" content="#3b5bdb" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="Jucá" />
-<link rel="apple-touch-icon" href="../apple-touch-180.png" />
-<link rel="icon" href="../icon-192.png" />
-<link rel="stylesheet" href="../app.css" />
+<link rel="canonical" href="../index.html?v=JUCA" />
+<link rel="manifest" href="manifest.webmanifest" />
 <script>
-  /* ===================================================================
-     ÚNICA diferença entre os apps-irmãos = a linha VISAO abaixo.
-     CSS, markup e lógica são compartilhados em ../app.css + ../app.js.
-     =================================================================== */
-  window.CONFIG = {
-    SUPABASE_URL: "https://mieqsiojvfiqrhectquc.supabase.co",
-    SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1pZXFzaW9qdmZpcXJoZWN0cXVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5MDc1MTAsImV4cCI6MjA5NTQ4MzUxMH0.jm-hM4u5ULcsNAvWNOzpIjPTJ5pN2lbQm5KJcArYH1k",
-    VISAO: "JUCA",
-  };
-  window.APP_VERSION = "3.0";
+  /* Sub-app "Jucá" APOSENTADO: a Central virou app único (raiz + seletor de visão).
+     Esta página limpa o SW/caches antigos desta pasta e leva pra visão certa. */
+  (function () {
+    var DEST = "../index.html?v=JUCA";
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (rs) {
+          rs.forEach(function (r) { r.unregister(); });
+        });
+      }
+    } catch (e) {}
+    try {
+      if (window.caches && caches.keys) {
+        caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+      }
+    } catch (e) {}
+    location.replace(DEST);
+  })();
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<meta http-equiv="refresh" content="1;url=../index.html?v=JUCA" />
 </head>
-<body>
-<noscript style="display:block;padding:40px;text-align:center;font-family:sans-serif">Este app precisa de JavaScript ativado.</noscript>
-<script src="../app.js"></script>
+<body style="font-family:system-ui,-apple-system,sans-serif;padding:40px;text-align:center;color:#334155;background:#f6f7fb">
+  <p style="font-size:15px">Levando você pra <b>Central Financeira</b>…</p>
+  <p><a href="../index.html?v=JUCA" style="color:#3b5bdb">Toque aqui se não for redirecionado.</a></p>
 </body>
 </html>

@@ -83,7 +83,11 @@ const PROFILES=[
 /* Visão ativa — MUTÁVEL. App único: a Central troca a visão em runtime (setVisao). */
 const VISAO_KEY="cfin_visao";
 const savedVisao=(()=>{try{return localStorage.getItem(VISAO_KEY);}catch(e){return null;}})();
-let VISAO=savedVisao||(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo da visão aberta
+/* deep-link ?v=CODE (usado pelos redirects dos sub-apps aposentados /juca /pf /pipex /rc):
+   abre já na visão pedida e persiste, se for um código válido */
+const urlVisao=(()=>{try{const p=new URLSearchParams(location.search),v=(p.get("v")||p.get("visao")||"").toUpperCase();return PROFILES.some(x=>x.code===v)?v:null;}catch(e){return null;}})();
+let VISAO=urlVisao||savedVisao||(window.CONFIG&&window.CONFIG.VISAO)||"PJ";   // escopo da visão aberta
+if(urlVisao){try{localStorage.setItem(VISAO_KEY,urlVisao);}catch(e){}}
 let CUR_PROFILE=PROFILES.find(p=>p.code===VISAO)||{code:VISAO,label:VISAO,grupo:"Negócios",path:""};
 let VISAO_LABEL=CUR_PROFILE.label;
 let IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";          // DRE só p/ Negócios; Pessoal usa Orçamento
@@ -343,6 +347,7 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
     </div>
   </div><div class="foot">${isEdit?`<button class="btn danger" id="del" style="margin-right:auto">Excluir</button>`:""}<button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">Salvar</button></div></div></div>`);
   document.body.appendChild(bg); const close=()=>bg.remove();
+  if(isEdit)anexSection(bg,"movimento",m._row,m.visao||VISAO);   /* comprovantes deste lançamento */
   bg.querySelector("#cancel").onclick=close; bg.addEventListener("click",e=>{if(e.target===bg)close();});
   let sentido=isEdit?m.sentido:"Saída";
   const renderCat=()=>{const slot=bg.querySelector("#catSlot");const tipo=sentido==="Entrada"?"entrada":"saida";const g=catGroupsByTipo(tipo);
@@ -1559,6 +1564,28 @@ const fpProfile=c=>PROFILES.find(p=>p.code===c)||{code:c,label:c==="AMBOS"?"Comp
 const fpSum=a=>a.reduce((s,r)=>s+r.valor,0);
 const fpDDMM=s=>(s||"").slice(8,10)+"/"+(s||"").slice(5,7);
 const fpPago=r=>String(r.status||"").toLowerCase()==="pago";
+const fpBadge=cd=>{const p=fpProfile(cd);return `<span class="fp-badge" style="background:${p.corBg};color:${p.cor}">${esc(p.label)}</span>`;};
+
+/* ---- drill-down: todo valor da tela abre a lista exata de contas que ele soma ---- */
+const FP_DRILL={ab:["Total em aberto","todas as competências"],mesAberto:["A pagar no mês","vencendo neste mês"],mesPago:["Já pago no mês","baixadas neste mês"],atras:["Atrasado","vencidas em meses anteriores"],prox:["Próximos meses","a vencer depois deste mês"],vencidasNoMes:["Já vencido no mês","do mês, já passaram do vencimento"]};
+function fpDrillGo(id){document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpDetalhe(id);}
+function fpDrowRows(list){const hoje=todayISO();return list.map(r=>{const late=!fpPago(r)&&r.venc<hoje;return `<div class="fp-drow" onclick="fpDrillGo('${r.id}')"><span class="fp-drow-day ${late?"late":""}">${fpDDMM(r.venc)}</span><span class="fp-drow-desc"><b>${esc(r.desc)}</b>${(r.conta||r.categoria)?`<span class="fp-obs">${esc([r.conta,r.categoria].filter(Boolean).join(" · "))}</span>`:""}</span>${fpBadge(r.visao)}<span class="fp-drow-val out">${fmtBRL(r.valor)}</span></div>`;}).join("")||`<div class="empty">Nada nesta lista.</div>`;}
+function fpDrill(bucket,visao){
+  const c=FP.calc;if(!c)return;
+  let list=(c[bucket]||[]).slice().sort((a,b)=>a.venc<b.venc?-1:(a.venc>b.venc?1:0));
+  if(visao)list=list.filter(r=>r.visao===visao);
+  const meta=FP_DRILL[bucket]||["Contas",""],pv=visao?fpProfile(visao):null;
+  const head=`<div class="fp-dhead">${pv?`<span class="fp-badge" style="background:${pv.corBg};color:${pv.cor}">${esc(pv.label)}</span>`:""}<span class="sub" style="margin:0">${esc(meta[1])} · ${list.length} conta(s)</span><b class="num out" style="margin-left:auto">${fmtBRL(fpSum(list))}</b></div>`;
+  const podeAbrir=visao&&podeVer(visao)&&["ab","mesAberto","atras","prox"].indexOf(bucket)>=0;
+  const foot=podeAbrir?`<div style="margin-top:12px"><button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpAbrirEm('${visao}')">Abrir em ${esc(pv.label)} ›</button></div>`:"";
+  modal({title:mkLabel(c.mk)+" · "+meta[0],extraHTML:`${head}<div class="fp-dlist">${fpDrowRows(list)}</div>${foot}`});
+}
+function fpDrillDay(d){
+  const c=FP.calc;if(!c)return;
+  const list=c.mesAberto.filter(r=>r.venc===d).sort((a,b)=>b.valor-a.valor);
+  const head=`<div class="fp-dhead"><span class="sub" style="margin:0">${list.length} conta(s) vencendo neste dia</span><b class="num out" style="margin-left:auto">${fmtBRL(fpSum(list))}</b></div>`;
+  modal({title:fmtDate(d),extraHTML:`${head}<div class="fp-dlist">${fpDrowRows(list)}</div>`});
+}
 
 /* carrega previstos a pagar de todas as visões visíveis (RLS filtra o resto) */
 async function fpLoad(){
@@ -1620,7 +1647,7 @@ function viewFinanceiro(){
     $("#view").innerHTML=`<div class="row"><div><h1>Modo Financeiro</h1><div class="sub">Contas a pagar · todas as visões que você enxerga</div></div></div><div class="panel"><div class="empty">Carregando contas…</div></div>`;
     return;}
 
-  const c=fpCalc(),hoje=c.hoje;
+  const c=fpCalc(),hoje=c.hoje;FP.calc=c;   /* guardado pro drill-down (clique nos valores) */
   const codesComLinha=[...new Set((FP.dados.rows||[]).map(r=>r.visao))];
   const podeAlgo=codesComLinha.some(cd=>podeEditar(cd));
 
@@ -1629,27 +1656,28 @@ function viewFinanceiro(){
   const filtros=`<div class="fp-fil">${chip("","Todas")}${codesComLinha.map(cd=>{const p=fpProfile(cd);return chip(cd,p.label,p.cor);}).join("")}</div>`;
 
   /* KPIs — “total em aberto” e “próximos” são de TODAS as competências */
-  const kpi=(lbl,val,hint,cls)=>`<div class="kpi"><div class="lbl">${lbl}</div><div class="val ${cls||""}">${fmtBRL(val)}</div><div class="hint">${hint}</div></div>`;
+  const kpi=(lbl,val,hint,cls,bucket)=>`<div class="kpi${bucket?" clk":""}"${bucket?` onclick="fpDrill('${bucket}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" title="Ver as contas desse total"`:""}><div class="lbl">${lbl}${bucket?`<span class="kpi-go">›</span>`:""}</div><div class="val ${cls||""}">${fmtBRL(val)}</div><div class="hint">${hint}</div></div>`;
   const kpis=`<div class="fp-kpis">
-    ${kpi("Total em aberto",fpSum(c.ab),c.ab.length+" conta(s) · todas as competências")}
-    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) no mês")}
-    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd")}
-    ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) vencida(s) antes do mês","cr")}
-    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) a vencer")}
+    ${kpi("Total em aberto",fpSum(c.ab),c.ab.length+" conta(s) · todas as competências","","ab")}
+    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) no mês","","mesAberto")}
+    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd","mesPago")}
+    ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) vencida(s) antes do mês","cr","atras")}
+    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) a vencer","","prox")}
   </div>`;
 
   /* card por frente */
   const cards=codesComLinha.filter(cd=>!FP.vis.size||FP.vis.has(cd)).map(cd=>{
     const p=fpProfile(cd),f=a=>a.filter(r=>r.visao===cd);
     const abV=f(c.ab),mAb=f(c.mesAberto),mPg=f(c.mesPago),atr=f(c.atras),px=f(c.prox);
-    const ln=(k,arr,cls)=>`<div class="fp-line"><span class="k">${k}<span class="q">${arr.length}</span></span><span class="v ${arr.length&&cls?cls:""}">${fmtBRL(fpSum(arr))}</span></div>`;
+    const ln=(k,arr,cls,bucket)=>{const on=bucket&&arr.length;return `<div class="fp-line${on?" clk":""}"${on?` onclick="fpDrill('${bucket}','${cd}')"`:""}><span class="k">${k}<span class="q">${arr.length}</span></span><span class="v ${arr.length&&cls?cls:""}">${fmtBRL(fpSum(arr))}</span></div>`;};
+    const abOn=abV.length;
     return `<div class="panel fp-vcard" style="--c:${p.cor}">
       <div class="fp-vh"><span class="fp-dot"></span><span class="fp-vt">${esc(p.label)}</span><span class="fp-vtag">· ${esc(p.grupo==="Pessoal"?"Vida":p.grupo||"—")}</span></div>
-      ${ln("A pagar em "+mkLabel(c.mk),mAb)}
-      ${ln("Já pago no mês",mPg,"in")}
-      ${ln("Atrasado",atr,"out")}
-      ${ln("Próximos meses",px)}
-      <div class="fp-line tot"><span class="k">Total em aberto</span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
+      ${ln("A pagar em "+mkLabel(c.mk),mAb,"","mesAberto")}
+      ${ln("Já pago no mês",mPg,"in","mesPago")}
+      ${ln("Atrasado",atr,"out","atras")}
+      ${ln("Próximos meses",px,"","prox")}
+      <div class="fp-line tot${abOn?" clk":""}"${abOn?` onclick="fpDrill('ab','${cd}')"`:""}><span class="k">Total em aberto</span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
     </div>`;}).join("");
 
   /* gráfico: dia de vencimento × frente (só o que está EM ABERTO no mês) */
@@ -1659,8 +1687,8 @@ function viewFinanceiro(){
   const chart=dias.length?`<div class="fp-chart">${dias.map(d=>{
     const o=byDay[d],late=d<hoje,h=v=>Math.max(3,Math.round(v/maxDia*145));
     const segs=Object.keys(o.por).map(cd=>`<div class="fp-seg" style="--c:${fpProfile(cd).cor};height:${h(o.por[cd])}px"></div>`).join("");
-    const tip=fmtDate(d)+" — "+o.itens.map(i=>i.desc+": "+fmtBRL(i.valor)).join(" · ");
-    return `<div class="fp-col ${late?"late":""}" title="${esc(tip)}">
+    const tip=fmtDate(d)+" — "+o.itens.map(i=>i.desc+": "+fmtBRL(i.valor)).join(" · ")+" · clique pra abrir";
+    return `<div class="fp-col clk ${late?"late":""}" title="${esc(tip)}" onclick="fpDrillDay('${d}')">
       <div class="fp-cval">${fmtK(o.tot)}</div><div class="fp-stack">${segs}</div><div class="fp-cday">${fpDDMM(d)}</div></div>`;}).join("")}</div>`
     :`<div class="empty">Nada em aberto vencendo em ${mkLabel(c.mk)}.</div>`;
   const legenda=`<div class="fp-legend">${codesComLinha.filter(cd=>!FP.vis.size||FP.vis.has(cd)).map(cd=>{const p=fpProfile(cd);return `<span class="li"><span class="fp-dot" style="--c:${p.cor}"></span> ${esc(p.label)}</span>`;}).join("")}<span class="li" style="margin-left:auto"><span style="color:var(--expense)">●</span> dia já vencido</span></div>`;
@@ -1707,9 +1735,9 @@ function viewFinanceiro(){
     ${legenda}
     ${chart}
     <div class="fp-lboxes">
-      <div class="fp-lbox red"><div class="ll">Atrasado · meses anteriores</div><div class="lv">${fmtBRL(fpSum(c.atras))}</div><div class="lm">${c.atras.length} conta(s) vencida(s) antes de ${mkLabel(c.mk)}</div></div>
-      <div class="fp-lbox"><div class="ll">Já vencido dentro do mês</div><div class="lv">${fmtBRL(fpSum(c.vencidasNoMes))}</div><div class="lm">${c.vencidasNoMes.length} conta(s) do mês que já passaram do vencimento</div></div>
-      <div class="fp-lbox"><div class="ll">A pagar em ${mkLabel(c.mk)}</div><div class="lv">${fmtBRL(fpSum(c.mesAberto))}</div><div class="lm">${c.mesAberto.length} conta(s) a vencer/vencidas no mês</div></div>
+      <div class="fp-lbox red clk" onclick="fpDrill('atras')"><div class="ll">Atrasado · meses anteriores</div><div class="lv">${fmtBRL(fpSum(c.atras))}</div><div class="lm">${c.atras.length} conta(s) vencida(s) antes de ${mkLabel(c.mk)}</div></div>
+      <div class="fp-lbox clk" onclick="fpDrill('vencidasNoMes')"><div class="ll">Já vencido dentro do mês</div><div class="lv">${fmtBRL(fpSum(c.vencidasNoMes))}</div><div class="lm">${c.vencidasNoMes.length} conta(s) do mês que já passaram do vencimento</div></div>
+      <div class="fp-lbox clk" onclick="fpDrill('mesAberto')"><div class="ll">A pagar em ${mkLabel(c.mk)}</div><div class="lv">${fmtBRL(fpSum(c.mesAberto))}</div><div class="lm">${c.mesAberto.length} conta(s) a vencer/vencidas no mês</div></div>
     </div>
   </div>
   <div class="secttl" style="margin-top:20px"><span>Detalhamento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAberto))} em aberto</span></div>
@@ -1741,9 +1769,67 @@ function fpDetalhe(id){
       ${mesma?`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());editPagar('${r.id}')">✏️ Editar</button>`
              :`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpAbrirEm('${r.visao}')">Abrir em ${esc(p.label)} ›</button>`}
     </div></div>`;
-  modal({title:r.desc,extraHTML:body});
+  const mh=modal({title:r.desc,extraHTML:body});
+  anexSection(mh.bg,"previsto",r.id,r.visao);   /* boletos/comprovantes desta conta */
 }
 async function fpAbrirEm(code){await setVisao(code);route(IS_PESSOAL?"contas":"pagar");}
+
+/* =====================================================================
+   ANEXOS — documentos financeiros (boletos, comprovantes, notas)
+   Bucket privado 'anexos-financeiro'; metadados em public.anexos.
+   RLS por visão (mesmo app_pode de previstos). Só no modo live.
+   DDL versionada em scripts/anexos-financeiro.sql (rodar 1× no SQL Editor).
+   ===================================================================== */
+const ANEX_BUCKET="anexos-financeiro";
+const anexIcon=(mime,nome)=>{const s=(mime||"")+"|"+(nome||"");return /pdf/i.test(s)?"📄":/(png|jpe?g|webp|heic|heif|image)/i.test(s)?"🖼️":"📎";};
+const anexTam=n=>{n=+n||0;return n<1024?n+" B":n<1048576?Math.round(n/1024)+" KB":(n/1048576).toFixed(1)+" MB";};
+const anexCol=scope=>scope==="previsto"?"previsto_id":"movimento_id";
+
+/* injeta a seção de anexos dentro de um modal já aberto (bg) */
+async function anexSection(bg,scope,id,visao){
+  if(MODE!=="live"||!bg||!id)return;
+  const body=bg.querySelector(".body");if(!body)return;
+  const podeEd=podeEditar(visao);
+  const wrap=el(`<div class="anx"><div class="anx-hd"><span class="anx-ttl">📎 Anexos</span>${podeEd?`<label class="btn ghost sm anx-add">+ Anexar<input type="file" accept="application/pdf,image/*" hidden multiple></label>`:""}</div><div class="anx-list"><div class="anx-empty sub">Carregando…</div></div></div>`);
+  body.appendChild(wrap);
+  const listEl=wrap.querySelector(".anx-list");
+  async function refresh(){
+    let rows;
+    try{const{data,error}=await sb.from("anexos").select("id,nome,path,mime,tamanho,created_at").eq(anexCol(scope),id).order("created_at");if(error)throw error;rows=data||[];}
+    catch(e){listEl.innerHTML=`<div class="anx-empty sub">${/relation|schema cache|does not exist|anexos/i.test(e.message)?"Anexos ainda não ativados — rode <b>scripts/anexos-financeiro.sql</b> no SQL Editor.":"Não deu pra carregar: "+esc(e.message)}</div>`;return;}
+    if(!rows.length){listEl.innerHTML=`<div class="anx-empty sub">Nenhum anexo ainda.${podeEd?" Toque em <b>+ Anexar</b> pra subir um boleto ou comprovante.":""}</div>`;return;}
+    listEl.innerHTML=rows.map(a=>`<div class="anx-item"><span class="anx-ic">${anexIcon(a.mime,a.nome)}</span><span class="anx-meta"><b>${esc(a.nome)}</b><small>${anexTam(a.tamanho)} · ${fmtDate((a.created_at||"").slice(0,10))}</small></span><span class="anx-acts"><button class="btn ghost sm" data-open="${esc(a.path)}">Abrir</button>${podeEd?`<button class="btn ghost sm anx-del" data-del="${a.id}" data-path="${esc(a.path)}" title="Remover">🗑</button>`:""}</span></div>`).join("");
+    listEl.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>anexAbrir(b.dataset.open));
+    listEl.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>anexRemover(b.dataset.del,b.dataset.path,refresh));
+  }
+  const inp=wrap.querySelector(".anx-add input");
+  if(inp)inp.onchange=async ev=>{const files=[...ev.target.files];ev.target.value="";for(const f of files)await anexUpload(f,scope,id,visao,listEl);refresh();};
+  refresh();
+}
+
+async function anexUpload(file,scope,id,visao,listEl){
+  if(file.size>15*1024*1024){toast(file.name+": passou de 15 MB");return;}
+  const ext=(file.name.split(".").pop()||"bin").toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,8)||"bin";
+  const path=`${visao}/${scope}/${id}/${uhash(file.name+"|"+file.size+"|"+id).slice(3)}_${Math.abs(Date.now()%1e7)}.${ext}`;
+  let ph;if(listEl){ph=el(`<div class="anx-empty sub">⏳ Enviando ${esc(file.name)}…</div>`);listEl.prepend(ph);}
+  try{
+    const up=await sb.storage.from(ANEX_BUCKET).upload(path,file,{contentType:file.type||undefined,upsert:false});
+    if(up.error)throw up.error;
+    const ins=await sb.from("anexos").insert({visao,[anexCol(scope)]:id,nome:file.name,path,mime:file.type||null,tamanho:file.size});
+    if(ins.error){try{await sb.storage.from(ANEX_BUCKET).remove([path]);}catch(_){}throw ins.error;}
+    toast("Anexado: "+file.name);
+  }catch(e){toast("Falha ao anexar: "+(/relation|schema cache|does not exist|bucket|not found/i.test(e.message)?"anexos ainda não ativados no banco":e.message));}
+  finally{if(ph)ph.remove();}
+}
+async function anexAbrir(path){
+  try{const{data,error}=await sb.storage.from(ANEX_BUCKET).createSignedUrl(path,300);if(error)throw error;window.open(data.signedUrl,"_blank","noopener");}
+  catch(e){toast("Não abri: "+e.message);}
+}
+async function anexRemover(id,path,after){
+  if(!confirm("Remover este anexo? (o arquivo é apagado do armazenamento)"))return;
+  try{const d=await sb.from("anexos").delete().eq("id",id);if(d.error)throw d.error;try{await sb.storage.from(ANEX_BUCKET).remove([path]);}catch(_){}toast("Anexo removido");after&&after();}
+  catch(e){toast("Não removi: "+e.message);}
+}
 
 /* ✓ dar baixa — recorrente rola a série (não mata), pontual só muda o status */
 async function fpPay(id){

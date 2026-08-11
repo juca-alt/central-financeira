@@ -3,3 +3,9 @@ scripts/carga-*.sql
 scripts/gerar_carga*.py
 _tmp_*
 *.local.sql
+
+# SQLs cirúrgicos datados e docs operacionais contêm dados reais
+# (extratos, UUIDs de contas, ids da Pluggy) → ficam FORA do repo,
+# em ~/Documents/Central Financeira/sql-privado/
+scripts/*-20[0-9][0-9]-*.sql
+scripts/PLUGGY*.md

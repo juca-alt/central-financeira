@@ -39,6 +39,13 @@ const SHELL_HTML = `
   </aside>
   <main class="main" id="view"></main>
 </div>
+<nav class="bnav" id="bnav" aria-label="Navegação rápida">
+  <a data-route="central"><span class="bico">◎</span><span class="blbl">Central</span></a>
+  <a data-route="financeiro"><span class="bico">💳</span><span class="blbl">Contas</span></a>
+  <button class="bnav-fab" id="bnavFab" aria-label="Novo lançamento">＋</button>
+  <a data-route="movimentos"><span class="bico">↕</span><span class="blbl">Movim.</span></a>
+  <a data-bnav="menu"><span class="bico">☰</span><span class="blbl">Menu</span></a>
+</nav>
 <div class="toast" id="toast"></div>
 <div class="upd" id="updBanner">
   <span>🔄 Nova versão disponível</span>
@@ -411,7 +418,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));document.querySelectorAll("#bnav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Motor de recorrência + números do período (Visão Geral) =====
@@ -466,7 +473,7 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
     </div>
   </div><div class="foot">${isEdit?`<button class="btn danger" id="del" style="margin-right:auto">Excluir</button>`:""}<button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">Salvar</button></div></div></div>`);
   document.body.appendChild(bg); const close=()=>bg.remove();
-  if(isEdit)anexSection(bg,"movimento",m._row,m.visao||VISAO);   /* comprovantes deste lançamento */
+  if(isEdit){anexSection(bg,"movimento",m._row,m.visao||VISAO);entField(bg,"movimentos",m._row,m.descricao);}   /* comprovantes + contato */
   bg.querySelector("#cancel").onclick=close; bg.addEventListener("click",e=>{if(e.target===bg)close();});
   let sentido=isEdit?m.sentido:"Saída";
   const renderCat=()=>{const slot=bg.querySelector("#catSlot");const tipo=sentido==="Entrada"?"entrada":"saida";const g=catGroupsByTipo(tipo);
@@ -823,7 +830,7 @@ async function addPagar(){modal({title:"Nova conta a pagar",fields:pagarFields(t
     if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:venc||null,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
     DB.contasPagar.push(o);}
   toast(N>1?`${N} parcelas lançadas`:"Lançada");await afterWrite();}});}
-function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)return;modal({title:"Editar conta a pagar",fields:[...pagarFields(true),{name:"status",label:"Status",type:"select",options:["aberto","pago","cancelado"]}],values:{...p,parcelas:2},extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="delPrev('contasPagar','${row}')">Excluir</button>`,onSave:async v=>{
+function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)return;const mhEd=modal({title:"Editar conta a pagar",fields:[...pagarFields(true),{name:"status",label:"Status",type:"select",options:["aberto","pago","cancelado"]}],values:{...p,parcelas:2},extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="delPrev('contasPagar','${row}')">Excluir</button>`,onSave:async v=>{
   const parcelado=v.recorrencia==="parcelado",N=parcelado?Math.max(1,Math.round(+v.parcelas||1)):1,valor=Math.abs(+v.valor||0),base=String(v.descricao||"").replace(/\s*\(\d+\/\d+\)\s*$/,"");
   if(parcelado&&N>1){const d1=`${base} (1/${N})`;
     if(MODE==="live")await sbUpd("previstos",row,{descricao:d1,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
@@ -841,7 +848,8 @@ function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)retur
       if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
       DB.contasPagar.push(o);toast("Pago ✓ · próxima ocorrência criada pra "+fmtDate(nx));
     }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}}
-  await afterWrite();}});}
+  await afterWrite();}});
+  anexSection(mhEd.bg,"previsto",row,VISAO);entField(mhEd.bg,"previstos",row,p.descricao);}
 function viewReceber(){const rows=DB.aReceber;$("#view").innerHTML=`<div class="row"><div><h1>A Receber</h1><div class="sub">${rows.length} previstos</div></div><button class="btn" onclick="addReceber()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Data prevista</th><th>Descrição</th><th>Conta</th><th class="num">Previsto</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editReceber('${p._row}')">${fmtDate(p.dataPrevista)}</td><td style="cursor:pointer" onclick="editReceber('${p._row}')">${esc(p.linha)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td>${esc(p.conta||"—")}</td><td class="num in">${fmtBRL(p.previstoLiquido)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status!=="recebido"?`<button class="btn ghost sm" onclick="conciliar('receber','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}</tbody></table></div>`;}
 function receberFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"dataPrevista",label:"Data prevista",type:"date"},{name:"valor",label:"Valor (R$)",type:"number"},{name:"conta",label:"Conta destino",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
 function addReceber(){modal({title:"Novo previsto a receber",fields:receberFields(true),values:{dataPrevista:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
@@ -1524,7 +1532,23 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     const nAmb=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").length;
     body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
   if(CFG_TAB==="acessos")body=PERM.admin?acessosPanel():`<div class="panel"><div class="empty">Só o administrador vê esta aba.</div></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}${PERM.admin?tab("acessos","👥 Acessos"):""}</div>${body}`;
+  if(CFG_TAB==="contatos"){
+    body=`<div class="panel"><h2>Contatos & Clientes <button class="btn sm" onclick="entNova().then(n=>{if(n)entLoad(true).then(()=>viewConfig());})">+ Novo</button></h2>
+      <div class="sub">Cadastro único de quem você paga/recebe (Débora, Pedro França, MJM…). Movimentos e contas apontam pra cá — é o ID de cliente do sistema; os apelidos alimentam a detecção automática.</div>
+      <div id="entList" class="ent-list" style="margin-top:10px"><div class="empty">Carregando…</div></div></div>`;
+    setTimeout(async()=>{await entLoad(true);const box=document.getElementById("entList");if(!box)return;
+      if(entOff()){box.innerHTML=`<div class="empty">${MODE==="live"?"Ainda não ativado — rode <b>scripts/integridade-fase1.sql</b> no SQL Editor (1x) e recarregue.":"Disponível no modo live (logado)."}</div>`;return;}
+      box.innerHTML=ENT_CACHE.rows.map(e=>`<div class="ent-item" onclick="entEditar('${e.id}')"><span class="ent-ic">${e.tipo==="empresa"?"🏢":e.tipo==="orgao"?"🏛":"👤"}</span><span class="ent-nm"><b>${esc(e.nome)}</b><small>${e.visao==="AMBOS"?"🌐 todas as visões":esc(e.visao)}${(e.apelidos||[]).length?" · "+esc(e.apelidos.join(", ")):""}</small></span><span class="sub" style="margin:0">editar ›</span></div>`).join("")||`<div class="empty">Nenhum contato ainda. Toque em <b>+ Novo</b> — os movimentos e contas passam a apontar pra ele.</div>`;
+    },0);
+  }
+  if(CFG_TAB==="trilha")body=`<div class="panel"><h2>🧾 Trilha de auditoria</h2>
+    <div class="sub">Registro automático de TODA alteração em movimentos, contas a pagar/receber, contas, categorias e contatos — quem mudou, quando, o antes e o depois. Pega qualquer caminho: o app, o sync do Pluggy/Inter e até o SQL Editor.</div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button class="btn" onclick="audVer()">Abrir a trilha completa</button>
+      <button class="btn ghost" onclick="audVer('movimentos')">Só movimentos</button>
+      <button class="btn ghost" onclick="audVer('previstos')">Só contas a pagar/receber</button>
+    </div></div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${PERM.admin?tab("acessos","🔐 Acessos"):""}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
@@ -1887,9 +1911,11 @@ function fpDetalhe(id){
       ${(!fpPago(r)&&podeEditar(r.visao))?`<button class="btn sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpPay('${r.id}')">✓ Marcar como paga</button>`:""}
       ${mesma?`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());editPagar('${r.id}')">✏️ Editar</button>`
              :`<button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpAbrirEm('${r.visao}')">Abrir em ${esc(p.label)} ›</button>`}
+      <button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());audVer('previstos','${r.id}')">🧾 Histórico</button>
     </div></div>`;
   const mh=modal({title:r.desc,extraHTML:body});
   anexSection(mh.bg,"previsto",r.id,r.visao);   /* boletos/comprovantes desta conta */
+  entField(mh.bg,"previstos",r.id,r.desc);      /* contato/cliente (integridade) */
 }
 async function fpAbrirEm(code){await setVisao(code);route(IS_PESSOAL?"contas":"pagar");}
 
@@ -1950,6 +1976,119 @@ async function anexRemover(id,path,after){
   catch(e){toast("Não removi: "+e.message);}
 }
 
+/* =====================================================================
+   INTEGRIDADE — Entidades (contatos/clientes) + Trilha de auditoria
+   Cadastro único de contrapartes (Débora, Pedro França, MJM...) com ID
+   próprio; movimentos/previstos apontam via entidade_id. Trilha = tabela
+   audit_log preenchida por TRIGGER no banco (pega app, cron e SQL Editor).
+   Tudo DORMENTE até rodar scripts/integridade-fase1.sql — a UI degrada
+   com aviso, nunca quebra (mesmo padrão dos anexos).
+   ===================================================================== */
+let ENT_CACHE=null;
+async function entLoad(force){
+  if(MODE!=="live")return{rows:[],byId:new Map(),off:true};
+  if(ENT_CACHE&&!force)return ENT_CACHE;
+  try{
+    const{data,error}=await sb.from("entidades").select("id,nome,tipo,visao,apelidos").eq("ativo",true).order("nome");
+    if(error)throw error;
+    ENT_CACHE={rows:data||[],byId:new Map((data||[]).map(e=>[e.id,e]))};
+  }catch(e){ENT_CACHE={rows:[],byId:new Map(),off:true};}
+  return ENT_CACHE;
+}
+const entOff=()=>!ENT_CACHE||ENT_CACHE.off;
+const entNome=id=>{const e=ENT_CACHE&&ENT_CACHE.byId.get(id);return e?e.nome:"";};
+/* sugestão: entidade cujo nome/apelido aparece na descrição */
+function entMatch(desc){
+  if(entOff()||!desc)return null;const d=String(desc).toLowerCase();
+  return ENT_CACHE.rows.find(e=>[e.nome,...(e.apelidos||[])].some(n=>n&&n.length>2&&d.includes(n.toLowerCase())))||null;
+}
+async function entOf(tabela,id){
+  if(entOff()||!id)return null;
+  try{const{data,error}=await sb.from(tabela).select("entidade_id").eq("id",id).single();if(error)throw error;return(data&&data.entidade_id)||null;}
+  catch(e){return null;}
+}
+/* injeta "Contato/Cliente" num modal já aberto; troca grava na hora */
+async function entField(bg,tabela,id,desc){
+  if(MODE!=="live"||!bg||!id)return;
+  await entLoad();if(entOff())return;   /* SQL ainda não rodou: nem mostra */
+  const body=bg.querySelector(".body");if(!body)return;
+  const atual=await entOf(tabela,id),sug=!atual&&entMatch(desc);
+  const opts=[`<option value="">—</option>`]
+    .concat(ENT_CACHE.rows.map(e=>`<option value="${e.id}" ${e.id===atual?"selected":""}>${esc(e.nome)}</option>`))
+    .concat([`<option value="__new">＋ Novo contato…</option>`]).join("");
+  const w=el(`<div class="fld"><label>Contato/Cliente${sug?` <span class="link" data-sug>✨ usar "${esc(sug.nome)}"</span>`:""}</label><select>${opts}</select></div>`);
+  body.appendChild(w);
+  const sel=w.querySelector("select");
+  const gravar=async v=>{try{await sbUpd(tabela,id,{entidade_id:v||null});toast(v?"Contato vinculado":"Contato removido");}catch(e){toast("Não vinculei: "+e.message);}};
+  sel.onchange=async()=>{
+    if(sel.value==="__new"){const nome=await entNova(desc);await entLoad(true);
+      if(nome){const e=ENT_CACHE.rows.find(x=>x.nome===nome);sel.innerHTML=opts;if(e){sel.insertAdjacentHTML("afterbegin","");sel.value="";const o=document.createElement("option");o.value=e.id;o.textContent=e.nome;o.selected=true;sel.appendChild(o);await gravar(e.id);return;}}
+      sel.value=atual||"";return;}
+    await gravar(sel.value);
+  };
+  const s=w.querySelector("[data-sug]");if(s)s.onclick=async()=>{sel.value=sug.id;await gravar(sug.id);s.remove();};
+}
+function entNova(descSug){
+  return new Promise(res=>{modal({title:"Novo contato/cliente",fields:[
+    {name:"nome",label:"Nome"},
+    {name:"tipo",label:"Tipo",type:"select",options:[{v:"pessoa",l:"Pessoa"},{v:"empresa",l:"Empresa"},{v:"orgao",l:"Órgão/Governo"}]},
+    {name:"visao",label:"Visível em",type:"select",options:[{v:"AMBOS",l:"🌐 Todas as visões"},...PROFILES.map(p=>({v:p.code,l:p.icon+" "+p.label}))]},
+    {name:"apelidos",label:"Apelidos p/ detecção (separar por vírgula)",placeholder:"ex.: Debora Tayna, D. Santos"},
+    {name:"telefone",label:"Telefone"},{name:"email",label:"E-mail"}],
+    saveLabel:"Criar",onSave:async v=>{
+      if(!v.nome){toast("Nome obrigatório");return false;}
+      try{await sbIns("entidades",{nome:v.nome.trim(),tipo:v.tipo||"pessoa",visao:v.visao||"AMBOS",apelidos:String(v.apelidos||"").split(",").map(s=>s.trim()).filter(Boolean),telefone:v.telefone||null,email:v.email||null});toast("Contato criado");res(v.nome.trim());}
+      catch(e){toast(/relation|does not exist|schema cache/i.test(e.message)?"Entidades ainda não ativadas — rode scripts/integridade-fase1.sql":"Erro: "+e.message);return false;}
+    }});});
+}
+async function entEditar(id){
+  const e=ENT_CACHE&&ENT_CACHE.byId.get(id);if(!e)return;
+  const full=await sb.from("entidades").select("*").eq("id",id).single();
+  const v=full.data||e;
+  modal({title:"Editar contato",fields:[
+    {name:"nome",label:"Nome"},
+    {name:"tipo",label:"Tipo",type:"select",options:[{v:"pessoa",l:"Pessoa"},{v:"empresa",l:"Empresa"},{v:"orgao",l:"Órgão/Governo"}]},
+    {name:"visao",label:"Visível em",type:"select",options:[{v:"AMBOS",l:"🌐 Todas as visões"},...PROFILES.map(p=>({v:p.code,l:p.icon+" "+p.label}))]},
+    {name:"apelidos",label:"Apelidos (vírgula)"},{name:"telefone",label:"Telefone"},{name:"email",label:"E-mail"},{name:"observacao",label:"Observação",type:"textarea"}],
+    values:{...v,apelidos:(v.apelidos||[]).join(", ")},
+    extraHTML:`<div style="display:flex;gap:8px;margin-top:4px"><button class="btn ghost sm" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());audVer('entidades','${id}')">🧾 Histórico</button><button class="btn danger sm" onclick="entArquivar('${id}')">Arquivar</button></div>`,
+    onSave:async o=>{
+      await sbUpd("entidades",id,{nome:o.nome,tipo:o.tipo,visao:o.visao,apelidos:String(o.apelidos||"").split(",").map(s=>s.trim()).filter(Boolean),telefone:o.telefone||null,email:o.email||null,observacao:o.observacao||null});
+      await entLoad(true);toast("Contato atualizado");if(CURRENT==="config")viewConfig();
+    }});
+}
+async function entArquivar(id){
+  if(!confirm("Arquivar este contato? (os vínculos existentes ficam)"))return;
+  try{await sbUpd("entidades",id,{ativo:false});await entLoad(true);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Contato arquivado");if(CURRENT==="config")viewConfig();}catch(e){toast(e.message);}
+}
+
+/* ---- trilha de auditoria (viewer) ---- */
+const AUD_LBL={INSERT:["＋","criado","in"],UPDATE:["✎","alterado",""],DELETE:["✕","excluído","out"]};
+function audFmtVal(v){if(v==null)return"—";if(typeof v==="object")return esc(JSON.stringify(v)).slice(0,80);const s=String(v);return esc(s.length>60?s.slice(0,57)+"…":s);}
+async function audVer(tabela,registroId){
+  if(MODE!=="live"){toast("Trilha só no modo live");return;}
+  let rows;
+  try{
+    let q=sb.from("audit_log").select("id,tabela,registro_id,acao,visao,autor,antes,depois,campos,criado_em").order("criado_em",{ascending:false}).limit(80);
+    if(tabela)q=q.eq("tabela",tabela);
+    if(registroId)q=q.eq("registro_id",registroId);
+    const{data,error}=await q;if(error)throw error;rows=data||[];
+  }catch(e){
+    modal({title:"🧾 Trilha de auditoria",extraHTML:`<div class="sub">${/relation|does not exist|schema cache/i.test(e.message)?"A trilha ainda não foi ativada — rode <b>scripts/integridade-fase1.sql</b> no SQL Editor (1x). A partir daí TODA alteração em movimentos, contas a pagar, contas, categorias e contatos fica registrada: quem mudou, quando e o quê.":"Erro: "+esc(e.message)}</div>`});
+    return;
+  }
+  const linha=r=>{
+    const[a,lbl,cls]=AUD_LBL[r.acao]||["?",r.acao,""];
+    const quando=new Date(r.criado_em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const quem=r.autor==="sistema"?"🤖 sistema (sync)":esc(r.autor||"?");
+    const alvo=(r.depois&&(r.depois.descricao||r.depois.descricao_original||r.depois.nome))||(r.antes&&(r.antes.descricao||r.antes.descricao_original||r.antes.nome))||"";
+    const difs=(r.acao==="UPDATE"&&r.campos||[]).map(c=>`<div class="aud-dif"><span class="k">${esc(c)}</span> ${audFmtVal(r.antes&&r.antes[c])} <span class="seta">→</span> <b>${audFmtVal(r.depois&&r.depois[c])}</b></div>`).join("");
+    return`<div class="aud-item"><div class="aud-top"><span class="aud-ic ${cls}">${a}</span><b>${esc(r.tabela)}</b> ${lbl} · <span class="sub" style="margin:0">${quando} · ${quem}</span></div>${alvo?`<div class="aud-alvo">${esc(alvo)}</div>`:""}${difs}</div>`;
+  };
+  modal({title:"🧾 Trilha de auditoria"+(registroId?" · este registro":tabela?" · "+tabela:""),
+    extraHTML:`<div class="sub" style="margin-bottom:8px">${rows.length} evento(s) mais recentes${registroId?"":" · tudo que mudou no banco, por qualquer caminho (app, sync, SQL)"}</div><div class="aud-list">${rows.map(linha).join("")||'<div class="empty">Nenhum evento registrado ainda.</div>'}</div>`});
+}
+
 /* ✓ dar baixa — recorrente rola a série (não mata), pontual só muda o status */
 async function fpPay(id){
   const r=(FP.dados&&FP.dados.rows||[]).find(x=>x.id===id);if(!r||fpPago(r))return;
@@ -1998,6 +2137,26 @@ try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.a
 /* ===== Drawer mobile (sidebar off-canvas) ===== */
 function openDrawer(){document.getElementById("sideNav").classList.add("open");document.getElementById("sideOv").classList.add("show");}
 function closeDrawer(){const s=document.getElementById("sideNav"),o=document.getElementById("sideOv");if(s)s.classList.remove("open");if(o)o.classList.remove("show");}
+/* ---- bottom nav (mobile): atalhos + ＋ de lançamento rápido ---- */
+(function(){
+  const b=document.getElementById("bnav");if(!b)return;
+  b.addEventListener("click",e=>{
+    const a=e.target.closest("a");if(!a)return;
+    if(a.dataset.bnav==="menu"){openDrawer();return;}
+    if(a.dataset.route)route(a.dataset.route);
+  });
+  const f=document.getElementById("bnavFab");if(f)f.onclick=()=>quickAdd();
+})();
+function quickAdd(){
+  const bg=el(`<div class="modal-bg sheet"><div class="modal qadd"><h3>O que você quer lançar?</h3><div class="qadd-grid">
+    <button class="qa" data-a="mov"><span class="qi">↕</span><b>Lançamento</b><small>entrada, saída ou transferência</small></button>
+    <button class="qa" data-a="pagar"><span class="qi">▣</span><b>Conta a pagar</b><small>compromisso com vencimento</small></button>
+    <button class="qa" data-a="receber"><span class="qi">◳</span><b>A receber</b><small>previsão de entrada</small></button>
+  </div><div class="foot"><button class="btn ghost" data-act="cancel">Cancelar</button></div></div></div>`);
+  document.body.appendChild(bg);const close=()=>bg.remove();
+  bg.addEventListener("click",e=>{if(e.target===bg)close();});bg.querySelector('[data-act=cancel]').onclick=close;
+  bg.querySelectorAll(".qa").forEach(x=>x.onclick=()=>{close();({mov:()=>movimentoModal(),pagar:()=>addPagar(),receber:()=>addReceber()})[x.dataset.a]();});
+}
 (function(){const t=document.getElementById("navToggle"),o=document.getElementById("sideOv");if(t)t.onclick=openDrawer;if(o)o.onclick=closeDrawer;})();
 /* ===== Seletor de perfil PJ ↔ PF ===== */
 function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}

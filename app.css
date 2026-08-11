@@ -327,6 +327,57 @@ tr.fp-tr:hover td{background:#fafbfe}
 .anx-meta small{color:var(--muted);font-size:11px}
 .anx-acts{display:flex;gap:6px;flex:none}
 .anx-acts .btn{padding:4px 10px}
+/* --- integridade: contatos & trilha --- */
+.ent-list{display:flex;flex-direction:column;gap:7px}
+.ent-item{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid var(--border);border-radius:11px;background:var(--card);cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.ent-item:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(15,23,42,.07)}
+.ent-ic{font-size:18px;flex:none}
+.ent-nm{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
+.ent-nm b{font-weight:620;font-size:14px}
+.ent-nm small{color:var(--muted);font-size:11.5px}
+.aud-list{display:flex;flex-direction:column;gap:9px;max-height:56vh;overflow:auto;margin:0 -4px;padding:0 4px}
+.aud-item{border:1px solid var(--border);border-radius:11px;padding:9px 11px;background:var(--card)}
+.aud-top{display:flex;align-items:center;gap:7px;font-size:12.5px}
+.aud-ic{width:20px;height:20px;border-radius:6px;background:var(--chip);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex:none}
+.aud-ic.in{background:#dcfce7;color:#166534}
+.aud-ic.out{background:#fee2e2;color:#b91c1c}
+.aud-alvo{font-size:13px;font-weight:600;margin:5px 0 2px}
+.aud-dif{font-size:12px;color:var(--muted);padding:2px 0 0 27px}
+.aud-dif .k{font-weight:700;color:#64748b;font-size:11px}
+.aud-dif .seta{color:#94a3b8}
+.aud-dif b{color:var(--fg);font-weight:600}
+/* --- bottom nav (mobile) + sheet de lançamento rápido --- */
+.bnav{display:none}
+.modal-bg.sheet{align-items:flex-end}
+.modal-bg.sheet .modal{width:100%;max-width:520px;border-radius:18px 18px 0 0;margin:0 auto}
+.qadd-grid{display:flex;flex-direction:column;gap:9px}
+.qa{display:grid;grid-template-columns:40px 1fr;grid-template-rows:auto auto;align-items:center;column-gap:12px;text-align:left;padding:12px 14px;border:1px solid var(--border);border-radius:13px;background:var(--card);cursor:pointer;font-family:inherit;transition:border-color .12s,transform .09s}
+.qa:hover{border-color:var(--primary)}
+.qa:active{transform:scale(.985)}
+.qa .qi{grid-row:1/3;width:40px;height:40px;border-radius:11px;background:var(--chip);display:flex;align-items:center;justify-content:center;font-size:18px}
+.qa b{font-size:14.5px;font-weight:650}
+.qa small{color:var(--muted);font-size:12px}
+/* --- polish desktop: microtransições e foco consistentes --- */
+.panel{transition:box-shadow .15s}
+.btn{transition:filter .12s,transform .09s}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible,.fp-fil button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+tbody tr{transition:background .1s}
 @media(max-width:1180px){.fp-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1320px){.fp-grid2{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:660px){.fp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.fp-chart{height:192px}.fp-wrap table{min-width:440px}.fp-desc{font-size:12.5px}.fp-drow-desc b{white-space:normal}.anx-meta b{white-space:normal}}
+@media(max-width:920px){
+  /* celular no formato de celular: barra de navegação inferior + ＋ central */
+  .bnav{position:fixed;left:0;right:0;bottom:0;z-index:70;display:grid;grid-template-columns:1fr 1fr 64px 1fr 1fr;align-items:end;background:rgba(11,18,32,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid #1e293b;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .bnav a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;color:#94a3b8;text-decoration:none;border-radius:10px;font-weight:600}
+  .bnav a .bico{font-size:17px;line-height:1}
+  .bnav a .blbl{font-size:9.5px;letter-spacing:.02em}
+  .bnav a.active{color:#fff}
+  .bnav a.active .bico{transform:translateY(-1px)}
+  .bnav-fab{width:52px;height:52px;margin:0 auto -2px;border-radius:16px;border:none;background:var(--primary);color:#fff;font-size:24px;font-weight:700;box-shadow:0 8px 20px rgba(59,91,219,.45);cursor:pointer;transition:transform .1s}
+  .bnav-fab:active{transform:scale(.94)}
+  .main{padding-bottom:96px}
+  /* banner de update e toast sobem acima da barra inferior */
+  #updBanner{bottom:calc(84px + env(safe-area-inset-bottom))}
+  .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+}

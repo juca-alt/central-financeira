@@ -26,6 +26,27 @@
   .nav a:hover{background:#1e293b;color:#fff}.nav a.active{background:var(--primary);color:#fff}
   .nav .ico{width:17px;text-align:center;opacity:.92}
   .nav .grp{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin:12px 10px 4px;font-weight:700}
+  /* --- menu modular: modo editor + arrastar --- */
+  .nav a{touch-action:manipulation}
+  .nav.editing{touch-action:none}
+  .nav.editing a{background:#16213a;margin-bottom:3px;cursor:grab;border:1px dashed #2b3d5c}
+  .nav.editing a:active{cursor:grabbing}
+  .nav a .drag{color:#64748b;font-size:12px;flex:none;cursor:grab;letter-spacing:-1px}
+  .nav a .eye{margin-left:auto;font-size:12px;color:#64748b;flex:none;padding:0 3px;line-height:1}
+  .nav a .eye:hover{color:#93c5fd}
+  .nav a .eye.off{color:#f87171}
+  .nav a.dim{opacity:.42}
+  .nav a.dragging{opacity:.55;background:var(--primary);border-style:solid;border-color:var(--primary);box-shadow:0 8px 22px rgba(0,0,0,.45)}
+  .nav .grp.ed{cursor:pointer;color:#64748b;border-bottom:1px dashed #2b3d5c;padding-bottom:3px}
+  .nav .grp.ed:hover{color:#93c5fd}
+  /* na edição a barra gruda no rodapé da barra lateral: no celular o
+     "✓ Concluir" caía abaixo da dobra e obrigava a rolar a gaveta */
+  .navedit-bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 2px 0;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(11,18,32,0) 0%,#0b1220 38%);padding:8px 0 4px;z-index:6}
+  .navedit-bar .nb{flex:1;min-width:74px;background:#16213a;color:#cbd5e1;border:1px solid #2b3d5c;border-radius:8px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+  .navedit-bar .nb:hover{background:#1e293b;color:#fff}
+  .navedit-bar .nb.ghost{background:transparent;color:#64748b;border-style:dashed}
+  .navedit-bar .nb.ghost:hover{color:#93c5fd;border-color:#3b5bdb}
+  .navedit-bar .nb.ok{background:var(--primary);color:#fff;border-color:var(--primary)}
   .side .spacer{flex:1}
   .side .env{padding:9px 10px;border-radius:9px;background:#16213a;font-size:11px;line-height:1.45;margin-top:10px}
   .env b{color:#fff}

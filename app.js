@@ -28,24 +28,8 @@ const SHELL_HTML = `
     <div class="brand"><span class="dot">₿</span> Central Financeira</div>
     <div class="ver" id="verTag">v3.0</div>
     <div class="vsw" id="vswBox"></div>
-    <nav class="nav" id="nav">
-      <a data-route="central" class="active"><span class="ico">◎</span> Central</a>
-      <a data-route="financeiro"><span class="ico">💳</span> Modo Financeiro</a>
-      <a data-route="dashboard"><span class="ico">▦</span> Visão Geral</a>
-      <a data-route="fluxo"><span class="ico">📈</span> Fluxo de Caixa</a>
-      <a data-route="dre" id="navDre"><span class="ico">📊</span> DRE</a>
-      <a data-route="orcamento"><span class="ico">🎯</span> Orçamento</a>
-      <div class="grp">Lançamentos</div>
-      <a data-route="movimentos"><span class="ico">↕</span> Movimentos</a>
-      <a data-route="contas" id="navContas" style="display:none"><span class="ico">🗓</span> Contas do mês</a>
-      <a data-route="pagar" id="navPagar"><span class="ico">▣</span> Contas a Pagar</a>
-      <a data-route="receber" id="navReceber"><span class="ico">◳</span> A Receber</a>
-      <a data-route="comissoes" id="navLP" style="display:none"><span class="ico">🤝</span> Comissões LP</a>
-      <a data-route="cartoes"><span class="ico">▭</span> Cartões</a>
-      <a data-route="importar"><span class="ico">⭱</span> Importar</a>
-      <div class="grp">Sistema</div>
-      <a data-route="config"><span class="ico">⚙</span> Configurações</a>
-    </nav>
+    <nav class="nav" id="nav"></nav>
+    <div class="navedit-bar" id="navEditBar"></div>
     <div class="spacer"></div>
     <div class="env" id="envBox"></div>
     <div class="logout" id="forceUpd" title="Buscar a versão mais nova">🔄 Atualizar app</div>
@@ -99,13 +83,148 @@ function applyVisao(code){VISAO=code;CUR_PROFILE=PROFILES.find(p=>p.code===code)
 /* troca a visão ativa: recarrega dados da visão e abre a Visão Geral dela */
 async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){try{DB=await loadData();}catch(e){toast("Erro ao trocar visão: "+e.message);}}SEL.clear();MV_MES=undefined;route("dashboard");closeDrawer();}
 /* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
+/* =====================================================================
+   NAVEGAÇÃO MODULAR — o menu é DADO, não HTML fixo.
+   O Gustavo reordena/agrupa sozinho: ✥ Organizar (modo editor) ou
+   toque-e-segure num item (500ms) e arrasta — igual app de celular.
+   Layout salvo em localStorage; a ORDEM DO DOM é a fonte da verdade
+   depois de cada solta (varre e remonta os grupos).
+   `vis` = regra de visibilidade por visão (o que o syncChrome fazia na mão).
+   ===================================================================== */
+const NAV_CAT={
+  central:   {ico:"◎",  label:"Central"},
+  financeiro:{ico:"💳", label:"Modo Financeiro"},
+  dashboard: {ico:"▦",  label:"Visão Geral"},
+  fluxo:     {ico:"📈", label:"Fluxo de Caixa"},
+  dre:       {ico:"📊", label:"DRE",            vis:()=>IS_NEGOCIOS},
+  orcamento: {ico:"🎯", label:"Orçamento"},
+  movimentos:{ico:"↕",  label:"Movimentos"},
+  contas:    {ico:"🗓", label:"Contas do mês",  vis:()=>IS_PESSOAL},
+  pagar:     {ico:"▣",  label:"Contas a Pagar", vis:()=>!IS_PESSOAL},
+  receber:   {ico:"◳",  label:"A Receber",      vis:()=>!IS_PESSOAL},
+  comissoes: {ico:"🤝", label:"Comissões LP",   vis:()=>VISAO==="PIPEX"},
+  cartoes:   {ico:"▭",  label:"Cartões"},
+  importar:  {ico:"⭱",  label:"Importar"},
+  config:    {ico:"⚙",  label:"Configurações"},
+};
+const NAV_KEY="cfin_nav_v1";
+const navDefault=()=>[
+  {titulo:"",             itens:["central","financeiro","dashboard","fluxo","dre","orcamento"]},
+  {titulo:"Lançamentos",  itens:["movimentos","contas","pagar","receber","comissoes","cartoes","importar"]},
+  {titulo:"Sistema",      itens:["config"]},
+];
+let NAVLAY=null, NAV_HIDE=new Set(), NAV_EDIT=false;
+
+function navLoad(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(NAV_KEY)||"null");
+    if(raw&&Array.isArray(raw.grupos)){
+      NAVLAY=raw.grupos.map(g=>({titulo:String(g.titulo||""),itens:(g.itens||[]).filter(r=>NAV_CAT[r])}));
+      NAV_HIDE=new Set((raw.ocultos||[]).filter(r=>NAV_CAT[r]));
+    }
+  }catch(e){}
+  if(!NAVLAY||!NAVLAY.length)NAVLAY=navDefault();
+  /* rota nova no catálogo (deploy futuro) entra no fim, sem sumir do menu */
+  const vistos=new Set(NAVLAY.flatMap(g=>g.itens));
+  const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r));
+  if(faltando.length)NAVLAY[NAVLAY.length-1].itens.push(...faltando);
+}
+function navSave(){try{localStorage.setItem(NAV_KEY,JSON.stringify({grupos:NAVLAY,ocultos:[...NAV_HIDE]}));}catch(e){}}
+function navReset(){NAVLAY=navDefault();NAV_HIDE=new Set();navSave();renderNav();toast("Menu voltou ao padrão");}
+
+/* DOM (ordem visual) -> NAVLAY. Chamado depois de cada solta/edição. */
+function navFromDOM(){
+  const nav=document.getElementById("nav");if(!nav)return;
+  const grupos=[{titulo:"",itens:[]}];
+  [...nav.children].forEach(n=>{
+    /* o título REAL vem do data-titulo; textContent pode ser o placeholder
+       "— sem título —" do modo editor (bug: virava nome do grupo ao salvar) */
+    if(n.classList.contains("grp"))grupos.push({titulo:String(n.dataset.titulo!=null?n.dataset.titulo:(n.textContent||"")).trim(),itens:[]});
+    else if(n.dataset.route)grupos[grupos.length-1].itens.push(n.dataset.route);
+  });
+  NAVLAY=grupos.filter((g,i)=>i===0?g.itens.length:(g.itens.length||g.titulo));
+  if(!NAVLAY.length)NAVLAY=navDefault();
+  navSave();
+}
+
+function renderNav(){
+  const nav=document.getElementById("nav");if(!nav)return;
+  if(!NAVLAY)navLoad();
+  let html="";
+  NAVLAY.forEach((g,gi)=>{
+    if(g.titulo||NAV_EDIT)html+=`<div class="grp${NAV_EDIT?" ed":""}" data-gi="${gi}" data-titulo="${esc(g.titulo)}"${NAV_EDIT?` onclick="navRenomear(${gi})" title="Tocar pra renomear o grupo"`:""}>${esc(g.titulo||(NAV_EDIT?"— sem título —":""))}</div>`;
+    g.itens.forEach(r=>{
+      const it=NAV_CAT[r];if(!it)return;
+      const okVisao=it.vis?it.vis():true, oculto=NAV_HIDE.has(r);
+      if(!NAV_EDIT&&(!okVisao||oculto))return;
+      const dim=(!okVisao||oculto)?" dim":"";
+      html+=`<a data-route="${r}"${CURRENT===r?' class="active'+dim+'"':(dim?' class="'+dim.trim()+'"':"")}${!okVisao&&NAV_EDIT?' title="Não aparece na visão atual"':""}>`+
+        (NAV_EDIT?`<span class="drag">⠿</span>`:"")+
+        `<span class="ico">${it.ico}</span> ${esc(it.label)}`+
+        (NAV_EDIT?`<span class="eye${oculto?" off":""}" onclick="event.stopPropagation();navOcultar('${r}')" title="${oculto?"Mostrar no menu":"Esconder do menu"}">${oculto?"⊘":"◉"}</span>`:"")+
+        `</a>`;
+    });
+  });
+  nav.innerHTML=html;
+  nav.classList.toggle("editing",NAV_EDIT);
+  const bar=document.getElementById("navEditBar");
+  if(bar)bar.innerHTML=NAV_EDIT
+    ? `<button class="nb ok" onclick="navEditor(false)">✓ Concluir</button><button class="nb" onclick="navAddGrupo()">+ Grupo</button><button class="nb" onclick="navReset()">↺ Padrão</button>`
+    : `<button class="nb ghost" onclick="navEditor(true)" title="Reordenar e agrupar o menu do seu jeito">✥ Organizar menu</button>`;
+}
+function navEditor(on){NAV_EDIT=!!on;renderNav();if(on)toast("Modo editor: arraste os itens, toque no grupo pra renomear");else{navFromDOM();renderNav();toast("Menu salvo");}}
+function navOcultar(r){if(NAV_HIDE.has(r))NAV_HIDE.delete(r);else NAV_HIDE.add(r);navSave();renderNav();}
+function navAddGrupo(){NAVLAY.push({titulo:"Novo grupo",itens:[]});navSave();renderNav();}
+function navRenomear(gi){
+  const g=NAVLAY[gi];if(!g)return;
+  modal({title:"Nome do grupo",fields:[{name:"t",label:"Título (vazio = sem cabeçalho)"}],values:{t:g.titulo},saveLabel:"Salvar",
+    onSave:v=>{g.titulo=String(v.t||"").trim();if(!g.titulo&&!g.itens.length)NAVLAY.splice(gi,1);navSave();renderNav();}});
+}
+
+/* ---- arrastar (Pointer Events: mesmo código no mouse e no dedo) ----
+   fora do modo editor, segurar 500ms num item já entra em edição e pega
+   o item — o gesto que ele conhece de outros apps.                    */
+(function navDragInit(){
+  let alvo=null,timer=null,arrastando=false,y0=0;
+  const nav=()=>document.getElementById("nav");
+  function posicionar(clientY){
+    const n=nav();if(!n||!alvo)return;
+    const irmaos=[...n.children].filter(c=>c!==alvo);
+    let antes=null;
+    for(const c of irmaos){const r=c.getBoundingClientRect();if(clientY<r.top+r.height/2){antes=c;break;}}
+    if(antes)n.insertBefore(alvo,antes);else n.appendChild(alvo);
+  }
+  function comecar(){
+    if(!alvo)return;arrastando=true;
+    if(!NAV_EDIT){NAV_EDIT=true;const r=alvo.dataset.route;renderNav();alvo=nav().querySelector(`a[data-route="${r}"]`);if(!alvo)return;}
+    alvo.classList.add("dragging");
+    try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}
+  }
+  document.addEventListener("pointerdown",e=>{
+    const a=e.target.closest("#nav a");if(!a)return;
+    if(e.target.closest(".eye"))return;
+    alvo=a;y0=e.clientY;
+    try{a.setPointerCapture(e.pointerId);}catch(err){}
+    if(NAV_EDIT)comecar(); else timer=setTimeout(comecar,500);
+  });
+  document.addEventListener("pointermove",e=>{
+    if(!alvo)return;
+    if(!arrastando){if(Math.abs(e.clientY-y0)>8){clearTimeout(timer);alvo=null;}return;}
+    e.preventDefault();posicionar(e.clientY);
+  },{passive:false});
+  function soltar(){
+    clearTimeout(timer);
+    if(alvo&&arrastando){alvo.classList.remove("dragging");navFromDOM();renderNav();}
+    alvo=null;arrastando=false;
+  }
+  document.addEventListener("pointerup",soltar);
+  document.addEventListener("pointercancel",soltar);
+})();
+
 function syncChrome(){
-  const _dre=document.getElementById("navDre");if(_dre)_dre.style.display=IS_NEGOCIOS?"":"none";
-  const _lp=document.getElementById("navLP");if(_lp)_lp.style.display=VISAO==="PIPEX"?"":"none";
-  /* Pessoal: "Contas do mês" substitui Pagar/A Receber no menu (as rotas antigas seguem vivas) */
-  const _ct=document.getElementById("navContas");if(_ct)_ct.style.display=IS_PESSOAL?"":"none";
-  const _pg=document.getElementById("navPagar");if(_pg)_pg.style.display=IS_PESSOAL?"none":"";
-  const _rc=document.getElementById("navReceber");if(_rc)_rc.style.display=IS_PESSOAL?"none":"";
+  /* menu inteiro (inclusive as regras por visão: DRE só Negócios, Contas do
+     mês só Pessoal, Comissões só PIPEX) sai do renderNav — ver NAV_CAT.vis */
+  try{renderNav();}catch(e){}
   try{renderTopSwitch();}catch(e){}
   const _env=document.getElementById("envBox");if(_env)_env.innerHTML=MODE==="live"?`<span class="badge-live">LIVE</span> <b>v${window.APP_VERSION}</b> · <b>${esc(VISAO_LABEL)}</b><br>Supabase conectado`:`<span class="badge-demo">DEMO</span> <b>v${window.APP_VERSION}</b><br>Dados de exemplo`;
   try{const pb=document.getElementById("profileBox");if(pb&&pb.dataset.email!=null)renderProfile(pb.dataset.email);}catch(e){}
@@ -1873,7 +1992,7 @@ async function fpAfterWrite(visao){
 }
 
 const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
-document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a){route(a.dataset.route);closeDrawer();}});
+document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
 /* ===== Drawer mobile (sidebar off-canvas) ===== */

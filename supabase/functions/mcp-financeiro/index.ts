@@ -236,14 +236,23 @@ const HANDLERS: Record<string, (a: any) => Promise<string>> = {
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------
+// token aceito em 3 lugares: ?k= (query), header Bearer, OU segmento de
+// path /t/<token> (o claude.ai descarta query string ao conectar MCP -
+// o path sobrevive sempre).
 function authOK(req: Request, url: URL): boolean {
   if (!MCP_TOKEN) return false;
   const q = url.searchParams.get("k") || "";
   const h = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  return q === MCP_TOKEN || h === MCP_TOKEN;
+  const m = url.pathname.match(/\/t\/([^/]+)\/?$/);
+  const p = m ? decodeURIComponent(m[1]) : "";
+  return q === MCP_TOKEN || h === MCP_TOKEN || p === MCP_TOKEN;
 }
 
-async function handleRpc(msg: any): Promise<any | null> {
+// IMPORTANTE: nunca responder HTTP 401 no fluxo MCP - 401 faz o claude.ai
+// cair no fluxo OAuth (que nao existe aqui) e falhar com "nao foi possivel
+// registrar no servico de login". Handshake (initialize/tools/list/ping) e
+// aberto e nao expoe dados; SO tools/call exige o token (erro em JSON-RPC).
+async function handleRpc(msg: any, authed: boolean): Promise<any | null> {
   const { id, method, params } = msg || {};
   const ok = (result: any) => ({ jsonrpc: "2.0", id, result });
   const err = (code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
@@ -256,6 +265,7 @@ async function handleRpc(msg: any): Promise<any | null> {
   if (method === "ping") return ok({});
   if (method === "tools/list") return ok({ tools: TOOLS });
   if (method === "tools/call") {
+    if (!authed) return ok({ content: [{ type: "text", text: "ERRO: token ausente ou invalido no conector (a URL deve terminar com /t/SEU_TOKEN)." }], isError: true });
     const name = params && params.name;
     const args = (params && params.arguments) || {};
     const fn = HANDLERS[name];
@@ -278,14 +288,16 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
   if (req.method === "GET") {
-    // health / probe (sem token nao revela nada sensivel)
-    return json({ ok: true, server: SERVER, transport: "streamable-http", auth: MCP_TOKEN ? "token" : "MCP_TOKEN ausente" });
+    // health so com ?health=1; GET puro = 405 como manda o spec Streamable HTTP
+    // (retornar 200 JSON no GET confundia o probe do claude.ai)
+    if (url.searchParams.get("health") === "1") {
+      return json({ ok: true, server: SERVER, transport: "streamable-http", auth: MCP_TOKEN ? "token" : "MCP_TOKEN ausente" });
+    }
+    return new Response(null, { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
   }
-  if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: cors });
+  if (req.method !== "POST") return new Response(null, { status: 405, headers: { ...cors, Allow: "POST, OPTIONS" } });
 
-  if (!authOK(req, url)) {
-    return json({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "nao autorizado (token invalido)" } }, 401);
-  }
+  const authed = authOK(req, url);
 
   let body: any;
   try { body = await req.json(); } catch (_) {
@@ -295,9 +307,9 @@ Deno.serve(async (req) => {
   // batch ou mensagem unica
   if (Array.isArray(body)) {
     const out = [];
-    for (const m of body) { const r = await handleRpc(m); if (r) out.push(r); }
+    for (const m of body) { const r = await handleRpc(m, authed); if (r) out.push(r); }
     return out.length ? json(out) : new Response(null, { status: 202, headers: cors });
   }
-  const r = await handleRpc(body);
+  const r = await handleRpc(body, authed);
   return r ? json(r) : new Response(null, { status: 202, headers: cors });
 });

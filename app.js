@@ -1168,7 +1168,8 @@ async function lpMarcarRecebido(comp){const m=(LP.meses||[]).find(x=>x.competenc
 const cardContas=()=>(DB.contas||[]).filter(c=>c.tipo==="cartao"||/cart/i.test(c.nome));
 let CART_SEL=null, FAT_SEL=null;
 /* Config de fatura por cartao (dia do mes): f=fechamento, v=vencimento. Default: fecha fim do mes, vence 10. */
-const FATURA_CFG={"cartao inter empresas":{f:3,v:10},"cartao inter microbusiness":{f:3,v:10},"cartao inter pf":{f:5,v:12},"cartao nubank familia":{f:3,v:10}}; // Nubank: vence 10 (creditData Pluggy), fecha ~7 dias antes
+/* pag = conta que PAGA a fatura (o débito real sai dela, não do cartão) */
+const FATURA_CFG={"cartao inter empresas":{f:3,v:10,pag:"Inter PJ"},"cartao inter microbusiness":{f:3,v:10,pag:"Inter PJ"},"cartao inter pf":{f:5,v:12,pag:"Inter PF"},"cartao nubank familia":{f:3,v:10,pag:"Conta Nubank Familia"}}; // Nubank: vence 10 (creditData Pluggy), fecha ~7 dias antes
 const cfgKey=n=>(n||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,""); // ignora acento
 const faturaCfg=n=>FATURA_CFG[cfgKey(n)]||{f:31,v:10};
 /* mes-fatura (YYYY-MM) de uma compra, pela data de FECHAMENTO (compra depois do fechamento cai na proxima fatura) */
@@ -1234,10 +1235,30 @@ const FAT_AUTO_KEY="cfin_fatura_auto_v1",FAT_STAMP_KEY="cfin_fatura_auto_run_v1"
 const faturaAutoOn=()=>{try{return localStorage.getItem(FAT_AUTO_KEY)!=="0";}catch(e){return true;}};
 const faturaTag=(cartao,fk)=>FAT_TAG+" "+cfgKey(cartao)+" "+fk;
 const faturaDesc=(cartao,fk)=>`Fatura ${cartao} ${fk.slice(5,7)}/${fk.slice(0,4)}`;
-/* conta a pagar que já representa esta fatura (carimbo › descrição › cartão+mês) */
+/* CONTA PAGADORA da fatura. A conta a pagar NÃO pode ficar amarrada ao cartão:
+   o ✓ das Contas do mês lança o movimento na conta do previsto (`ctPay`), e uma
+   Saída no cartão é lida como COMPRA por `faturasDoCartao` — a fatura seguinte
+   viria inflada. O débito real sai da conta corrente; é lá que ele mora.
+   Mapa explícito em FATURA_CFG.pag; fallback = conta não-cartão da mesma visão
+   que compartilha um pedaço do nome do cartão (ex.: "Cartao Inter PF" → "Inter PF"). */
+function faturaContaPag(cartao){
+  const L=(DB.contas||[]).filter(c=>c.ativo!==false&&c.tipo!=="cartao"&&!/cart/i.test(c.nome));
+  const alvo=faturaCfg(cartao).pag;
+  if(alvo){const c=L.find(x=>cfgKey(x.nome)===cfgKey(alvo));if(c)return c.nome;}
+  const toks=cfgKey(cartao).split(/\s+/).filter(t=>t.length>2&&t!=="cartao");
+  const c=L.find(x=>{const k=cfgKey(x.nome);return toks.some(t=>k.indexOf(t)>=0);});
+  return c?c.nome:null;
+}
+/* conta a pagar que já representa esta fatura (carimbo › descrição › cartão citado no mês) */
 function faturaPrevisto(cartao,fk){
   const venc=faturaVenc(fk,faturaCfg(cartao).v),tag=faturaTag(cartao,fk),desc=faturaDesc(cartao,fk),L=DB.contasPagar||[];
-  return L.find(p=>(p.obs||"").indexOf(tag)>=0)||L.find(p=>p.descricao===desc)||L.find(p=>p.banco===cartao&&monthKey(p.vencimento)===monthKey(venc))||null;
+  const k=cfgKey(cartao);
+  return L.find(p=>(p.obs||"").indexOf(tag)>=0)
+      ||L.find(p=>p.descricao===desc)
+      /* lançada na mão: mesmo mês e o cartão aparece no nome OU na conta
+         (pega tanto a antiga presa ao cartão quanto a presa à conta pagadora) */
+      ||L.find(p=>monthKey(p.vencimento)===monthKey(venc)&&(p.banco===cartao||cfgKey(p.descricao||"").indexOf(k)>=0))
+      ||null;
 }
 async function faturaGravar(cartao,f){
   const visao=((DB.contas||[]).find(c=>c.nome===cartao)||{}).visao||VISAO;
@@ -1252,8 +1273,9 @@ async function faturaGravar(cartao,f){
     if(MODE==="live")await sbUpd("previstos",ja._row,{valor:total});
     ja.valor=total;return{acao:"atualizado",prev:ja,valor:total};
   }
-  const o={_row:"p"+Date.now(),descricao:faturaDesc(cartao,f.fk),vencimento:f.venc,valor:total,categoria:"Pagamento fatura cartão",banco:cartao,status:"aberto",recorrencia:"",obs:faturaTag(cartao,f.fk)};
-  if(MODE==="live")o._row=await sbIns("previstos",{descricao:o.descricao,valor:total,vencimento:f.venc,tipo:"pagar",status:"aberto",visao,conta_id:contaId(cartao),categoria_id:catId("Pagamento fatura cartão"),observacao:o.obs});
+  const pag=faturaContaPag(cartao);   /* débito sai da conta corrente, não do cartão */
+  const o={_row:"p"+Date.now(),descricao:faturaDesc(cartao,f.fk),vencimento:f.venc,valor:total,categoria:"Pagamento fatura cartão",banco:pag||"",status:"aberto",recorrencia:"",obs:faturaTag(cartao,f.fk)};
+  if(MODE==="live")o._row=await sbIns("previstos",{descricao:o.descricao,valor:total,vencimento:f.venc,tipo:"pagar",status:"aberto",visao,conta_id:pag?contaId(pag):null,categoria_id:catId("Pagamento fatura cartão"),observacao:o.obs});
   DB.contasPagar.push(o);
   return{acao:"criado",prev:o,valor:total};
 }
@@ -1301,7 +1323,7 @@ function viewCartoes(){const cards=cardContas();
   let _ci=fs.findIndex(f=>f.venc>=hoje); if(_ci<0)_ci=fs.length-1;
   const showFs=fs.slice(Math.max(0,_ci-6),_ci+4).reverse(); // mais recente primeiro
   $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Faturas por fechamento (dia ${cfg.f}) · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</div>
-    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 0;cursor:pointer"><input type="checkbox" ${faturaAutoOn()?"checked":""} onchange="faturaAutoSet(this.checked)" style="margin:0"> Quando a fatura fechar, lançar sozinho em Contas a Pagar</label></div>
+    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 0;cursor:pointer"><input type="checkbox" ${faturaAutoOn()?"checked":""} onchange="faturaAutoSet(this.checked)" style="margin:0"> Quando a fatura fechar, lançar sozinho em Contas a Pagar${(()=>{const p=faturaContaPag(CART_SEL);return p?` <b>· debita em ${esc(p)}</b>`:` <b style="color:#dc2626">· sem conta pagadora definida</b>`;})()}</label></div>
     ${cards.length>1?`<select onchange="CART_SEL=this.value;FAT_SEL=null;viewCartoes()">${cards.map(c=>`<option ${c.nome===CART_SEL?"selected":""}>${esc(c.nome)}</option>`).join("")}</select>`:""}</div>
    <div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 12px">${showFs.map(f=>`
      <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:158px;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;background:#fff;${f.fk===FAT_SEL?'box-shadow:0 0 0 2px #6366f1 inset;border-color:#6366f1':''}">

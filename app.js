@@ -335,7 +335,7 @@ async function loadData(){
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
-    sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia").in("visao",VFILTER).order("vencimento").limit(20000),
+    sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao").in("visao",VFILTER).order("vencimento").limit(20000),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000)]);
   /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
@@ -345,7 +345,7 @@ async function loadData(){
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null}));
   const cartoes=ct.data.map(r=>({_row:r.id,data:(r.data_compra||"").slice(0,10),descricao:r.descricao||"",cartao:cb.get(r.cartao_id)?.nome||"",valor:Number(r.valor||0),subcategoria:nameOf(r.categoria_id),mesFatura:(r.data_fatura||"").slice(5,7)+"/"+(r.data_fatura||"").slice(0,4)}));
-  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||""}));
+  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||""}));
   const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||""}));
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
@@ -1174,13 +1174,17 @@ const faturaCfg=n=>FATURA_CFG[cfgKey(n)]||{f:31,v:10};
 /* mes-fatura (YYYY-MM) de uma compra, pela data de FECHAMENTO (compra depois do fechamento cai na proxima fatura) */
 function faturaMes(diso,close){let a=(diso||"").split("-").map(Number);let y=a[0],m=a[1],d=a[2];if(d>close){m++;if(m>12){m=1;y++;}}return y+"-"+String(m).padStart(2,"0");}
 const faturaVenc=(fk,vd)=>fk+"-"+String(Math.min(vd,28)).padStart(2,"0");
+/* data de FECHAMENTO da fatura fk (dia f, respeitando mês curto: fev fecha no 28/29) */
+const faturaFech=(fk,fd)=>{const[y,m]=fk.split("-").map(Number);const last=new Date(y,m,0).getDate();return fk+"-"+String(Math.min(fd,last)).padStart(2,"0");};
 const stBadge=st=>({paga:'background:#e7f6ec;color:#16a34a',aberta:'background:#eef2ff;color:#4f46e5',vencida:'background:#fef2f2;color:#dc2626'}[st]||'');
 const stLabel=st=>({paga:'Paga',aberta:'Aberta',vencida:'Vencida'}[st]||st);
-function viewCartoes(){const cards=cardContas();
-  if(!cards.length){$("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1></div></div><div class="panel"><div class="empty">Nenhum cartão cadastrado. Crie em Configurações › Cartões.</div></div>`;return;}
-  if(!CART_SEL||!cards.some(c=>c.nome===CART_SEL))CART_SEL=cards[0].nome;
-  const cfg=faturaCfg(CART_SEL),hoje=todayISO();
-  const movs=DB.movimentos.filter(m=>m.banco===CART_SEL);
+/* Agrupa os lançamentos de um cartão por FATURA e resolve o status de cada uma.
+   Extraído da tela porque a automação (fatura fechada → conta a pagar) precisa
+   exatamente do mesmo cálculo — status divergente entre tela e automação seria
+   o caminho curto pra gerar conta a pagar de fatura já quitada. */
+function faturasDoCartao(nome){
+  const cfg=faturaCfg(nome),hoje=todayISO();
+  const movs=DB.movimentos.filter(m=>m.banco===nome);
   // agrupa por FATURA (data de fechamento)
   const fat=new Map();movs.forEach(m=>{const k=faturaMes(m.data,cfg.f);if(!fat.has(k))fat.set(k,{fk:k,compras:0,pagtos:0,n:0,txs:[]});const f=fat.get(k);f.txs.push(m);if(m.sentido==="Saída"){f.compras+=m.valor;f.n++;}else f.pagtos+=m.valor;});
   const fs=[...fat.values()].sort((a,b)=>a.fk.localeCompare(b.fk));
@@ -1190,9 +1194,9 @@ function viewCartoes(){const cards=cardContas();
      histórico (pagamentos anteriores à janela de sync que não estão na base).
      Fallback sem saldo do banco: saldo devedor acumulado (pagamento pós-fechamento
      quita a fatura mais antiga). */
-  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.saldo=f.compras-f.pagtos;});
+  fs.forEach(f=>{f.venc=faturaVenc(f.fk,cfg.v);f.fech=faturaFech(f.fk,cfg.f);f.fechada=hoje>f.fech;f.saldo=f.compras-f.pagtos;});
   const totalPag=fs.reduce((s,f)=>s+f.pagtos,0),totCompras0=fs.reduce((s,f)=>s+f.compras,0);
-  const _cta=cards.find(x=>x.nome===CART_SEL);
+  const _cta=(DB.contas||[]).find(x=>x.nome===nome);
   const bancoDev=(_cta&&_cta.saldo_atual!=null&&isFinite(+_cta.saldo_atual))?+_cta.saldo_atual:null;
   if(bancoDev!=null){
     /* compara com compras BRUTAS não-vencidas: pagamento antecipado na corrente já
@@ -1205,6 +1209,88 @@ function viewCartoes(){const cards=cardContas();
     let cumC=0;
     fs.forEach(f=>{cumC+=f.compras;f.status=f.venc<hoje?((totalPag+0.01>=cumC)?"paga":"vencida"):"aberta";});
   }
+  return{cfg,movs,fat,fs,totalPag,totCompras0,bancoDev,conta:_cta};
+}
+
+/* ===== Fatura fechada → conta a pagar automática ==========================
+   Quando a fatura FECHA (passou o dia de fechamento), ela nasce sozinha em
+   Contas a Pagar com vencimento no dia do cartão. As regras que evitam bagunça:
+   · valor = COMPRAS do ciclo. Pagamento que cai depois do fechamento quita a
+     fatura ANTERIOR (é assim que `faturaMes` agrupa), então descontá-lo aqui
+     subestimaria a conta;
+   · idempotente: 1 conta por (cartão, fatura). Reconhece pelo carimbo em
+     `observacao` e, na falta dele, por qualquer conta a pagar já ligada ao
+     cartão vencendo no mesmo mês — pega também as que ele lançou na mão;
+   · enquanto está ABERTA o valor é atualizado (o sync ainda traz compra
+     retroativa); depois de paga/cancelada nunca mais encosta; valor digitado
+     na mão também é intocável;
+   · janela CURTA (7 dias depois do vencimento): a conta nasce quando a fatura
+     FECHA, não retroativamente. Fatura velha o app não tem como saber se foi
+     paga fora da janela de sync — chutar viraria atraso fantasma no Modo
+     Financeiro. Os 7 dias são só a folga pra ele passar uma semana sem abrir
+     o app. Nunca escreve em visão que a pessoa não pode editar.
+   ========================================================================= */
+const FAT_AUTO_KEY="cfin_fatura_auto_v1",FAT_STAMP_KEY="cfin_fatura_auto_run_v1",FAT_TAG="auto:fatura",FAT_JANELA=7;
+const faturaAutoOn=()=>{try{return localStorage.getItem(FAT_AUTO_KEY)!=="0";}catch(e){return true;}};
+const faturaTag=(cartao,fk)=>FAT_TAG+" "+cfgKey(cartao)+" "+fk;
+const faturaDesc=(cartao,fk)=>`Fatura ${cartao} ${fk.slice(5,7)}/${fk.slice(0,4)}`;
+/* conta a pagar que já representa esta fatura (carimbo › descrição › cartão+mês) */
+function faturaPrevisto(cartao,fk){
+  const venc=faturaVenc(fk,faturaCfg(cartao).v),tag=faturaTag(cartao,fk),desc=faturaDesc(cartao,fk),L=DB.contasPagar||[];
+  return L.find(p=>(p.obs||"").indexOf(tag)>=0)||L.find(p=>p.descricao===desc)||L.find(p=>p.banco===cartao&&monthKey(p.vencimento)===monthKey(venc))||null;
+}
+async function faturaGravar(cartao,f){
+  const visao=((DB.contas||[]).find(c=>c.nome===cartao)||{}).visao||VISAO;
+  if(!podeEditar(visao))return{acao:"sem-permissao"};
+  const total=Math.round(f.compras*100)/100;
+  if(total<=0)return{acao:"vazia"};
+  const ja=faturaPrevisto(cartao,f.fk);
+  if(ja){
+    if(String(ja.status||"").toLowerCase()!=="aberto")return{acao:"nada",prev:ja};
+    if((ja.obs||"").indexOf(FAT_TAG)<0)return{acao:"manual",prev:ja};
+    if(Math.abs(Number(ja.valor||0)-total)<0.01)return{acao:"nada",prev:ja};
+    if(MODE==="live")await sbUpd("previstos",ja._row,{valor:total});
+    ja.valor=total;return{acao:"atualizado",prev:ja,valor:total};
+  }
+  const o={_row:"p"+Date.now(),descricao:faturaDesc(cartao,f.fk),vencimento:f.venc,valor:total,categoria:"Pagamento fatura cartão",banco:cartao,status:"aberto",recorrencia:"",obs:faturaTag(cartao,f.fk)};
+  if(MODE==="live")o._row=await sbIns("previstos",{descricao:o.descricao,valor:total,vencimento:f.venc,tipo:"pagar",status:"aberto",visao,conta_id:contaId(cartao),categoria_id:catId("Pagamento fatura cartão"),observacao:o.obs});
+  DB.contasPagar.push(o);
+  return{acao:"criado",prev:o,valor:total};
+}
+/* varre os cartões da visão aberta; 1x por dia por visão (ou forçado pelo toggle) */
+async function faturaAutoRun(opt){
+  opt=opt||{};
+  if(MODE!=="live"||!faturaAutoOn())return 0;
+  const hoje=todayISO();
+  if(!opt.forcar){
+    let st={};try{st=JSON.parse(localStorage.getItem(FAT_STAMP_KEY)||"{}");}catch(e){}
+    if(st[VISAO]===hoje)return 0;
+    st[VISAO]=hoje;try{localStorage.setItem(FAT_STAMP_KEY,JSON.stringify(st));}catch(e){}
+  }
+  const d=new Date(hoje+"T12:00:00");d.setDate(d.getDate()-FAT_JANELA);const corte=d.toISOString().slice(0,10);
+  let n=0;
+  for(const c of cardContas()){
+    let fs;try{fs=faturasDoCartao(c.nome).fs;}catch(e){continue;}
+    for(const f of fs){
+      if(!f.fechada||f.venc<corte||f.status==="paga")continue;
+      try{const r=await faturaGravar(c.nome,f);if(r.acao==="criado"||r.acao==="atualizado")n++;}catch(e){}
+    }
+  }
+  if(n)toast(n===1?"Fatura fechada virou conta a pagar ✓":n+" faturas viraram contas a pagar ✓");
+  return n;
+}
+function faturaAutoSet(on){
+  try{localStorage.setItem(FAT_AUTO_KEY,on?"1":"0");}catch(e){}
+  if(!on){toast("Automático desligado");viewCartoes();return;}
+  toast("Automático ligado");
+  faturaAutoRun({forcar:true}).then(()=>viewCartoes()).catch(e=>toast("Erro: "+e.message));
+}
+
+function viewCartoes(){const cards=cardContas();
+  if(!cards.length){$("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1></div></div><div class="panel"><div class="empty">Nenhum cartão cadastrado. Crie em Configurações › Cartões.</div></div>`;return;}
+  if(!CART_SEL||!cards.some(c=>c.nome===CART_SEL))CART_SEL=cards[0].nome;
+  const hoje=todayISO(),_f=faturasDoCartao(CART_SEL);
+  const cfg=_f.cfg,movs=_f.movs,fat=_f.fat,fs=_f.fs,totalPag=_f.totalPag,totCompras0=_f.totCompras0,bancoDev=_f.bancoDev;
   if(!FAT_SEL||!fat.has(FAT_SEL))FAT_SEL=(fs.find(f=>f.status==="aberta")||fs[fs.length-1]||{fk:""}).fk;
   const sel=fat.get(FAT_SEL)||{fk:"",compras:0,pagtos:0,n:0,txs:[],venc:""};
   const aberta=fs.find(f=>f.status==="aberta");
@@ -1214,11 +1300,12 @@ function viewCartoes(){const cards=cardContas();
      (com parcelas projetadas até 2027, slice(-10) só mostrava futuro) */
   let _ci=fs.findIndex(f=>f.venc>=hoje); if(_ci<0)_ci=fs.length-1;
   const showFs=fs.slice(Math.max(0,_ci-6),_ci+4).reverse(); // mais recente primeiro
-  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Faturas por fechamento (dia ${cfg.f}) · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</div></div>
+  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">Faturas por fechamento (dia ${cfg.f}) · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</div>
+    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 0;cursor:pointer"><input type="checkbox" ${faturaAutoOn()?"checked":""} onchange="faturaAutoSet(this.checked)" style="margin:0"> Quando a fatura fechar, lançar sozinho em Contas a Pagar</label></div>
     ${cards.length>1?`<select onchange="CART_SEL=this.value;FAT_SEL=null;viewCartoes()">${cards.map(c=>`<option ${c.nome===CART_SEL?"selected":""}>${esc(c.nome)}</option>`).join("")}</select>`:""}</div>
    <div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 12px">${showFs.map(f=>`
      <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:158px;border:1px solid #e5e7eb;border-radius:12px;padding:12px 14px;background:#fff;${f.fk===FAT_SEL?'box-shadow:0 0 0 2px #6366f1 inset;border-color:#6366f1':''}">
-       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:13px">${mkLabel(f.fk)}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(f.status)}">${stLabel(f.status)}</span></div>
+       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:13px">${mkLabel(f.fk)}${faturaPrevisto(CART_SEL,f.fk)?` <span title="Já está em Contas a Pagar" style="font-size:11px">📄</span>`:""}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(f.status)}">${stLabel(f.status)}</span></div>
        <div style="font-size:20px;font-weight:700;margin:6px 0 2px" class="${f.saldo>0?'out':'in'}">${fmtBRL(f.saldo)}</div>
        <div class="sub" style="margin:0;font-size:11px">venc ${fmtDate(f.venc)} · ${f.n} compras</div>
      </div>`).join("")||`<div class="empty">Sem faturas.</div>`}</div>
@@ -1229,9 +1316,16 @@ function viewCartoes(){const cards=cardContas();
    ${bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`<div class="sub" style="margin:-4px 0 10px">🏦 Conferência com o banco: dívida real <b>${fmtBRL(bancoDev)}</b> · saldo dos lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'· <b style="color:#16a34a">✔ confere</b>':`· Δ ${fmtBRL(d)} <span title="Diferença normalmente = pagamentos/compras anteriores à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ histórico fora da janela</span>`}</div>`})():""}
    <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table></div>`;}
-function gerarFatura(fk){const cartao=CART_SEL,cfg=faturaCfg(cartao);const comp=fk.slice(5,7)+"/"+fk.slice(0,4);const due=faturaVenc(fk,cfg.v);
-  const total=DB.movimentos.filter(m=>m.banco===cartao&&faturaMes(m.data,cfg.f)===fk&&m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
-  const o={_row:"p"+Date.now(),descricao:`Fatura ${cartao} ${comp}`,vencimento:due,valor:total,categoria:"Pagamento fatura cartão",banco:cartao,status:"aberto",recorrencia:""};(async()=>{if(MODE==="live")o._row=await sbIns("previstos",{descricao:o.descricao,valor:o.valor,vencimento:due,tipo:"pagar",status:"aberto",visao:VISAO,conta_id:contaId(cartao),categoria_id:catId("Pagamento fatura cartão")});DB.contasPagar.push(o);toast("Fatura lançada");route("pagar");})().catch(e=>toast("Erro: "+e.message));}
+/* botão manual: mesmo caminho da automação (antes ele duplicava a cada clique) */
+async function gerarFatura(fk){
+  const cartao=CART_SEL,f=faturasDoCartao(cartao).fs.find(x=>x.fk===fk);
+  if(!f){toast("Fatura não encontrada");return;}
+  try{
+    const r=await faturaGravar(cartao,f);
+    toast({criado:"Fatura lançada em Contas a Pagar ✓",atualizado:"Conta a pagar atualizada pro valor da fatura ✓",nada:"Essa fatura já está em Contas a Pagar",manual:"Já existe uma conta a pagar lançada na mão pra essa fatura",vazia:"Fatura sem compras",'sem-permissao':"Você não pode editar a visão deste cartão"}[r.acao]||"");
+    if(r.acao==="criado")route("pagar");else viewCartoes();
+  }catch(e){toast("Erro: "+e.message);}
+}
 
 /* ===== Importar ===== */
 function viewImportar(){$("#view").innerHTML=`<div class="row"><div><h1>Importar</h1><div class="sub">Tipo + destino + arquivo (ou cole)</div></div></div><div class="panel"><div class="controls"><div class="fld"><label class="sub" style="margin:0">Tipo</label><select id="impTipo"><option value="auto">Detectar</option><option value="ofx">Extrato OFX</option><option value="csv">Extrato CSV</option><option value="fatura">Fatura cartão</option><option value="compensatio">Compensatio</option></select></div><div class="fld"><label class="sub" style="margin:0">Lançar em</label><select id="impDest"></select></div></div><div class="controls"><input id="impFile" type="file" accept=".ofx,.qfx,.csv,.txt,.xml,.pdf,.xlsx,.jpg,.jpeg,.png,.webp,.heic"><span class="sub">ou cole ↓ · PDF/foto lê com IA</span></div><textarea id="imp" placeholder="Cole o conteúdo..." style="width:100%;height:120px;font-family:ui-monospace,monospace;font-size:12px"></textarea><div style="margin-top:10px"><button class="btn" onclick="doImport()">Processar</button></div><div id="impOut" style="margin-top:14px"></div></div>`;const fill=()=>{const t=$("#impTipo").value;const opts=(t==="fatura")?cartaoOpts():bancoOpts();$("#impDest").innerHTML=opts.map(o=>`<option>${esc(o)}</option>`).join("");};$("#impTipo").onchange=fill;fill();}
@@ -2240,6 +2334,7 @@ async function bootApp(){
     if(!podeVer(VISAO)){const primeira=visoesVisiveis()[0];if(primeira)applyVisao(primeira.code);}
     if(PERM.admin){try{await acessosLoad();}catch(e){}}
     DB=await loadData();
+    try{await faturaAutoRun();}catch(e){}   /* fatura que fechou vira conta a pagar (1x/dia por visão) */
     try{CENTRAL=await loadCentral();}catch(e){CENTRAL=_finalizeCentral(_emptyPer());}
     route("central");}   /* app único: entra pela Central consolidada */
   catch(e){document.getElementById("view").innerHTML=`<div class="panel"><h2>Erro ao carregar</h2><div class="sub">${esc(e.message)}</div></div>`;}

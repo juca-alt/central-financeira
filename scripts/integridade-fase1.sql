@@ -4,8 +4,8 @@
 -- 100% ADITIVO e IDEMPOTENTE: não altera dado existente; pode rodar de novo.
 --
 -- O que cria:
---  1. public.entidades  — cadastro único de pessoas/empresas (Débora, Pedro
---     França, MJM...) com apelidos p/ matching; cada movimento/previsto pode
+--  1. public.entidades  — cadastro único de pessoas/empresas contrapartes
+--     (com apelidos p/ matching); cada movimento/previsto pode
 --     apontar pra uma entidade (entidade_id) = "ID de cliente".
 --  2. public.audit_log  — TRILHA DE AUDITORIA automática: todo INSERT/UPDATE/
 --     DELETE em movimentos, previstos, contas, categorias e entidades grava

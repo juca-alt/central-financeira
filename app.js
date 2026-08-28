@@ -270,10 +270,31 @@ const catTipo=n=>{const l=leafCat(n);return(DB.categorias||[]).find(c=>c.nome.to
 /* hash DETERMINÍSTICO: mesma transação → mesmo hash (permite dedup). NÃO misturar Date.now/random. */
 function uhash(p){let h=5381;const s=String(p);for(let i=0;i<s.length;i++)h=((h*33)+s.charCodeAt(i))&0xffffffff;return"v2_"+(h>>>0).toString(16);}
 
-/* orçamento (localStorage; persistência server entra com tabela orcamentos depois) */
+/* orçamento: LIVE = tabela public.orcamentos (por visão), cache em DB.orcamentos; DEMO = localStorage.
+   Shape em memória (compat com a UI): { "YYYY-MM": { "<categoria>": valor } }. */
 const ORC_KEY="cfin_orc_v1";
-function loadOrc(){try{return JSON.parse(localStorage.getItem(ORC_KEY)||"{}");}catch(e){return{};}}
+function loadOrc(){ if(MODE==="live")return (typeof DB!=="undefined"&&DB&&DB.orcamentos)||{}; try{return JSON.parse(localStorage.getItem(ORC_KEY)||"{}");}catch(e){return{};} }
 function saveOrc(o){try{localStorage.setItem(ORC_KEY,JSON.stringify(o));}catch(e){}}
+function hasLocalOrc(){try{const o=JSON.parse(localStorage.getItem(ORC_KEY)||"{}");return Object.values(o).some(m=>m&&Object.keys(m).length);}catch(e){return false;}}
+/* grava UM teto (visão atual, mês, categoria). live = upsert na tabela; demo = localStorage. */
+async function setOrcamento(mes,catNome,valor){
+  valor=+valor||0;
+  if(MODE!=="live"){const o=loadOrc();o[mes]=o[mes]||{};o[mes][catNome]=valor;saveOrc(o);return;}
+  const cid=catId(catNome);
+  if(!cid){toast("Categoria sem id — recarregue a página");return;}
+  const{error}=await sb.from("orcamentos").upsert({visao:VISAO,mes,categoria_id:cid,valor},{onConflict:"visao,mes,categoria_id"});
+  if(error)throw new Error(error.message);
+  DB.orcamentos=DB.orcamentos||{};DB.orcamentos[mes]=DB.orcamentos[mes]||{};DB.orcamentos[mes][catNome]=valor;
+}
+/* importa 1x o orçamento salvo neste navegador (localStorage) → visão atual, no Supabase */
+async function importOrcLocal(){
+  let raw={};try{raw=JSON.parse(localStorage.getItem(ORC_KEY)||"{}");}catch(e){}
+  const rows=[];for(const mes in raw)for(const cn in raw[mes]){const cid=catId(cn),v=+raw[mes][cn]||0;if(cid&&v)rows.push({visao:VISAO,mes,categoria_id:cid,valor:v});}
+  if(!rows.length){toast("Nada pra importar neste navegador");return;}
+  try{const{error}=await sb.from("orcamentos").upsert(rows,{onConflict:"visao,mes,categoria_id"});if(error)throw new Error(error.message);
+    DB=await loadData();toast(rows.length+" linha(s) importadas para "+VISAO_LABEL);viewOrcamento();}
+  catch(e){toast("Erro ao importar: "+e.message);}
+}
 
 /* grupos do DRE (fonte única — usada no DRE e no editor de Configurações) */
 const DRE_GRUPOS=["Receitas","Custos","Despesas Operacionais","Impostos e Taxas","Outras Despesas"];
@@ -330,17 +351,18 @@ const DEMO=(()=>{
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,mv,ct,pv,rg,gl]=await Promise.all([
+  const [contas,cats,mv,ct,pv,rg,gl,orc]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
     sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao").in("visao",VFILTER).order("vencimento").limit(20000),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
-    sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000)]);
+    sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
+    sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000)]);
   /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
   const enumNovo=[contas,cats,mv,ct,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
-  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[]};
+  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{}};
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null}));
@@ -349,7 +371,8 @@ async function loadData(){
   const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||""}));
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
-  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario};
+  const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
+  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1543,9 +1566,9 @@ function viewOrcamento(){ ORC_MES=ORC_MES||todayISO().slice(0,7); const orc=load
     <div class="kpi"><div class="lbl">Despesa planejada</div><div class="val out">${fmtBRL(planDesp)}</div><div class="hint">realizado ${fmtBRL(realDesp)}</div></div>
     <div class="kpi"><div class="lbl">🎯 Lucro planejado</div><div class="val ${planRec-planDesp>=0?'in':'out'}">${fmtBRL(planRec-planDesp)}</div></div>
     <div class="kpi"><div class="lbl">Lucro realizado</div><div class="val ${realRec-realDesp>=0?'in':'out'}">${fmtBRL(realRec-realDesp)}</div></div></div>
-   <div class="sub">O orçamento é salvo localmente neste navegador. Persistência no Supabase (tabela de orçamento) entra como incremento.</div>`;
+   <div class="sub">${MODE==="live"?`Salvo no Supabase, por visão (<b>${esc(VISAO_LABEL)}</b>).`+(hasLocalOrc()?` <span class="link" onclick="importOrcLocal()">Importar o orçamento deste navegador ›</span>`:""):"Modo demo — salvo só neste navegador."}</div>`;
   $("#om").onchange=e=>{ORC_MES=e.target.value;viewOrcamento();};
-  $("#view").querySelectorAll("input[data-cat]").forEach(inp=>inp.onchange=()=>{const o=loadOrc();o[ORC_MES]=o[ORC_MES]||{};o[ORC_MES][inp.dataset.cat]=+inp.value||0;saveOrc(o);viewOrcamento();});
+  $("#view").querySelectorAll("input[data-cat]").forEach(inp=>inp.onchange=async()=>{try{await setOrcamento(ORC_MES,inp.dataset.cat,+inp.value||0);}catch(e){toast("Erro ao salvar: "+e.message);}viewOrcamento();});
 }
 
 /* ===== Configurações (contas/cartões/categorias) ===== */

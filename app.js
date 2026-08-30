@@ -500,6 +500,23 @@ function tagPicker(bg,m){const body=bg.querySelector(".body");if(!body)return;
       }catch(e){toast("Erro: "+e.message);}render();});};
   render();
 }
+/* ---- resumo "por tag": gasto por tag CRUZANDO todas as visões (RLS entrega só o que a pessoa vê) ---- */
+function verMovsPorTag(tagId){route("movimentos");setTimeout(()=>{const fg=document.querySelector("#fg");if(fg){fg.value=tagId;if(window._movFilter)window._movFilter();}},60);}
+async function resumoPorTag(){
+  let rows=[];
+  try{
+    if(MODE==="live"){const{data,error}=await sb.from("movimento_tags").select("tag_id, movimentos(valor,sinal)");if(error)throw new Error(error.message);rows=data||[];}
+    else{DB.movimentos.forEach(m=>(m.tags||[]).forEach(tid=>rows.push({tag_id:tid,movimentos:{valor:m.valor,sinal:m.sentido==="Entrada"?1:-1}})));}
+  }catch(e){toast("Erro: "+e.message);return;}
+  const agg=new Map();
+  rows.forEach(r=>{const mv=r.movimentos;if(!mv)return;const e=agg.get(r.tag_id)||{saidas:0,entradas:0,n:0};if(Number(mv.sinal)===1)e.entradas+=Number(mv.valor||0);else e.saidas+=Number(mv.valor||0);e.n++;agg.set(r.tag_id,e);});
+  const items=[...agg.entries()].map(([tid,v])=>({t:tagById(tid),...v})).filter(x=>x.t).sort((a,b)=>b.saidas-a.saidas);
+  const tot=items.reduce((s,x)=>s+x.saidas,0);
+  const body=items.length?items.map(x=>{const pct=tot?x.saidas/tot*100:0,c=x.t.cor||"#2f6f5e";
+    return `<div class="mvb" onclick="document.querySelectorAll('.modal-bg').forEach(b=>b.remove());verMovsPorTag('${x.t.id}')" role="button" tabindex="0"><div class="mvb-top"><span class="mvb-nm">🏷️ ${esc(x.t.nome)}</span><span class="mvb-val num">${fmtBRL(x.saidas)} <i>${pct.toFixed(0)}%</i></span></div><div class="bar"><i style="width:${Math.max(2,pct)}%;background:${esc(c)}"></i></div><div class="sub" style="margin:2px 0 0;font-size:11px">${x.n} lançtos${x.entradas?` · entradas ${fmtBRL(x.entradas)}`:""}</div></div>`;}).join("")
+    :`<div class="empty">Nenhuma transação com tag ainda. Marque tags no editar de um movimento.</div>`;
+  modal({title:"🏷️ Gasto por tag",extraHTML:`<div class="sub" style="margin:0 0 8px">Soma das saídas por tag, <b>cruzando todas as visões</b> que você enxerga — independente da conta de onde saiu.${tot?` Total marcado: <b>${fmtBRL(tot)}</b>.`:""}</div><div style="display:flex;flex-direction:column;gap:8px;max-height:56vh;overflow:auto">${body}</div>`});
+}
 function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Saída",valor:"",descricao:"",banco:bancoOpts()[0]||"",categoria:""};
   const banco=bancoOpts();
   const bg=el(`<div class="modal-bg"><div class="modal"><h3>${isEdit?"Editar":"Novo"} lançamento</h3><div class="body">
@@ -690,7 +707,7 @@ function viewMovimentos(){
     ?`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro <span class="sub" id="barsHint" style="font-weight:400"></span></h2><div id="movBars"></div></div>`
     :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="${isMob?220:100}"></canvas></div>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">toque em categoria/valor pra editar na própria linha</div></div>
-   <div style="display:flex;gap:8px"><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
+   <div style="display:flex;gap:8px"><button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
   <div class="controls" style="align-items:center">
     <button class="btn ghost sm" onclick="mvMes(-1)" aria-label="Mês anterior">‹</button>
     <div style="font-weight:660;min-width:88px;text-align:center">${MV_MES?mkLabel(MV_MES):"Tudo"}</div>
@@ -1388,7 +1405,7 @@ function viewCartoes(){const cards=cardContas();
     <div class="kpi"><div class="lbl">📅 Fatura aberta</div><div class="val">${aberta?fmtDate(aberta.venc):"—"}</div><div class="hint">${aberta?fmtBRL(aberta.saldo):"em dia"}</div></div></div>
    ${bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`<div class="sub" style="margin:-4px 0 10px">🏦 Conferência com o banco: dívida real <b>${fmtBRL(bancoDev)}</b> · saldo dos lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'· <b style="color:#16a34a">✔ confere</b>':`· Δ ${fmtBRL(d)} <span title="Diferença normalmente = pagamentos/compras anteriores à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ histórico fora da janela</span>`}</div>`})():""}
    <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>
-    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table></div>`;}
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data)).map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table></div>`;}
 /* botão manual: mesmo caminho da automação (antes ele duplicava a cada clique) */
 async function gerarFatura(fk){
   const cartao=CART_SEL,f=faturasDoCartao(cartao).fs.find(x=>x.fk===fk);

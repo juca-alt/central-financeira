@@ -25,7 +25,7 @@ const MCP_TOKEN = (Deno.env.toObject()["MCP_TOKEN"] || "").trim();
 
 const VISOES = ["PJ", "PIPEX", "RC", "FAMILIA", "JUCA"];
 const RECORR = ["mensal", "semanal", "quinzenal", "bimestral", "trimestral", "semestral", "anual"];
-const SERVER = { name: "central-financeira", version: "1.0.0" };
+const SERVER = { name: "central-financeira", version: "1.1.0" };
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -180,6 +180,123 @@ async function listar_contas_a_pagar(a: any): Promise<string> {
       " [" + r.visao + (r.recorrencia ? "/" + r.recorrencia : "") + "] id " + r.id).join("\n");
 }
 
+
+// ---- hash determinstico: mesmo extrato reenviado nao duplica ---------
+// djb2 sobre "fonte|conta|data|sinal|valor|descricao|ocorrencia".
+// A "ocorrencia" separa lancamentos identicos no mesmo dia (ex.: dois Pix
+// de R$ 150,00 do mesmo pagador em 27/08) - o 1o vira _0, o 2o _1.
+function djb2(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(8, "0");
+}
+function hashMov(fonte: string, conta: string, it: any, ocorrencia: number): string {
+  const base = [fonte, conta, it.data, String(it.sinal), Number(it.valor).toFixed(2),
+    String(it.descricao || "").slice(0, 60), String(ocorrencia)].join("|");
+  return "h" + djb2(base) + djb2(base.split("").reverse().join(""));
+}
+
+async function importar_movimentos(a: any): Promise<string> {
+  const visao = String(a.visao || "").toUpperCase();
+  const nomeConta = String(a.conta || "").trim();
+  const fonte = String(a.fonte || "").trim() || ("mcp_" + new Date().toISOString().slice(0, 10).replace(/-/g, ""));
+  const itens: any[] = Array.isArray(a.itens) ? a.itens : [];
+  if (!VISOES.includes(visao)) throw new Error("visao invalida (use " + VISOES.join("/") + ")");
+  if (!nomeConta) throw new Error("conta obrigatoria");
+  if (!itens.length) throw new Error("itens vazio");
+  if (itens.length > 400) throw new Error("maximo 400 itens por chamada (mande em lotes)");
+
+  const conta = await resolveNome("contas", nomeConta, visao);
+  if (!conta) throw new Error("conta '" + nomeConta + "' nao encontrada na visao " + visao);
+
+  // resolve cada nome de categoria uma unica vez
+  const nomesCat = Array.from(new Set(itens.map((i) => String(i.categoria || "").trim()).filter(Boolean)));
+  const mapaCat: Record<string, any> = {};
+  for (const n of nomesCat) mapaCat[n] = await resolveNome("categorias", n, visao);
+
+  const vistos: Record<string, number> = {};
+  const rows: any[] = [];
+  const problemas: string[] = [];
+
+  for (let i = 0; i < itens.length; i++) {
+    const it = itens[i];
+    const data = String(it.data || "").slice(0, 10);
+    const valor = Math.abs(Number(it.valor));
+    const sinal = Number(it.sinal) >= 0 ? 1 : -1;
+    const desc = String(it.descricao || "").trim();
+    if (!isDate(data)) { problemas.push("item " + (i + 1) + ": data invalida '" + data + "'"); continue; }
+    if (!(valor > 0)) { problemas.push("item " + (i + 1) + ": valor deve ser > 0"); continue; }
+    if (!desc) { problemas.push("item " + (i + 1) + ": descricao vazia"); continue; }
+
+    const chave = data + "|" + sinal + "|" + valor.toFixed(2) + "|" + desc.slice(0, 60);
+    const oc = (vistos[chave] = (vistos[chave] || 0) + 1) - 1;
+    const catNome = String(it.categoria || "").trim();
+    const cat = catNome ? mapaCat[catNome] : null;
+    if (catNome && !cat) problemas.push("item " + (i + 1) + ": categoria '" + catNome + "' nao existe em " + visao);
+
+    rows.push({
+      conta_id: conta.id, data: data, descricao_original: desc,
+      valor: valor, sinal: sinal, visao: visao,
+      categoria_id: cat ? cat.id : null,
+      hash: String(it.hash || "").trim() || hashMov(fonte, conta.id, { data, sinal, valor, descricao: desc }, oc),
+      fonte: fonte,
+      observacao: it.observacao ? String(it.observacao) : null,
+    });
+  }
+  if (!rows.length) throw new Error("nenhum item valido. " + problemas.join("; "));
+
+  // upsert que IGNORA quem ja existe (indice unico movimentos_hash_key).
+  // return=representation traz so o que entrou de fato -> da pra contar.
+  const inseridos: any[] = await rest("movimentos?on_conflict=hash", {
+    method: "POST",
+    headers: { Prefer: "return=representation,resolution=ignore-duplicates" },
+    body: JSON.stringify(rows),
+  });
+  const nIns = Array.isArray(inseridos) ? inseridos.length : 0;
+  const nDup = rows.length - nIns;
+  const liquido = rows.reduce((s, r) => s + r.valor * r.sinal, 0);
+
+  return "Importacao em " + visao + " / " + conta.nome + " (fonte: " + fonte + ")\n" +
+    "- recebidos: " + itens.length + "\n" +
+    "- inseridos: " + nIns + "\n" +
+    "- ja existiam (ignorados): " + nDup + "\n" +
+    "- liquido do lote: R$ " + liquido.toFixed(2) + "\n" +
+    (problemas.length ? "AVISOS:\n" + problemas.map((p) => "- " + p).join("\n") : "Sem avisos.");
+}
+
+async function corrigir_data_movimento(a: any): Promise<string> {
+  const mid = String(a.movimento_id || "").trim();
+  const nova = String(a.data || "").slice(0, 10);
+  if (!mid) throw new Error("movimento_id obrigatorio");
+  if (!isDate(nova)) throw new Error("data deve ser YYYY-MM-DD");
+  const movs = await rest("movimentos?select=id,data,descricao_original,valor&id=eq." + encodeURIComponent(mid));
+  const mov = movs && movs[0];
+  if (!mov) throw new Error("movimento nao encontrado");
+  if (mov.data === nova) return "Movimento ja estava em " + nova + " (nada a fazer).";
+  await rest("movimentos?id=eq." + encodeURIComponent(mid), {
+    method: "PATCH", body: JSON.stringify({ data: nova }),
+  });
+  return "Data corrigida: \"" + (mov.descricao_original || mid) + "\" R$ " + Number(mov.valor).toFixed(2) +
+    " de " + mov.data + " para " + nova + ".";
+}
+
+async function atualizar_saldo_conta(a: any): Promise<string> {
+  const visao = String(a.visao || "").toUpperCase();
+  const nomeConta = String(a.conta || "").trim();
+  const saldo = Number(a.saldo);
+  if (!VISOES.includes(visao)) throw new Error("visao invalida (use " + VISOES.join("/") + ")");
+  if (!nomeConta) throw new Error("conta obrigatoria");
+  if (!isFinite(saldo)) throw new Error("saldo deve ser numero");
+  const conta = await resolveNome("contas", nomeConta, visao);
+  if (!conta) throw new Error("conta '" + nomeConta + "' nao encontrada na visao " + visao);
+  const quando = isDate(String(a.data_do_saldo || "")) ? String(a.data_do_saldo) + "T12:00:00Z" : new Date().toISOString();
+  await rest("contas?id=eq." + encodeURIComponent(conta.id), {
+    method: "PATCH", body: JSON.stringify({ saldo_atual: saldo, saldo_atualizado_em: quando }),
+  });
+  return "Saldo de " + conta.nome + " (" + visao + ") atualizado para R$ " + saldo.toFixed(2) +
+    " em " + quando.slice(0, 10) + ".";
+}
+
 // ------------------------- catalogo MCP ------------------------------
 const S = (t: string) => ({ type: t });
 const TOOLS = [
@@ -229,10 +346,63 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: "importar_movimentos",
+    description: "Importa um lote de movimentos de extrato numa conta. Deduplica por hash: reenviar o mesmo extrato nao duplica. Devolve quantos entraram e quantos ja existiam.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conta: { type: "string", description: "nome da conta (ex: Inter PF, Pru Wallet)" },
+        visao: { type: "string", enum: VISOES },
+        fonte: { type: "string", description: "rotulo da origem, ex: extrato_interpf_20260829" },
+        itens: {
+          type: "array",
+          description: "ate 400 lancamentos",
+          items: {
+            type: "object",
+            properties: {
+              data: { type: "string", description: "YYYY-MM-DD" },
+              descricao: S("string"),
+              valor: { type: "number", description: "valor absoluto, positivo" },
+              sinal: { type: "number", description: "1 = entrada, -1 = saida" },
+              categoria: { type: "string", description: "nome da categoria (opcional)" },
+              observacao: S("string"),
+              hash: { type: "string", description: "opcional; se omitido e calculado do conteudo" },
+            },
+            required: ["data", "descricao", "valor", "sinal"],
+          },
+        },
+      },
+      required: ["conta", "visao", "itens"],
+    },
+  },
+  {
+    name: "corrigir_data_movimento",
+    description: "Corrige a data de um movimento ja gravado (ex: lancamento que entrou com D+1 em relacao ao extrato).",
+    inputSchema: {
+      type: "object",
+      properties: { movimento_id: S("string"), data: { type: "string", description: "YYYY-MM-DD" } },
+      required: ["movimento_id", "data"],
+    },
+  },
+  {
+    name: "atualizar_saldo_conta",
+    description: "Grava o saldo conferido de uma conta (saldo_atual + data da leitura).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        conta: S("string"), visao: { type: "string", enum: VISOES },
+        saldo: { type: "number" },
+        data_do_saldo: { type: "string", description: "YYYY-MM-DD (opcional, default hoje)" },
+      },
+      required: ["conta", "visao", "saldo"],
+    },
+  },
 ];
 
 const HANDLERS: Record<string, (a: any) => Promise<string>> = {
   lancar_conta_a_pagar, dar_baixa, categorizar_movimento, listar_contas_a_pagar,
+  importar_movimentos, corrigir_data_movimento, atualizar_saldo_conta,
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------

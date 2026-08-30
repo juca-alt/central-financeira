@@ -99,6 +99,20 @@ async function refreshItem(itemId) {
   return 'UPDATING';                          // estourou o tempo — lê o que tiver
 }
 
+/* Estado real do item — quem diz se o MeuPluggy está DE FATO atualizando no banco.
+   `lastUpdatedAt` = último refresh bem-sucedido = o carimbo honesto do frescor;
+   `status`/`executionStatus` dizem por que parou (LOGIN_ERROR, OUTDATED etc.). */
+async function getItemInfo(itemId) {
+  try {
+    const it = await pg(`/items/${itemId}`);
+    return { status: it?.status || null, executionStatus: it?.executionStatus || null,
+             lastUpdatedAt: it?.lastUpdatedAt || null };
+  } catch (e) {
+    return { status: null, executionStatus: null, lastUpdatedAt: null,
+             erro: String(e.message).slice(0, 120) };
+  }
+}
+
 async function getAccounts(itemId) {
   const r = await pg(`/accounts?itemId=${itemId}`);
   return r?.results || [];
@@ -265,7 +279,9 @@ async function main() {
   // Um item costuma servir 2 conexões (conta + cartão do mesmo banco). O PATCH é
   // por ITEM, então tentar uma vez por conexão dobrava as chamadas à toa.
   const refreshFeito = new Map();   // item_id → status
+  const itemInfo = new Map();       // item_id → {status, lastUpdatedAt} (1 GET por item)
   const falhas = [];                // conexões que estouraram: viram exit 1 no fim
+  const paradas = [];               // itens sem refresh há dias: também reprovam o run
 
   for (const c of conexoes) {
     console.log(`\n=== ${c.banco} (${c.visao}) ===`);
@@ -286,6 +302,19 @@ async function main() {
         refreshFeito.set(c.item_id, st);
       }
       console.log(`   status: ${st}`);
+
+      // FRESCOR REAL DO ITEM (30/08): o run ficava verde com item congelado há semanas.
+      let info;
+      if (itemInfo.has(c.item_id)) info = itemInfo.get(c.item_id);
+      else {
+        info = await getItemInfo(c.item_id);
+        itemInfo.set(c.item_id, info);
+        const idade = info.lastUpdatedAt ? (Date.now() - new Date(info.lastUpdatedAt)) / 864e5 : null;
+        if (idade != null && idade > 3) {
+          paradas.push(`${c.banco} (${c.visao}): item sem refresh do banco desde ${String(info.lastUpdatedAt).slice(0, 10)} (${Math.floor(idade)} dias)`);
+        }
+      }
+      console.log(`   item: status=${info.status || '?'}${info.executionStatus ? '/' + info.executionStatus : ''} · último refresh no banco: ${info.lastUpdatedAt || 'desconhecido'}${info.erro ? ` · (GET /items falhou: ${info.erro})` : ''}`);
 
       const accs = await getAccounts(c.item_id);
       // Conta bancária do item: se o mapeamento fixou account_id, usa ele;
@@ -381,12 +410,31 @@ async function main() {
         // "sem transação nenhuma" também conta como atrasado: conta parada tem saldo
         // parado, então não gravar é inofensivo; gravar é que estraga.
         const atrasado = !!(dbLast && (!pluggyLast || dbLast > pluggyLast));
-        if (Number.isFinite(saldo) && !atrasado) {
+        // CARIMBO HONESTO (30/08): `saldo_atualizado_em` era new Date() — item congelado
+        // re-carimbava o saldo VELHO como fresco todo dia (Cartao Inter PF ficou 19 dias
+        // mostrando "atualizado hoje" com a dívida de 11/08, e o guard por transação não
+        // pega cartão: as parcelas futuras já gravadas caem na janela e parecem feed vivo).
+        // Agora o carimbo é o lastUpdatedAt do ITEM (quando o banco entregou o dado) e só
+        // grava se for mais novo que o carimbo que o app já tem (extrato importado na mão
+        // vence dado velho do Pluggy).
+        const stamp = info.lastUpdatedAt || new Date().toISOString();
+        const [contaAtual] = await sbGet(`/rest/v1/contas?id=eq.${c.conta_id}&select=saldo_atual,saldo_atualizado_em`);
+        const stampDB = contaAtual?.saldo_atualizado_em ? new Date(contaAtual.saldo_atualizado_em) : null;
+        const stampVelho = !!(stampDB && new Date(stamp) <= stampDB);
+        if (Number.isFinite(saldo) && !atrasado && !stampVelho) {
           await sbSend('PATCH', `/rest/v1/contas?id=eq.${c.conta_id}`,
-            { saldo_atual: saldo, saldo_atualizado_em: new Date().toISOString() }, 'return=minimal');
-          console.log(`   saldo gravado: R$ ${saldo.toFixed(2)}`);
-        } else if (atrasado) {
-          console.log(`   ⚠ saldo NÃO gravado: Pluggy parou em ${pluggyLast || 'nenhuma transação na janela'} e o app já tem ${dbLast} (saldo do Pluggy R$ ${saldo.toFixed(2)} está atrasado)`);
+            { saldo_atual: saldo, saldo_atualizado_em: stamp }, 'return=minimal');
+          console.log(`   saldo gravado: R$ ${saldo.toFixed(2)} (dado do banco de ${String(stamp).slice(0, 10)})`);
+        } else if (Number.isFinite(saldo) && stampVelho && info.lastUpdatedAt
+                   && Number(contaAtual.saldo_atual) === saldo
+                   && stampDB - new Date(stamp) > 2 * 864e5) {
+          // Mesmo saldo com carimbo do app >2 dias mais novo que o refresh real do banco =
+          // a mentira deixada pelas versões antigas — corrigir só o carimbo pra baixo.
+          await sbSend('PATCH', `/rest/v1/contas?id=eq.${c.conta_id}`,
+            { saldo_atualizado_em: stamp }, 'return=minimal');
+          console.log(`   carimbo corrigido: saldo R$ ${saldo.toFixed(2)} é de ${String(stamp).slice(0, 10)} (não de ${String(contaAtual.saldo_atualizado_em).slice(0, 10)})`);
+        } else if (atrasado || stampVelho) {
+          console.log(`   ⚠ saldo NÃO gravado: ${stampVelho ? `app já tem carimbo ${contaAtual.saldo_atualizado_em} ≥ refresh do item ${stamp}` : `Pluggy parou em ${pluggyLast || 'nenhuma transação na janela'} e o app já tem ${dbLast}`} (saldo do Pluggy R$ ${saldo.toFixed(2)})`);
         }
         // VERIFICAÇÃO DIÁRIA (cartão): dívida calculada pelos lançamentos vs dívida real
         // do banco. Divergência estável = gap de histórico (ok, informativo); divergência
@@ -415,11 +463,15 @@ async function main() {
   // OBSERVABILIDADE (02/08): antes, um item que falhasse na leitura só virava uma
   // linha de log e o workflow ficava VERDE — dava pra ficar semanas sem sincronizar
   // sem ninguém perceber. Agora falha de conexão reprova o run.
+  if (paradas.length) {
+    console.error(`\n🔴 ${paradas.length} item(ns) PARADO(s) no Pluggy — o dado na tela está velho. Reconectar no meu.pluggy.ai:`);
+    paradas.forEach(p => console.error(`   - ${p}`));
+  }
   if (falhas.length) {
     console.error(`\n❌ ${falhas.length} de ${conexoes.length} conexões falharam:`);
     falhas.forEach(f => console.error(`   - ${f}`));
-    process.exit(1);
   }
+  if (falhas.length || paradas.length) process.exit(1);
 }
 
 main().catch(e => { console.error('ERRO:', e.message); process.exit(1); });

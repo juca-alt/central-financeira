@@ -481,6 +481,25 @@ function overviewNumbers(de,ate){
   return{saldoTotal,entReal,saiReal,entAReal,saiAReal,entPrev:entReal+entAReal,saiPrev:saiReal+saiAReal,proj:saldoTotal+entAReal-saiAReal};}
 
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
+/* ---- tags nos movimentos: exibir chips + atribuir (join movimento_tags) ---- */
+function movTagsHtml(m){const ids=m.tags||[];if(!ids.length)return"";return ids.map(id=>{const t=tagById(id);if(!t)return"";const c=t.cor||"#2f6f5e";return `<span class="chip" style="background:${esc(c)}22;border:1px solid ${esc(c)}66;color:${esc(c)};padding:1px 6px;font-size:11px">🏷️ ${esc(t.nome)}</span>`;}).filter(Boolean).join(" ");}
+async function tagAssign(movId,tagId){const{error}=await sb.from("movimento_tags").insert({movimento_id:movId,tag_id:tagId});if(error)throw new Error(error.message);}
+async function tagUnassign(movId,tagId){const{error}=await sb.from("movimento_tags").delete().eq("movimento_id",movId).eq("tag_id",tagId);if(error)throw new Error(error.message);}
+function tagPicker(bg,m){const body=bg.querySelector(".body");if(!body)return;
+  const wrap=el(`<div class="fld"><label>🏷️ Tags</label><div id="tagPick" style="display:flex;flex-wrap:wrap;gap:6px"></div></div>`);body.appendChild(wrap);
+  const host=wrap.querySelector("#tagPick");
+  const render=()=>{const cur=new Set(m.tags||[]);
+    host.innerHTML=(DB.tags||[]).length
+      ?(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>{const on=cur.has(t.id),c=t.cor||"#2f6f5e";
+        return `<button type="button" class="chip" data-tid="${t.id}" style="cursor:pointer;${on?`background:${esc(c)};border:1px solid ${esc(c)};color:#fff`:`background:transparent;border:1px solid var(--border);color:var(--muted)`}">${on?"✓ ":""}${esc(t.nome)}</button>`;}).join("")
+      :`<span class="sub" style="margin:0">Nenhuma tag criada. Crie em Configurações › 🏷️ Tags.</span>`;
+    host.querySelectorAll("[data-tid]").forEach(btn=>btn.onclick=async()=>{const tid=btn.dataset.tid,has=(m.tags||[]).includes(tid);btn.disabled=true;
+      try{if(MODE==="live"){if(has)await tagUnassign(m._row,tid);else await tagAssign(m._row,tid);}
+        m.tags=has?(m.tags||[]).filter(x=>x!==tid):[...(m.tags||[]),tid];
+        if(CURRENT==="movimentos"&&typeof window._movFilter==="function"){try{window._movFilter();}catch(e){}}
+      }catch(e){toast("Erro: "+e.message);}render();});};
+  render();
+}
 function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Saída",valor:"",descricao:"",banco:bancoOpts()[0]||"",categoria:""};
   const banco=bancoOpts();
   const bg=el(`<div class="modal-bg"><div class="modal"><h3>${isEdit?"Editar":"Novo"} lançamento</h3><div class="body">
@@ -499,7 +518,7 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
     </div>
   </div><div class="foot">${isEdit?`<button class="btn danger" id="del" style="margin-right:auto">Excluir</button>`:""}<button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">Salvar</button></div></div></div>`);
   document.body.appendChild(bg); const close=()=>bg.remove();
-  if(isEdit){anexSection(bg,"movimento",m._row,m.visao||VISAO);entField(bg,"movimentos",m._row,m.descricao);}   /* comprovantes + contato */
+  if(isEdit){anexSection(bg,"movimento",m._row,m.visao||VISAO);entField(bg,"movimentos",m._row,m.descricao);tagPicker(bg,m);}   /* comprovantes + contato + tags */
   bg.querySelector("#cancel").onclick=close; bg.addEventListener("click",e=>{if(e.target===bg)close();});
   let sentido=isEdit?m.sentido:"Saída";
   const renderCat=()=>{const slot=bg.querySelector("#catSlot");const tipo=sentido==="Entrada"?"entrada":"saida";const g=catGroupsByTipo(tipo);
@@ -679,17 +698,17 @@ function viewMovimentos(){
     <button class="btn ${MV_MES?"ghost":""} sm" onclick="mvMesTudo()">${MV_MES?"Ver tudo":"Mês atual"}</button>
     <span class="sub" id="movSum" style="margin-left:auto"></span>
   </div>
-  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
+  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
   ${isMob?`<div id="movWrap"></div>${vizPanel}`:`${vizPanel}<div id="movWrap"></div>`}`;
-  window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value;
-    const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco))));
+  window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value,g=$("#fg").value;
+    const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco)))&&(!g||(m.tags||[]).includes(g)));
     _movPieRows=base;
     const ent=base.filter(m=>m.sentido==="Entrada"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0),sai=base.filter(m=>m.sentido==="Saída"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0);
     const sum=$("#movSum");if(sum)sum.innerHTML=`<b class="in">+ ${fmtK(ent)}</b> · <b class="out">− ${fmtK(sai)}</b> · saldo <b class="${ent-sai>=0?"in":"out"}">${fmtBRL(ent-sai)}</b>`;
     _movRows=base.filter(m=>(c===""||(c==="__none"?!m.categoria:m.categoria===c))).sort((a,b)=>b.data.localeCompare(a.data));renderMovTable();};
   const _filtD=debounce(window._movFilter,180);
   $("#fq").oninput=_filtD;
-  ["fs","fb","fc","ft"].forEach(id=>{$("#"+id).onchange=window._movFilter;});window._movFilter();
+  ["fs","fb","fc","ft","fg"].forEach(id=>{$("#"+id).onchange=window._movFilter;});window._movFilter();
 }
 /* ranking de barras (visão Pessoal): top 8 + "outras" — legível onde a pizza de 25 fatias não era */
 const MV_PAL=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d"];
@@ -733,7 +752,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
     wrap.innerHTML=(days.map(g=>{const net=g.rows.reduce((s,m)=>s+(m.sentido==="Entrada"?m.valor:-m.valor),0);
       return`<div class="secttl"><span>${dayLabel(g.d)}</span><span class="num ${net>=0?"in":"out"}">${net>=0?"+":"−"} ${fmtBRL(Math.abs(net))}</span></div>
       <div class="panel ct-grp">${g.rows.map(m=>`<div class="ct-row" onclick="editMovimento('${m._row}')" role="button" tabindex="0">
-        <div class="ct-main"><b>${esc(m.descricao)}</b><small><span class="chip ${m.categoria?"":"none"}" onclick="event.stopPropagation();mvCatEdit('${m._row}',this)" title="Tocar pra trocar a categoria">${esc(m.categoria||"definir categoria")}</span> · ${esc(m.banco)}</small></div>
+        <div class="ct-main"><b>${esc(m.descricao)}</b><small><span class="chip ${m.categoria?"":"none"}" onclick="event.stopPropagation();mvCatEdit('${m._row}',this)" title="Tocar pra trocar a categoria">${esc(m.categoria||"definir categoria")}</span> · ${esc(m.banco)}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
         <div class="ct-val num ${m.sentido==="Entrada"?"in":"out"}" onclick="event.stopPropagation();mvValEdit('${m._row}',this)" title="Tocar pra editar o valor">${m.sentido==="Entrada"?"+":"−"} ${fmtBRL(m.valor)}</div>
       </div>`).join("")}</div>`;}).join("")||`<div class="empty">Nenhum.</div>`)+`<div class="sub">${_movRows.length} resultado(s)</div>`;
     if(!skipPie)renderMovViz();return;}
@@ -741,7 +760,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
    _movRows.map(m=>`<tr class="${SEL.has(m._row)?'sel':''}">
      <td onclick="toggleSel('${m._row}')"><input type="checkbox" class="cb" ${SEL.has(m._row)?'checked':''}></td>
      <td class="editable" onclick="inlineEdit(this,'${m._row}','data')">${fmtDate(m.data)}</td>
-     <td style="cursor:pointer" onclick="editMovimento('${m._row}')"><b style="font-weight:500">${esc(m.descricao)}</b></td>
+     <td style="cursor:pointer" onclick="editMovimento('${m._row}')"><b style="font-weight:500">${esc(m.descricao)}</b>${movTagsHtml(m)?`<div style="margin-top:3px">${movTagsHtml(m)}</div>`:""}</td>
      <td class="editable" onclick="inlineEdit(this,'${m._row}','categoria')">${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td>
      <td class="editable" onclick="inlineEdit(this,'${m._row}','banco')">${esc(m.banco)}</td>
      <td class="num editable ${m.sentido==='Entrada'?'in':'out'}" onclick="inlineEdit(this,'${m._row}','valor')">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}

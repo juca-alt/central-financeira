@@ -351,7 +351,7 @@ const DEMO=(()=>{
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,mv,ct,pv,rg,gl,orc]=await Promise.all([
+  const [contas,cats,mv,ct,pv,rg,gl,orc,tg,mt]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
@@ -359,20 +359,23 @@ async function loadData(){
     sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao").in("visao",VFILTER).order("vencimento").limit(20000),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
-    sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000)]);
+    sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000),
+    sb.from("tags").select("id,nome,cor,visao,ativo").in("visao",VFILTER).order("nome"),
+    sb.from("movimento_tags").select("movimento_id,tag_id").limit(50000)]);
   /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
   const enumNovo=[contas,cats,mv,ct,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
-  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{}};
+  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{},tags:[]};
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
-  const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null}));
+  const mtMap=new Map();((mt&&mt.data)||[]).forEach(r=>{const a=mtMap.get(r.movimento_id)||[];a.push(r.tag_id);mtMap.set(r.movimento_id,a);});
+  const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null,tags:(mtMap.get(r.id)||[])}));
   const cartoes=ct.data.map(r=>({_row:r.id,data:(r.data_compra||"").slice(0,10),descricao:r.descricao||"",cartao:cb.get(r.cartao_id)?.nome||"",valor:Number(r.valor||0),subcategoria:nameOf(r.categoria_id),mesFatura:(r.data_fatura||"").slice(5,7)+"/"+(r.data_fatura||"").slice(0,4)}));
   const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||""}));
   const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||""}));
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
-  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos};
+  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[])};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1573,6 +1576,19 @@ function viewOrcamento(){ ORC_MES=ORC_MES||todayISO().slice(0,7); const orc=load
 
 /* ===== Configurações (contas/cartões/categorias) ===== */
 let CFG_TAB="contas";
+/* ===== Tags (rótulos por tipo/origem, independente da conta) ===== */
+const tagById=id=>(DB.tags||[]).find(t=>t.id===id)||null;
+function tagChip(t){const c=t.cor;const st=c?`background:${esc(c)}22;border:1px solid ${esc(c)}66;color:${esc(c)}`:"";return `<span class="chip" style="${st}">🏷️ ${esc(t.nome)}</span>`;}
+function tagsPanel(){
+  const tags=(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));
+  const rows=tags.map(t=>`<tr><td>${tagChip(t)}</td><td class="num"><button class="btn ghost sm" onclick="editTag('${t.id}')">Editar</button><button class="btn danger sm" onclick="delTag('${t.id}')">Excluir</button></td></tr>`).join("")
+    ||`<tr><td colspan="2"><div class="empty">Nenhuma tag ainda. Crie as primeiras (ex.: PJ, PF, Pessoal, Investimento).</div></td></tr>`;
+  return `<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span class="sub" style="margin:0;flex:1;min-width:220px">Tags classificam a transação por <b>tipo/origem</b> (PJ, PF…) <b>independente da conta</b> de onde saiu. Uma transação pode ter várias — atribua no editar de cada movimento.</span><button class="btn" onclick="addTag()">+ Tag</button></div>
+   <div class="panel" style="padding:0;overflow:hidden"><table><tbody>${rows}</tbody></table></div>`;
+}
+function addTag(){modal({title:"Nova tag",fields:[{name:"nome",label:"Nome",placeholder:"Ex.: PJ, PF, Pessoal"},{name:"cor",label:"Cor",type:"color",default:"#2f6f5e"}],onSave:async v=>{if(!v.nome.trim()){toast("Dê um nome");return false;}if(MODE!=="live"){toast("Tags só no modo logado");return false;}try{await sbIns("tags",{nome:v.nome.trim(),cor:v.cor||null,visao:"AMBOS"});}catch(e){toast("Erro: "+e.message);return false;}toast("Tag criada");await afterWrite();}});}
+function editTag(id){const t=tagById(id);if(!t)return;modal({title:"Editar tag",fields:[{name:"nome",label:"Nome"},{name:"cor",label:"Cor",type:"color",default:t.cor||"#2f6f5e"}],values:{nome:t.nome,cor:t.cor||"#2f6f5e"},onSave:async v=>{if(!v.nome.trim()){toast("Dê um nome");return false;}if(MODE==="live"){try{await sbUpd("tags",id,{nome:v.nome.trim(),cor:v.cor||null});}catch(e){toast("Erro: "+e.message);return false;}}t.nome=v.nome.trim();t.cor=v.cor||null;toast("Atualizada");await afterWrite();}});}
+function delTag(id){const t=tagById(id);if(!t)return;confirmDel(`Excluir a tag "${t.nome}"? Ela sai de todas as transações que a tinham.`,async()=>{if(MODE==="live"){try{await sbDel("tags",id);}catch(e){toast("Erro: "+e.message);return;}}document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 
 /* ===== ACESSOS (multiusuário por visão) =====================================
    Permissão mora em app_usuarios/usuario_visoes, chaveada por E-MAIL — assim dá
@@ -1670,6 +1686,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     const sec=(tipo,t)=>{const arr=catTopsSorted(tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=catSubsSorted(p);return`<tr><td><b>${esc(p.nome)}</b>${amb(p)}</td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span>${amb(s)}</td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
     const nAmb=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").length;
     body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
+  if(CFG_TAB==="tags")body=tagsPanel();
   if(CFG_TAB==="acessos")body=PERM.admin?acessosPanel():`<div class="panel"><div class="empty">Só o administrador vê esta aba.</div></div>`;
   if(CFG_TAB==="contatos"){
     body=`<div class="panel"><h2>Contatos & Clientes <button class="btn sm" onclick="entNova().then(n=>{if(n)entLoad(true).then(()=>viewConfig());})">+ Novo</button></h2>
@@ -1687,7 +1704,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
       <button class="btn ghost" onclick="audVer('movimentos')">Só movimentos</button>
       <button class="btn ghost" onclick="audVer('previstos')">Só contas a pagar/receber</button>
     </div></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${PERM.admin?tab("acessos","🔐 Acessos"):""}</div>${body}`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("tags","🏷️ Tags")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${PERM.admin?tab("acessos","🔐 Acessos"):""}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}

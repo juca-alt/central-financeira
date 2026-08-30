@@ -1361,7 +1361,13 @@ function viewCartoes(){const cards=cardContas();
   if(!FAT_SEL||!fat.has(FAT_SEL))FAT_SEL=(fs.find(f=>f.status==="aberta")||fs[fs.length-1]||{fk:""}).fk;
   const sel=fat.get(FAT_SEL)||{fk:"",compras:0,pagtos:0,n:0,txs:[],venc:""};
   const aberta=fs.find(f=>f.status==="aberta");
-  const totCompras=movs.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
+  /* "Total no cartão" ANTES somava TODAS as saídas, inclusive parcelas FUTURAS (até 2027) → número inflado que não é a fatura.
+     Agora: dívida real do banco (saldo_atual) quando houver; senão gasto lançado até hoje. Parcelas futuras vão pro hint. */
+  const gastoAteHoje=movs.filter(m=>m.sentido==="Saída"&&m.data<=hoje).reduce((s,m)=>s+m.valor,0);
+  const parcFut=movs.filter(m=>m.sentido==="Saída"&&m.data>hoje);
+  const parcFutTot=parcFut.reduce((s,m)=>s+m.valor,0);
+  const contaCard=(DB.contas||[]).find(x=>x.nome===CART_SEL);
+  const atzCard=(contaCard&&contaCard.saldo_atualizado_em)?fmtDate(String(contaCard.saldo_atualizado_em).slice(0,10)):"";
   const melhorDia=(cfg.f%31)+1;
   /* régua ancorada na fatura ATUAL: até 6 passadas + atual + 3 futuras
      (com parcelas projetadas até 2027, slice(-10) só mostrava futuro) */
@@ -1378,7 +1384,7 @@ function viewCartoes(){const cards=cardContas();
      </div>`).join("")||`<div class="empty">Sem faturas.</div>`}</div>
    <div class="kpis"><div class="kpi"><div class="lbl">💳 Fatura ${mkLabel(sel.fk)||"—"}</div><div class="val ${sel.compras-sel.pagtos>0?'out':'in'}">${fmtBRL(sel.compras-sel.pagtos)}</div><div class="hint">${sel.n} compras · venc ${sel.venc?fmtDate(sel.venc):"—"}</div></div>
     <div class="kpi"><div class="lbl">Compras da fatura</div><div class="val out">${fmtBRL(sel.compras)}</div><div class="hint">pagamentos ${fmtBRL(sel.pagtos)}</div></div>
-    <div class="kpi"><div class="lbl">Total no cartão</div><div class="val out">${fmtBRL(totCompras)}</div><div class="hint">${movs.length} lançamentos</div></div>
+    <div class="kpi"><div class="lbl">${bancoDev!=null?"💳 Dívida atual (banco)":"💳 Gasto lançado"}</div><div class="val out">${fmtBRL(bancoDev!=null?bancoDev:gastoAteHoje)}</div><div class="hint">${bancoDev!=null?("dívida real do banco"+(atzCard?" · "+atzCard:"")):("até hoje · "+movs.length+" lançtos")}${parcFut.length?` · <span title="parcelas com vencimento futuro, ainda não faturadas">${parcFut.length} parc. futuras ${fmtBRL(parcFutTot)}</span>`:""}</div></div>
     <div class="kpi"><div class="lbl">📅 Fatura aberta</div><div class="val">${aberta?fmtDate(aberta.venc):"—"}</div><div class="hint">${aberta?fmtBRL(aberta.saldo):"em dia"}</div></div></div>
    ${bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`<div class="sub" style="margin:-4px 0 10px">🏦 Conferência com o banco: dívida real <b>${fmtBRL(bancoDev)}</b> · saldo dos lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'· <b style="color:#16a34a">✔ confere</b>':`· Δ ${fmtBRL(d)} <span title="Diferença normalmente = pagamentos/compras anteriores à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ histórico fora da janela</span>`}</div>`})():""}
    <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>

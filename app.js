@@ -248,10 +248,20 @@ const monthKey=s=>(s||"").slice(0,7);
 const mkLabel=k=>k?ML[+k.slice(5,7)-1]+"/"+k.slice(2,4):"";
 const addMonth=(k,n)=>{let[y,m]=k.split("-").map(Number);m+=n;y+=Math.floor((m-1)/12);m=((m-1)%12+12)%12+1;return y+"-"+String(m).padStart(2,"0");};
 
-const INTERNO_CAT_RX=/transfer[eê]ncia|saldo inicial|aplica[cç][aã]o|investiment|resgate|pagamento fatura/i;
-const INTERNO_DESC_RX=/\b(aplica[cç][aã]o|resgate|pagamento\s+fatura|fatura\s+cart[aã]o|transfer[eê]ncia\s+interna|transf\s+entre\s+contas)\b/i;
+const INTERNO_CAT_RX=/transfer[eê]ncia|saldo inicial|aplica[cç][aã]o|investiment|resgate|pagamento\s+(de\s+)?fatura/i;
+const INTERNO_DESC_RX=/\b(aplica[cç][aã]o|resgate|pagamento\s+(de\s+)?fatura|fatura\s+cart[aã]o|transfer[eê]ncia\s+interna|transf\s+entre\s+contas)\b/i;
 const isForaTotais=m=>/fora do extrato/i.test(m.banco||"");// convenção: conta com "(fora do extrato)" no nome não entra em KPIs/gráficos
-const isInterno=m=>isForaTotais(m)||INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
+/* ENTRADA em conta de CARTÃO nunca é receita: é pagamento de fatura chegando (ou estorno).
+   Sem isso, "PAGAMENTO ON LINE"/"Pagamento recebido" viravam Entrada real e inflavam
+   entradas/sobra/DRE (ago/26: +R$ 5.140 só no Inter PF). m._cartao cobre o consolidado
+   da Central, onde DB.contas é o da visão aberta e o lookup por nome não alcança. */
+const isPagtoCartao=m=>m.sentido==="Entrada"&&(m._cartao===true||(m.banco&&typeof isCartaoConta==="function"&&isCartaoConta(m.banco)));
+const isInterno=m=>isForaTotais(m)||isPagtoCartao(m)||INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
+/* previsto que é FATURA DE CARTÃO (auto ou lançado na mão): compromisso de caixa real
+   (fica nas Contas do mês e no Modo Financeiro), mas NÃO soma em "saídas previstas"/
+   projeção/Fluxo — o gasto já contou quando cada COMPRA entrou no cartão; somar a
+   fatura de novo conta o mesmo dinheiro 2×. */
+const isPrevFatura=p=>/auto:fatura/i.test(p.obs||p.observacao||"")||/^fatura\s/i.test(p.descricao||p.desc||"");
 /* Inter-visão: transferências entre as PRÓPRIAS entidades do Gustavo (Outliers↔PF/Família/Jucá, fluxo Rebeca-RC).
    Na visão individual contam como receita/despesa (útil p/ orçamento); na Central consolidada são NETADAS
    p/ não duplicar (o dinheiro já foi contado uma vez na origem). Detecta por contraparte + tag em observacao. */
@@ -476,7 +486,7 @@ function overviewNumbers(de,ate){
   const entReal=mv.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);
   const saiReal=mv.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
   let entAReal=0;(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;entAReal+=ocorrencias(a.dataPrevista,a.recorrencia,de,ate).length*Number(a.previstoLiquido||0);});
-  let saiAReal=0;(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status))return;saiAReal+=ocorrencias(c.vencimento,c.recorrencia,de,ate).length*Number(c.valor||0);});
+  let saiAReal=0;(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status)||isPrevFatura(c))return;saiAReal+=ocorrencias(c.vencimento,c.recorrencia,de,ate).length*Number(c.valor||0);});
   const saldoTotal=saldoCorrente();
   return{saldoTotal,entReal,saiReal,entAReal,saiAReal,entPrev:entReal+entAReal,saiPrev:saiReal+saiAReal,proj:saldoTotal+entAReal-saiAReal};}
 
@@ -1507,12 +1517,19 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   // ocorrências normais do mês + a ÂNCORA VENCIDA (aberta) somada no mês corrente — recorrente ou não:
   // ex.: MJM venc 20/06 aberto + recorrência de 20/07 ⇒ julho mostra 2× (o atrasado não some)
   DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)rec[mm]=(rec[mm]||0)+x*a.previstoLiquido;});});
-  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)pag[mm]=(pag[mm]||0)+x*c.valor;});});
-  let base=0;DB.movimentos.filter(m=>!isInterno(m)&&monthKey(m.data)<months[0]).forEach(m=>base+=m.sentido==="Entrada"?m.valor:-m.valor);
-  // mês corrente e futuros mostram os previstos (a receber/pagar); passados só realizado
-  let acc=base;const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);acc+=net;return{k,e,s,r,p,net,acc,proje:fut};});
+  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto"&&!isPrevFatura(c)).forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)pag[mm]=(pag[mm]||0)+x*c.valor;});});
+  // ACUMULADO ANCORADO NO SALDO REAL (30/08): a soma cega de movimentos não tem saldo de
+  // abertura e derivava um acumulado deslocado da realidade. Âncora: no fim do mês corrente,
+  // acumulado = saldo real das contas (override do banco) + previstos restantes do mês.
+  // Passado deriva pra trás (acc−net), futuro pra frente.
+  const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);return{k,e,s,r,p,net,acc:0,proje:fut};});
+  const i0=data.findIndex(c=>c.k===tk);
+  if(i0>=0){data[i0].acc=saldoCorrente()+(rec[tk]||0)-(pag[tk]||0);
+    for(let i=i0+1;i<data.length;i++)data[i].acc=data[i-1].acc+data[i].net;
+    for(let i=i0-1;i>=0;i--)data[i].acc=data[i+1].acc-data[i+1].net;
+  }else{let acc=0;data.forEach(c=>{acc+=c.net;c.acc=acc;});}
   const cell=(v,cls,k,t)=>`<td class="${v?cls:''} fxc" data-k="${k}" data-t="${t}" style="${v?'cursor:pointer':''}" title="${v?'Ver detalhes':''}">${v?fmtBRL(v):"—"}</td>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção (a receber/pagar + recorrentes). <span class="pj">Roxo</span> = projetado.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
+  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção (a receber/pagar + recorrentes). <span class="pj">Roxo</span> = projetado. Acumulado ancorado no saldo real das contas hoje.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
    <div class="panel" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th>${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>
     <tr><td class="h">Entradas</td>${data.map(c=>cell(c.e,"in",c.k,"e")).join("")}</tr>
     <tr><td class="h">Saídas</td>${data.map(c=>cell(c.s,"out",c.k,"s")).join("")}</tr>
@@ -1566,7 +1583,7 @@ function fluxoDrill(k,t){
     linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.categoria||m.banco||""),fmtBRL(m.valor),t==="e"?"in":"out")).join("");
   }else{
     const lista=t==="r"?DB.aReceber:DB.contasPagar;
-    const abertos=lista.filter(x=>t==="r"?((x.status||"").toLowerCase()!=="recebido"):((x.status||"").toLowerCase()==="aberto"));
+    const abertos=lista.filter(x=>t==="r"?((x.status||"").toLowerCase()!=="recebido"):((x.status||"").toLowerCase()==="aberto"&&!isPrevFatura(x)));
     const items=[];
     abertos.forEach(x=>{
       const venc=t==="r"?x.dataPrevista:x.vencimento, vk=monthKey(venc);
@@ -1862,16 +1879,17 @@ async function loadCentral(){
   const[contas,cats,mv,pv]=await Promise.all([
     sb.from("contas").select("id,nome,tipo,visao,saldo_atual").in("visao",codes),
     sb.from("categorias").select("id,nome").in("visao",codes),
-    sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao,observacao").gte("data",de).lte("data",ate).limit(20000),
-    sb.from("previstos").select("valor,vencimento,tipo,status,recorrencia,visao").in("visao",codes).limit(20000)]);
+    sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao,observacao,conta_id").gte("data",de).lte("data",ate).limit(20000),
+    sb.from("previstos").select("valor,vencimento,tipo,status,recorrencia,visao,descricao,observacao").in("visao",codes).limit(20000)]);
   const enumNovo=[contas,mv,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
   if(enumNovo)return _finalizeCentral(_emptyPer());
   for(const r of[contas,mv,pv])if(r.error)throw new Error(r.error.message);
   const catName=new Map(((cats.data)||[]).map(c=>[c.id,c.nome]));
   const per=_emptyPer();
   (contas.data||[]).forEach(c=>{const P=per[c.visao];if(!P)return;const isCard=c.tipo==="cartao"||/cart/i.test(c.nome||"");if(!isCard&&c.saldo_atual!=null)P.saldo+=Number(c.saldo_atual);});
-  (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",observacao:r.observacao||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída"};if(isInterno(m)||isInterVisao(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
-  (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
+  const tipoConta=new Map(((contas.data)||[]).map(c=>[c.id,c.tipo]));
+  (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",observacao:r.observacao||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",_cartao:tipoConta.get(r.conta_id)==="cartao"};if(isInterno(m)||isInterVisao(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
+  (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;if(p.tipo==="pagar"&&isPrevFatura(p))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
   return _finalizeCentral(per);}
 function centralRow(v){const active=v.code===VISAO;return`<div onclick="setVisao('${v.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid ${active?'var(--primary)':'var(--border)'};border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
   <div style="font-size:20px;width:26px;text-align:center">${v.icon}</div>
@@ -2523,5 +2541,10 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(uhash("abc")!==uhash("abc"))f.push("uhash não-determinístico");
   if(ocorrencias("2026-08-03","mensal","2026-07-01","2026-07-31").length)f.push("ocorrencias RETROATIVA (série antes da âncora — bug da mensalidade jul→ago)");
   if((ocorrencias("2026-06-05","mensal","2026-07-01","2026-07-31")[0]||"")!=="2026-07-05")f.push("ocorrencias forward (projeção mensal)");
+  if(!isInterno({sentido:"Entrada",_cartao:true,banco:"Cartao Teste",categoria:"",descricao:"PAGAMENTO ON LINE"}))f.push("pagamento de fatura no cartão contando como RECEITA (bug ago/26)");
+  if(isInterno({sentido:"Saída",_cartao:true,banco:"Cartao Teste",categoria:"",descricao:"IFOOD"}))f.push("compra de cartão marcada como interna (some do gasto)");
+  if(!isPrevFatura({descricao:"Fatura Cartao Inter PF 09/2026",obs:""}))f.push("previsto de fatura não reconhecido (dupla contagem em saídas previstas)");
+  if(isPrevFatura({descricao:"Faturamento cliente X",obs:""}))f.push("isPrevFatura pegando não-fatura");
+  if(!isInterno({sentido:"Saída",banco:"Inter PF",categoria:"Pagamento de fatura",descricao:"qualquer"}))f.push("categoria 'Pagamento de fatura' não é interna");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

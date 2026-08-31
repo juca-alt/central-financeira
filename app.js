@@ -575,17 +575,23 @@ let _charts=[];
 /* conta ARQUIVADA (ativo=false) some dos painéis, mas nada é apagado: se ela ainda tiver
    movimento, o laço abaixo recria a linha — o que some é só a conta zerada que só polui. */
 function contaSaldos(){const b=new Map();const ativas=(DB.contas||[]).filter(c=>c.ativo!==false);ativas.forEach(c=>b.set(c.nome,0));DB.movimentos.forEach(m=>{const n=m.banco||"(sem conta)";b.set(n,(b.get(n)||0)+(m.sentido==="Entrada"?m.valor:-m.valor));});ativas.forEach(c=>{if(c.saldo_atual!=null)b.set(c.nome,Number(c.saldo_atual));});return b;}
+/* Selo de frescor (30/08): saldo de banco com mais de 3 dias = feed parado — o aviso
+   fica VERMELHO em vez de o número parecer atual (era a queixa do "dado errado na tela"). */
+function frescorDias(ts){try{const d=Math.floor((Date.now()-new Date(ts).getTime())/864e5);return Number.isFinite(d)?d:null;}catch(e){return null;}}
+function frescorTag(ts){if(!ts)return'';const d=frescorDias(ts);let f='';try{f=new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){}
+  if(d!=null&&d>3)return`<div style="font-size:9px;margin-top:2px;color:#dc2626;font-weight:700">⚠️ feed parado · dado de ${f} (${d}d)</div>`;
+  return`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${f}</div>`;}
 function contasPanel(){const b=contaSaldos();
   const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
-  const fmtTs=ts=>{try{return new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return'';}};
   const items=[...b.entries()].filter(([n,v])=>!isCartaoConta(n)&&(v!==0||n!=="(sem conta)")).sort((a,b)=>b[1]-a[1]);
   if(!items.length)return'';
-  const rows=items.map(([n,v])=>{const liveTs=meta.get(n);const tag=liveTs?`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${fmtTs(liveTs)}</div>`:'';return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
+  const rows=items.map(([n,v])=>{const tag=frescorTag(meta.get(n));return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
   return`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Saldo por conta <button class="btn ghost sm" id="btnSyncBancos" onclick="syncBancos()" title="Pede refresh no Pluggy e dispara os syncs (Pluggy + Inter PJ) agora">⚡ Atualizar bancos</button></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 function cartoesPanel(){const b=contaSaldos();
   const items=[...b.entries()].filter(([n,v])=>isCartaoConta(n)).sort((a,b)=>a[1]-b[1]);
   if(!items.length)return'';
-  const rows=items.map(([n,v])=>`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">💳 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div></div>`).join("");
+  const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
+  const rows=items.map(([n,v])=>`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">💳 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${frescorTag(meta.get(n))}</div>`).join("");
   return`<div class="panel"><h2>Cartões <span class="link" onclick="route('cartoes')" style="font-weight:600">ver faturas ›</span></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 function entSaiDetail(o){const r=(lbl,v,cls)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)"><span class="sub">${lbl}</span><b class="${cls||''}" style="font-variant-numeric:tabular-nums">${fmtBRL(v)}</b></div>`;
   return`<div class="grid2" style="grid-template-columns:1fr 1fr">
@@ -1384,7 +1390,10 @@ function viewCartoes(){const cards=cardContas();
   const parcFut=movs.filter(m=>m.sentido==="Saída"&&m.data>hoje);
   const parcFutTot=parcFut.reduce((s,m)=>s+m.valor,0);
   const contaCard=(DB.contas||[]).find(x=>x.nome===CART_SEL);
-  const atzCard=(contaCard&&contaCard.saldo_atualizado_em)?fmtDate(String(contaCard.saldo_atualizado_em).slice(0,10)):"";
+  const atzCard=(()=>{if(!contaCard||!contaCard.saldo_atualizado_em)return"";const ts=contaCard.saldo_atualizado_em,d=frescorDias(ts),f=fmtDate(String(ts).slice(0,10));
+    return(d!=null&&d>3)?`<b style="color:#dc2626">⚠️ feed parado · dado de ${f} (${d}d)</b>`:f;})();
+  const semFeedTag=(()=>{if(contaCard&&contaCard.saldo_atual!=null)return"";const ult=movs.filter(m=>m.data<=hoje).map(m=>m.data).sort().pop();if(!ult)return"";const d=frescorDias(ult);
+    return(d!=null&&d>7)?` · <b style="color:#dc2626">⚠️ sem feed do banco · últ. lançamento ${fmtDate(ult)}</b>`:"";})();
   const melhorDia=(cfg.f%31)+1;
   /* régua ancorada na fatura ATUAL: até 6 passadas + atual + 3 futuras
      (com parcelas projetadas até 2027, slice(-10) só mostrava futuro) */
@@ -1401,7 +1410,7 @@ function viewCartoes(){const cards=cardContas();
      </div>`).join("")||`<div class="empty">Sem faturas.</div>`}</div>
    <div class="kpis"><div class="kpi"><div class="lbl">💳 Fatura ${mkLabel(sel.fk)||"—"}</div><div class="val ${sel.compras-sel.pagtos>0?'out':'in'}">${fmtBRL(sel.compras-sel.pagtos)}</div><div class="hint">${sel.n} compras · venc ${sel.venc?fmtDate(sel.venc):"—"}</div></div>
     <div class="kpi"><div class="lbl">Compras da fatura</div><div class="val out">${fmtBRL(sel.compras)}</div><div class="hint">pagamentos ${fmtBRL(sel.pagtos)}</div></div>
-    <div class="kpi"><div class="lbl">${bancoDev!=null?"💳 Dívida atual (banco)":"💳 Gasto lançado"}</div><div class="val out">${fmtBRL(bancoDev!=null?bancoDev:gastoAteHoje)}</div><div class="hint">${bancoDev!=null?("dívida real do banco"+(atzCard?" · "+atzCard:"")):("até hoje · "+movs.length+" lançtos")}${parcFut.length?` · <span title="parcelas com vencimento futuro, ainda não faturadas">${parcFut.length} parc. futuras ${fmtBRL(parcFutTot)}</span>`:""}</div></div>
+    <div class="kpi"><div class="lbl">${bancoDev!=null?"💳 Dívida atual (banco)":"💳 Gasto lançado"}</div><div class="val out">${fmtBRL(bancoDev!=null?bancoDev:gastoAteHoje)}</div><div class="hint">${bancoDev!=null?("dívida real do banco"+(atzCard?" · "+atzCard:"")):("até hoje · "+movs.length+" lançtos"+semFeedTag)}${parcFut.length?` · <span title="parcelas com vencimento futuro, ainda não faturadas">${parcFut.length} parc. futuras ${fmtBRL(parcFutTot)}</span>`:""}</div></div>
     <div class="kpi"><div class="lbl">📅 Fatura aberta</div><div class="val">${aberta?fmtDate(aberta.venc):"—"}</div><div class="hint">${aberta?fmtBRL(aberta.saldo):"em dia"}</div></div></div>
    ${bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`<div class="sub" style="margin:-4px 0 10px">🏦 Conferência com o banco: dívida real <b>${fmtBRL(bancoDev)}</b> · saldo dos lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'· <b style="color:#16a34a">✔ confere</b>':`· Δ ${fmtBRL(d)} <span title="Diferença normalmente = pagamentos/compras anteriores à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ histórico fora da janela</span>`}</div>`})():""}
    <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>

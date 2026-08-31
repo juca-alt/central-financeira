@@ -454,7 +454,7 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));document.querySelectorAll("#bnav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
+function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();SELMODE=false;document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));document.querySelectorAll("#bnav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
 function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Motor de recorrência + números do período (Visão Geral) =====
@@ -491,18 +491,25 @@ function overviewNumbers(de,ate){
   return{saldoTotal,entReal,saiReal,entAReal,saiAReal,entPrev:entReal+entAReal,saiPrev:saiReal+saiAReal,proj:saldoTotal+entAReal-saiAReal};}
 /* Drill da Visão Geral (30/08): todo KPI abre a lista exata que soma aquele número —
    mesma régua do Modo Financeiro ("cliquei nos valores e não leva a nada" era queixa). */
-function ovDrill(kind){
+function ovDrill(kind,fil,ord){
+  fil=fil||"all";ord=ord||"data";   // fil: all|real|prev · ord: data|valor
   const{de,ate}=ovBounds();const items=[];
   DB.movimentos.filter(m=>!isInterno(m)&&(m.data||"").slice(0,10)>=de&&(m.data||"").slice(0,10)<=ate&&(kind==="ent"?m.sentido==="Entrada":m.sentido==="Saída"))
     .forEach(m=>items.push({d:m.data,desc:m.descricao,extra:[m.categoria,m.banco].filter(Boolean).join(" · "),v:m.valor,prev:false,_row:m._row}));
   if(kind==="ent")(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;ocorrencias(a.dataPrevista,a.recorrencia,de,ate).forEach(d=>items.push({d,desc:a.linha,extra:"a realizar"+(a.recorrencia?" · "+a.recorrencia:""),v:Number(a.previstoLiquido||0),prev:true}));});
   else(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status)||isPrevFatura(c))return;ocorrencias(c.vencimento,c.recorrencia,de,ate).forEach(d=>items.push({d,desc:c.descricao,extra:"a realizar"+(c.recorrencia?" · "+c.recorrencia:""),v:Number(c.valor||0),prev:true}));});
-  items.sort((a,b)=>a.d<b.d?1:-1);
-  const tot=items.reduce((s,x)=>s+x.v,0);
-  const linhas=items.map(x=>_drillRow((x.d||"").slice(8,10)+"/"+(x.d||"").slice(5,7),
+  const vis=items.filter(x=>fil==="all"||(fil==="prev"?x.prev:!x.prev));
+  if(ord==="valor")vis.sort((a,b)=>b.v-a.v);else vis.sort((a,b)=>a.d<b.d?1:-1);
+  const tot=vis.reduce((s,x)=>s+x.v,0);
+  const chip=(on,lbl,f2,o2)=>`<button class="btn sm ${on?"":"ghost"}" style="padding:3px 10px;font-size:11px" onclick="this.closest('div[style*=fixed]')?.remove();ovDrill('${kind}','${f2}','${o2}')">${lbl}</button>`;
+  const barra=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px">
+    ${chip(fil==="all","Tudo","all",ord)}${chip(fil==="real","Realizado","real",ord)}${chip(fil==="prev","Previsto","prev",ord)}
+    <span style="width:10px"></span>${chip(ord==="data","por data",fil,"data")}${chip(ord==="valor","por valor",fil,"valor")}</div>`;
+  const linhas=barra.replace(/</,"<tr><td colspan=4 style='padding:4px 8px'><").replace(/<\/div>$/,"</div></td></tr>")+
+    (vis.map(x=>_drillRow((x.d||"").slice(8,10)+"/"+(x.d||"").slice(5,7),
     (x._row?`<span style="cursor:pointer;text-decoration:underline dotted" onclick="this.closest('div[style*=fixed]')?.remove();editMovimento('${x._row}')">${esc(x.desc||"")}</span>`:esc(x.desc||""))+(x.prev?' <span class="pj" style="font-size:10px;font-weight:700">previsto</span>':""),
-    esc(x.extra||""),fmtBRL(x.v),x.prev?"":(kind==="ent"?"in":"out"))).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nada no período.</td></tr>`;
-  drillModal(kind==="ent"?"📈 Entradas do período":"📉 Saídas do período",`${items.length} item(ns) · realizado + a realizar · total <b>${fmtBRL(tot)}</b>`,linhas);
+    esc(x.extra||""),fmtBRL(x.v),x.prev?"":(kind==="ent"?"in":"out"))).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nada com esse filtro.</td></tr>`);
+  drillModal(kind==="ent"?"📈 Entradas do período":"📉 Saídas do período",`${vis.length} item(ns) · total do filtro <b>${fmtBRL(tot)}</b>`,linhas);
 }
 
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
@@ -662,7 +669,7 @@ function viewDashboard(){
   ${entSaiDetail(o)}
   ${contasPanel()}
   ${cartoesPanel()}
-  <div class="panel"><h2>Movimentos do período</h2>${miniMov(recentes)}</div>`;
+  <div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Movimentos do período ${selBtn()}</h2>${miniMov(recentes)}</div>`;
 }
 /* ===== Home da visão Pessoal (Família/Jucá): o mês como unidade mental =====
    Hero = SOBRA PREVISTA DO MÊS (renda prevista − saídas previstas), triagem
@@ -721,12 +728,37 @@ function viewDashFamilia(){
     :`<div class="panel"><h2>Variáveis do mês</h2><div class="sub">Defina tetos por categoria (mercado, lazer, transporte…) no <span class="link" onclick="route('orcamento')">Orçamento ›</span> e acompanhe as barras aqui.</div></div>`}
   ${contasPanel()}
   ${cartoesPanel()}
-  <div class="panel"><h2>Movimentos do período <span class="link" onclick="route('movimentos')" style="font-weight:600">ver todos ›</span></h2>${miniMov(recentes)}</div>`;
+  <div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Movimentos do período <span class="link" onclick="route('movimentos')" style="font-weight:600">ver todos ›</span></span>${selBtn()}</h2>${miniMov(recentes)}</div>`;
 }
-function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.</div>`;return`<table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
+function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.</div>`;
+  return bulkBar()+`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
 
 /* ===== Movimentos (multi-seleção + edição inline) ===== */
 function toggleSel(id){if(SEL.has(id))SEL.delete(id);else SEL.add(id);renderMovTable(true);}
+/* ===== Seleção em massa UNIVERSAL (31/08, pedido dele): toda lista de movimentos
+   (Visão Geral, Movimentos mobile, fatura do cartão) ganha modo selecionar +
+   barra de ações (categoria / tags / excluir). O motor é um só: SEL + SELMODE. ===== */
+let SELMODE=false;
+function selToggleMode(){SELMODE=!SELMODE;SEL.clear();(ROUTES[CURRENT]||viewDashboard)();}
+function selBtn(){return `<button class="btn ${SELMODE?"":"ghost"} sm" onclick="selToggleMode()" style="white-space:nowrap">${SELMODE?"✕ cancelar seleção":"☑ selecionar"}</button>`;}
+function selRow(id){if(SEL.has(id))SEL.delete(id);else SEL.add(id);
+  if(CURRENT==="movimentos")renderMovTable(true);else (ROUTES[CURRENT]||viewDashboard)();}   /* em Movimentos só redesenha a lista — não perde os filtros */
+function bulkBar(){if(!SEL.size)return SELMODE?`<div class="sub" style="margin:6px 0">Toque nos lançamentos pra selecionar.</div>`:"";
+  return `<div class="bulkbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;position:sticky;top:6px;z-index:20;background:var(--card);border:1px solid var(--primary);border-radius:10px;padding:8px 10px;margin:6px 0;box-shadow:var(--shadow)"><b style="white-space:nowrap">${SEL.size} sel.</b><button class="btn sm" onclick="bulkCategorizar()">Categoria</button><button class="btn sm" onclick="bulkTags()">🏷️ Tags</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();(ROUTES[CURRENT]||viewDashboard)()" style="margin-left:auto">Limpar</button></div>`;}
+function bulkTags(){
+  const tags=(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));
+  if(!tags.length){toast("Crie tags em Configurações › 🏷️ Tags primeiro");return;}
+  modal({title:`🏷️ Tags em ${SEL.size} movimento(s)`,fields:[
+    {name:"tag",label:"Tag",type:"select",options:tags.map(t=>({v:t.id,l:t.nome}))},
+    {name:"acao",label:"Ação",type:"select",options:[{v:"add",l:"Aplicar a todos"},{v:"rm",l:"Remover de todos"}]}],
+    onSave:async v=>{const ids=[...SEL];let n=0;
+      for(const id of ids){const m=DB.movimentos.find(x=>x._row===id);if(!m)continue;const has=(m.tags||[]).includes(v.tag);
+        try{
+          if(v.acao==="add"&&!has){if(MODE==="live")await tagAssign(id,v.tag);m.tags=[...(m.tags||[]),v.tag];n++;}
+          else if(v.acao==="rm"&&has){if(MODE==="live")await tagUnassign(id,v.tag);m.tags=(m.tags||[]).filter(x=>x!==v.tag);n++;}
+        }catch(e){}}
+      toast(`${n} movimento(s) atualizados`);SEL.clear();(ROUTES[CURRENT]||viewDashboard)();}});
+}
 let _movRows=[],_movPieRows=[],_movChart=null,MV_MES;   // MV_MES: undefined=não iniciado · null=Tudo · "YYYY-MM"
 const isCartaoConta=n=>{const c=(DB.contas||[]).find(x=>x.nome===n);return c?c.tipo==="cartao":/cart/i.test(n||"");};
 function mvMes(n){MV_MES=MV_MES?addMonth(MV_MES,n):todayISO().slice(0,7);viewMovimentos();}
@@ -738,7 +770,7 @@ function viewMovimentos(){
     ?`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro <span class="sub" id="barsHint" style="font-weight:400"></span></h2><div id="movBars"></div></div>`
     :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="${isMob?220:100}"></canvas></div>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">toque em categoria/valor pra editar na própria linha</div></div>
-   <div style="display:flex;gap:8px"><button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap">${isMob?selBtn():""}<button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
   <div class="controls" style="align-items:center">
     <button class="btn ghost sm" onclick="mvMes(-1)" aria-label="Mês anterior">‹</button>
     <div style="font-weight:660;min-width:88px;text-align:center">${MV_MES?mkLabel(MV_MES):"Tudo"}</div>
@@ -801,12 +833,14 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
   if(isMobile){ /* mobile: linha vira card, agrupado por dia, categoria/valor editáveis no toque */
     const days=[];let last=null;
     _movRows.forEach(m=>{if(m.data!==last){days.push({d:m.data,rows:[]});last=m.data;}days[days.length-1].rows.push(m);});
-    wrap.innerHTML=(days.map(g=>{const net=g.rows.reduce((s,m)=>s+(m.sentido==="Entrada"?m.valor:-m.valor),0);
+    wrap.innerHTML=bulkBar()+(days.map(g=>{const net=g.rows.reduce((s,m)=>s+(m.sentido==="Entrada"?m.valor:-m.valor),0);
       return`<div class="secttl"><span>${dayLabel(g.d)}</span><span class="num ${net>=0?"in":"out"}">${net>=0?"+":"−"} ${fmtBRL(Math.abs(net))}</span></div>
-      <div class="panel ct-grp">${g.rows.map(m=>`<div class="ct-row" onclick="editMovimento('${m._row}')" role="button" tabindex="0">
-        <div class="ct-main"><b>${esc(m.descricao)}</b><small><span class="chip ${m.categoria?"":"none"}" onclick="event.stopPropagation();mvCatEdit('${m._row}',this)" title="Tocar pra trocar a categoria">${esc(m.categoria||"definir categoria")}</span> · ${esc(m.banco)}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
-        <div class="ct-val num ${m.sentido==="Entrada"?"in":"out"}" onclick="event.stopPropagation();mvValEdit('${m._row}',this)" title="Tocar pra editar o valor">${m.sentido==="Entrada"?"+":"−"} ${fmtBRL(m.valor)}</div>
-      </div>`).join("")}</div>`;}).join("")||`<div class="empty">Nenhum.</div>`)+`<div class="sub">${_movRows.length} resultado(s)</div>`;
+      <div class="panel ct-grp">${g.rows.map(m=>{const on=SEL.has(m._row);
+        return`<div class="ct-row" onclick="${SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`}" role="button" tabindex="0" style="${on?"box-shadow:0 0 0 2px var(--primary) inset;border-radius:10px":""}">
+        ${SELMODE?`<input type="checkbox" class="cb" ${on?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')" style="margin-right:4px">`:""}
+        <div class="ct-main"><b>${esc(m.descricao)}</b><small><span class="chip ${m.categoria?"":"none"}" onclick="${SELMODE?`event.stopPropagation();selRow('${m._row}')`:`event.stopPropagation();mvCatEdit('${m._row}',this)`}" title="Tocar pra trocar a categoria">${esc(m.categoria||"definir categoria")}</span> · ${esc(m.banco)}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
+        <div class="ct-val num ${m.sentido==="Entrada"?"in":"out"}" onclick="${SELMODE?`event.stopPropagation();selRow('${m._row}')`:`event.stopPropagation();mvValEdit('${m._row}',this)`}" title="Tocar pra editar o valor">${m.sentido==="Entrada"?"+":"−"} ${fmtBRL(m.valor)}</div>
+      </div>`;}).join("")}</div>`;}).join("")||`<div class="empty">Nenhum.</div>`)+`<div class="sub">${_movRows.length} resultado(s)</div>`;
     if(!skipPie)renderMovViz();return;}
   let html=`<div class="panel" style="padding:0;overflow:hidden"><table><thead><tr><th></th><th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${
    _movRows.map(m=>`<tr class="${SEL.has(m._row)?'sel':''}">
@@ -817,7 +851,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
      <td class="editable" onclick="inlineEdit(this,'${m._row}','banco')">${esc(m.banco)}</td>
      <td class="num editable ${m.sentido==='Entrada'?'in':'out'}" onclick="inlineEdit(this,'${m._row}','valor')">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}
    </tbody></table></div><div class="sub">${_movRows.length} resultado(s)</div>`;
-  if(SEL.size)html+=`<div class="bulkbar"><b>${SEL.size} selecionado(s)</b><button class="btn sm" onclick="bulkCategorizar()">Definir categoria</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();renderMovTable(true)" style="margin-left:auto">Limpar</button></div>`;
+  if(SEL.size)html+=`<div class="bulkbar"><b>${SEL.size} selecionado(s)</b><button class="btn sm" onclick="bulkCategorizar()">Definir categoria</button><button class="btn sm" onclick="bulkTags()">🏷️ Tags</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();renderMovTable(true)" style="margin-left:auto">Limpar</button></div>`;
   wrap.innerHTML=html;
   if(!skipPie)renderMovViz();
 }
@@ -1491,12 +1525,14 @@ function viewCartoes(){const cards=cardContas();
    <div class="sub" style="margin:2px 0 12px;font-size:11px">${foraJanela.length?`<span class="link" onclick="CART_HIST=!CART_HIST;viewCartoes()">${CART_HIST?"‹ esconder histórico/futuras":`ver todas as ${fs.length} faturas ›`}</span>${!CART_HIST&&futEscondidas.length?` · ${parcFut.length} parcela(s) futura(s) somando ${fmtBRL(parcFutTot)} espalhadas até ${fmtDate((futEscondidas[futEscondidas.length-1]||{}).venc||hoje)}`:""}`:(parcFut.length?`${parcFut.length} parcela(s) futura(s) somando ${fmtBRL(parcFutTot)}`:"")}</div>`;
   /* lançamentos: cards no mobile, tabela no desktop */
   const txs=(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data));
-  const lanc=isMob
-    ?txs.map(m=>`<div class="ct-row" onclick="editMovimento('${m._row}')" role="button" tabindex="0" style="cursor:pointer">
+  const rowClick=m=>SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`;
+  const lanc=bulkBar()+(isMob
+    ?txs.map(m=>{const on=SEL.has(m._row);return`<div class="ct-row" onclick="${rowClick(m)}" role="button" tabindex="0" style="cursor:pointer;${on?"box-shadow:0 0 0 2px var(--primary) inset;border-radius:10px":""}">
+        ${SELMODE?`<input type="checkbox" class="cb" ${on?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')" style="margin-right:4px">`:""}
         <div class="dot-day"><b>${m.data.slice(8,10)}</b><span>${ML[+m.data.slice(5,7)-1]}</span></div>
         <div class="ct-main"><b>${esc(m.descricao)}</b><small>${m.categoria?esc(m.categoria):'<span class="chip none">sem cat.</span>'}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
-        <div class="ct-val num ${m.sentido==='Entrada'?'in':''}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</div></div>`).join("")||`<div class="empty">Sem lançamentos nesta fatura.</div>`
-    :`<table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${txs.map(m=>`<tr style="cursor:pointer" onclick="editMovimento('${m._row}')"><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table>`;
+        <div class="ct-val num ${m.sentido==='Entrada'?'in':''}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</div></div>`;}).join("")||`<div class="empty">Sem lançamentos nesta fatura.</div>`
+    :`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${txs.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${rowClick(m)}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="5"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table>`);
   $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">toque num cartão pra abrir o detalhe</div></div></div>
   ${cartoesGeralPanel(cards)}
   <div class="panel">
@@ -1506,7 +1542,7 @@ function viewCartoes(){const cards=cardContas();
     <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin:8px 0 0;cursor:pointer;font-size:12px"><input type="checkbox" ${faturaAutoOn()?"checked":""} onchange="faturaAutoSet(this.checked)" style="margin:0"> Fatura fechada vira Conta a Pagar sozinha${(()=>{const pg=faturaContaPag(CART_SEL);return pg?` <b>· debita em ${esc(pg)}</b>`:` <b style="color:#dc2626">· sem conta pagadora definida</b>`;})()}</label>
   </div>
   ${regua}
-  <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos${sel.pagtos?` <span class="sub" style="font-weight:400;font-size:11px">compras ${fmtBRL(sel.compras)} · pagamentos ${fmtBRL(sel.pagtos)}</span>`:""}</h2><button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div>
+  <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos${sel.pagtos?` <span class="sub" style="font-weight:400;font-size:11px">compras ${fmtBRL(sel.compras)} · pagamentos ${fmtBRL(sel.pagtos)}</span>`:""}</h2><div style="display:flex;gap:8px">${selBtn()}<button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div></div>
    ${lanc}</div>`;}
 /* botão manual: mesmo caminho da automação (antes ele duplicava a cada clique) */
 async function gerarFatura(fk){

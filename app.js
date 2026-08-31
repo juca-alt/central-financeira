@@ -1274,8 +1274,8 @@ function faturaMes(diso,close){let a=(diso||"").split("-").map(Number);let y=a[0
 const faturaVenc=(fk,vd)=>fk+"-"+String(Math.min(vd,28)).padStart(2,"0");
 /* data de FECHAMENTO da fatura fk (dia f, respeitando mês curto: fev fecha no 28/29) */
 const faturaFech=(fk,fd)=>{const[y,m]=fk.split("-").map(Number);const last=new Date(y,m,0).getDate();return fk+"-"+String(Math.min(fd,last)).padStart(2,"0");};
-const stBadge=st=>({paga:'background:#e7f6ec;color:#16a34a',aberta:'background:#eef2ff;color:#4f46e5',vencida:'background:#fef2f2;color:#dc2626'}[st]||'');
-const stLabel=st=>({paga:'Paga',aberta:'Aberta',vencida:'Vencida'}[st]||st);
+const stBadge=st=>({paga:'background:#e7f6ec;color:#16a34a',aberta:'background:#eef2ff;color:#4f46e5',vencida:'background:#fef2f2;color:#dc2626',futura:'background:#f1f5f9;color:#64748b'}[st]||'');
+const stLabel=st=>({paga:'Paga',aberta:'Aberta',vencida:'Vencida',futura:'Futura'}[st]||st);
 /* Agrupa os lançamentos de um cartão por FATURA e resolve o status de cada uma.
    Extraído da tela porque a automação (fatura fechada → conta a pagar) precisa
    exatamente do mesmo cálculo — status divergente entre tela e automação seria
@@ -1467,19 +1467,27 @@ function viewCartoes(){const cards=cardContas();
   const confer=bancoDev!=null?(()=>{const calc=totCompras0-totalPag;const d=calc-bancoDev;return`🏦 dívida no banco <b>${fmtBRL(bancoDev)}</b>${atzCard?` <span class="sub" style="margin:0;font-size:11px">(${atzCard})</span>`:""} · lançamentos ${fmtBRL(calc)} ${Math.abs(d)<=50?'<b style="color:#16a34a">✔ confere</b>':`Δ ${fmtBRL(d)} <span title="Diferença normalmente = histórico anterior à janela de sincronização. O status das faturas usa a dívida real do banco.">ⓘ</span>`}`;})():`<b style="color:#dc2626">sem feed do banco</b> — status estimado pelos lançamentos`;
   /* régua ENXUTA: atrasadas + 3 últimas + corrente + 1 futura; resto atrás de "histórico" */
   let _ci=fs.findIndex(f=>f.venc>=hoje);if(_ci<0)_ci=fs.length-1;
-  const curFk=(fs[_ci]||{}).fk||"";
+  /* ciclo corrente = a fatura em que uma compra de HOJE cai (não "1ª com venc futuro":
+     com buraco de meses, a futura distante virava "corrente" e perdia o selo Futura) */
+  const curFk=faturaMes(hoje,cfg.f);
   const passadas=fs.filter(f=>f.fk<curFk),futuras=fs.filter(f=>f.fk>curFk);
   /* futuras só entram na régua se forem o mês SEGUINTE — parcela solta lá em 2027 não polui */
   const janela=[...passadas.slice(-3),...fs.filter(f=>f.fk===curFk),...(futuras[0]&&futuras[0].fk===addMonth(curFk,1)?[futuras[0]]:[])];
   const foraJanela=fs.filter(f=>!janela.includes(f));
   const showFs=(CART_HIST?fs.slice():janela.slice()).reverse();
   const futEscondidas=foraJanela.filter(f=>f.venc>hoje);
-  const regua=`<div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 4px">${showFs.map(f=>`
-     <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:150px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--card);${f.fk===FAT_SEL?'box-shadow:0 0 0 2px var(--primary) inset;border-color:var(--primary)':''}">
-       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:12.5px">${mkLabel(f.fk)}${faturaPrevisto(CART_SEL,f.fk)?` <span title="Já está em Contas a Pagar" style="font-size:11px">📄</span>`:""}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(f.status)}">${stLabel(f.status)}</span></div>
-       <div style="font-size:18px;font-weight:700;margin:5px 0 2px" class="${f.saldo>0?'out':'in'}">${fmtBRL(f.compras)}</div>
+  /* COR SEGUE O STATUS (31/08, queixa dele): antes seguia compras−pagtos do CICLO — como o
+     pagamento cai no ciclo SEGUINTE, fatura PAGA ficava vermelha. E fatura futura de parcela
+     aparecia "Aberta" (parecia conta em aberto): agora é "Futura", cinza. */
+  const regua=`<div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 4px">${showFs.map(f=>{
+     const st=f.fk>curFk?"futura":f.status;
+     const vCls=st==="paga"?"in":(st==="vencida"?"out":"");
+     return`
+     <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:150px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--card);${st==="futura"?"opacity:.75;":""}${f.fk===FAT_SEL?'box-shadow:0 0 0 2px var(--primary) inset;border-color:var(--primary)':''}">
+       <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:12.5px">${mkLabel(f.fk)}${faturaPrevisto(CART_SEL,f.fk)?` <span title="Já está em Contas a Pagar" style="font-size:11px">📄</span>`:""}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(st)}">${stLabel(st)}</span></div>
+       <div style="font-size:18px;font-weight:700;margin:5px 0 2px" class="${vCls}">${fmtBRL(f.compras)}</div>
        <div class="sub" style="margin:0;font-size:10.5px">venc ${fmtDate(f.venc)} · ${f.n} compras</div>
-     </div>`).join("")||`<div class="empty">Sem faturas.</div>`}</div>
+     </div>`;}).join("")||`<div class="empty">Sem faturas.</div>`}</div>
    <div class="sub" style="margin:2px 0 12px;font-size:11px">${foraJanela.length?`<span class="link" onclick="CART_HIST=!CART_HIST;viewCartoes()">${CART_HIST?"‹ esconder histórico/futuras":`ver todas as ${fs.length} faturas ›`}</span>${!CART_HIST&&futEscondidas.length?` · ${parcFut.length} parcela(s) futura(s) somando ${fmtBRL(parcFutTot)} espalhadas até ${fmtDate((futEscondidas[futEscondidas.length-1]||{}).venc||hoje)}`:""}`:(parcFut.length?`${parcFut.length} parcela(s) futura(s) somando ${fmtBRL(parcFutTot)}`:"")}</div>`;
   /* lançamentos: cards no mobile, tabela no desktop */
   const txs=(sel.txs||[]).slice().sort((a,b)=>b.data.localeCompare(a.data));

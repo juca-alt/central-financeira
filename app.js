@@ -489,6 +489,21 @@ function overviewNumbers(de,ate){
   let saiAReal=0;(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status)||isPrevFatura(c))return;saiAReal+=ocorrencias(c.vencimento,c.recorrencia,de,ate).length*Number(c.valor||0);});
   const saldoTotal=saldoCorrente();
   return{saldoTotal,entReal,saiReal,entAReal,saiAReal,entPrev:entReal+entAReal,saiPrev:saiReal+saiAReal,proj:saldoTotal+entAReal-saiAReal};}
+/* Drill da Visão Geral (30/08): todo KPI abre a lista exata que soma aquele número —
+   mesma régua do Modo Financeiro ("cliquei nos valores e não leva a nada" era queixa). */
+function ovDrill(kind){
+  const{de,ate}=ovBounds();const items=[];
+  DB.movimentos.filter(m=>!isInterno(m)&&(m.data||"").slice(0,10)>=de&&(m.data||"").slice(0,10)<=ate&&(kind==="ent"?m.sentido==="Entrada":m.sentido==="Saída"))
+    .forEach(m=>items.push({d:m.data,desc:m.descricao,extra:[m.categoria,m.banco].filter(Boolean).join(" · "),v:m.valor,prev:false,_row:m._row}));
+  if(kind==="ent")(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;ocorrencias(a.dataPrevista,a.recorrencia,de,ate).forEach(d=>items.push({d,desc:a.linha,extra:"a realizar"+(a.recorrencia?" · "+a.recorrencia:""),v:Number(a.previstoLiquido||0),prev:true}));});
+  else(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status)||isPrevFatura(c))return;ocorrencias(c.vencimento,c.recorrencia,de,ate).forEach(d=>items.push({d,desc:c.descricao,extra:"a realizar"+(c.recorrencia?" · "+c.recorrencia:""),v:Number(c.valor||0),prev:true}));});
+  items.sort((a,b)=>a.d<b.d?1:-1);
+  const tot=items.reduce((s,x)=>s+x.v,0);
+  const linhas=items.map(x=>_drillRow((x.d||"").slice(8,10)+"/"+(x.d||"").slice(5,7),
+    (x._row?`<span style="cursor:pointer;text-decoration:underline dotted" onclick="this.closest('div[style*=fixed]')?.remove();editMovimento('${x._row}')">${esc(x.desc||"")}</span>`:esc(x.desc||""))+(x.prev?' <span class="pj" style="font-size:10px;font-weight:700">previsto</span>':""),
+    esc(x.extra||""),fmtBRL(x.v),x.prev?"":(kind==="ent"?"in":"out"))).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nada no período.</td></tr>`;
+  drillModal(kind==="ent"?"📈 Entradas do período":"📉 Saídas do período",`${items.length} item(ns) · realizado + a realizar · total <b>${fmtBRL(tot)}</b>`,linhas);
+}
 
 /* ===== Lançamento (modal pro: tipo, transferência, categoria por tipo, criar no fluxo) ===== */
 /* ---- tags nos movimentos: exibir chips + atribuir (join movimento_tags) ---- */
@@ -640,8 +655,8 @@ function viewDashboard(){
   ${ovPeriodBar()}
   <div class="kpis">
     <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">contas da visão</div></div>
-    <div class="kpi"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">real ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)}</div></div>
-    <div class="kpi"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div><div class="hint">real ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)}</div></div>
+    <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">realizado ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)} · toque p/ ver ›</div></div>
+    <div class="kpi" onclick="ovDrill('sai')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div><div class="hint">realizado ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)} · toque p/ ver ›</div></div>
     <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div><div class="hint">saldo + receber − pagar</div></div>
   </div>
   ${entSaiDetail(o)}
@@ -690,7 +705,7 @@ function viewDashFamilia(){
   <div class="panel fam-hero">
     <div class="lbl">Sobra prevista ${PERIOD.mode==="mes"?"do mês":"do período"}</div>
     <div class="val ${sobra>=0?"":"neg"}">${fmtBRL(sobra)}</div>
-    <div class="hint">entra ${fmtK(o.entPrev)} − compromissos e gastos ${fmtK(o.saiPrev)} (real ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)})</div>
+    <div class="hint">entra <span class="link" onclick="ovDrill('ent')">${fmtK(o.entPrev)} ›</span> − compromissos e gastos <span class="link" onclick="ovDrill('sai')">${fmtK(o.saiPrev)} ›</span> (real ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)})</div>
     <div class="bar fam-bar"><i style="width:${pct}%"></i></div>
     <div class="hint">${pct}% do previsto de saídas já comprometido</div>
   </div>
@@ -731,13 +746,16 @@ function viewMovimentos(){
     <button class="btn ${MV_MES?"ghost":""} sm" onclick="mvMesTudo()">${MV_MES?"Ver tudo":"Mês atual"}</button>
     <span class="sub" id="movSum" style="margin-left:auto"></span>
   </div>
-  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select></div>
+  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select><button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button></div>
   ${isMob?`<div id="movWrap"></div>${vizPanel}`:`${vizPanel}<div id="movWrap"></div>`}`;
   window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value,g=$("#fg").value;
     const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco)))&&(!g||(m.tags||[]).includes(g)));
     _movPieRows=base;
     const ent=base.filter(m=>m.sentido==="Entrada"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0),sai=base.filter(m=>m.sentido==="Saída"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0);
     const sum=$("#movSum");if(sum)sum.innerHTML=`<b class="in">+ ${fmtK(ent)}</b> · <b class="out">− ${fmtK(sai)}</b> · saldo <b class="${ent-sai>=0?"in":"out"}">${fmtBRL(ent-sai)}</b>`;
+    /* fila do "sem categoria" sempre à vista (a opção no select ficava enterrada) */
+    const nNone=base.filter(m=>!m.categoria).length,bt=$("#fnone");
+    if(bt){bt.innerHTML="⚠ sem categoria"+(nNone?` <b>(${nNone})</b>`:"");bt.className="btn sm "+(c==="__none"?"":"ghost");bt.style.display=(nNone||c==="__none")?"":"none";}
     _movRows=base.filter(m=>(c===""||(c==="__none"?!m.categoria:m.categoria===c))).sort((a,b)=>b.data.localeCompare(a.data));renderMovTable();};
   const _filtD=debounce(window._movFilter,180);
   $("#fq").oninput=_filtD;
@@ -761,6 +779,7 @@ function renderMovBars(){const box=$("#movBars");if(!box)return;
   window._mvRest=rest;
 }
 function mvBarPick(nome){const s=$("#fc");if(!s)return;const v=nome==="sem cat."?"__none":nome;s.value=(s.value===v)?"":v;window._movFilter();}
+function mvSemCat(){const s=$("#fc");if(!s)return;s.value=s.value==="__none"?"":"__none";window._movFilter();}
 function mvBarRest(){const rest=window._mvRest||[];const tot=rest.reduce((s,c)=>s+c[1],0);
   drillModal("Outras categorias",`${rest.length} categoria(s) · total <b>${fmtBRL(tot)}</b>`,
     rest.map(c=>`<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="mvBarPick('${esc(c[0]).replace(/'/g,"\\'")}');this.closest('div[style*=fixed]')?.remove()"><td style="padding:6px 8px">${esc(c[0])}</td><td class="num" style="text-align:right;padding:6px 8px">${fmtBRL(c[1])}</td></tr>`).join(""));}
@@ -1933,7 +1952,7 @@ async function loadCentral(){
   const d=new Date();const{de,ate}=monthBounds(d.getFullYear(),d.getMonth()+1);
   const codes=PROFILES.map(p=>p.code).concat("AMBOS");
   const[contas,cats,mv,pv]=await Promise.all([
-    sb.from("contas").select("id,nome,tipo,visao,saldo_atual").in("visao",codes),
+    sb.from("contas").select("id,nome,tipo,visao,saldo_atual,saldo_atualizado_em,ativo").in("visao",codes),
     sb.from("categorias").select("id,nome").in("visao",codes),
     sb.from("movimentos").select("data,descricao_limpa,descricao_original,valor,sinal,categoria_id,visao,observacao,conta_id").gte("data",de).lte("data",ate).limit(20000),
     sb.from("previstos").select("valor,vencimento,tipo,status,recorrencia,visao,descricao,observacao").in("visao",codes).limit(20000)]);
@@ -1942,14 +1961,18 @@ async function loadCentral(){
   for(const r of[contas,mv,pv])if(r.error)throw new Error(r.error.message);
   const catName=new Map(((cats.data)||[]).map(c=>[c.id,c.nome]));
   const per=_emptyPer();
-  (contas.data||[]).forEach(c=>{const P=per[c.visao];if(!P)return;const isCard=c.tipo==="cartao"||/cart/i.test(c.nome||"");if(!isCard&&c.saldo_atual!=null)P.saldo+=Number(c.saldo_atual);});
+  (contas.data||[]).forEach(c=>{const P=per[c.visao];if(!P)return;const isCard=c.tipo==="cartao"||/cart/i.test(c.nome||"");if(!isCard&&c.saldo_atual!=null)P.saldo+=Number(c.saldo_atual);
+    if(c.ativo!==false&&c.saldo_atual!=null&&!/fora do extrato/i.test(c.nome||"")){const d=frescorDias(c.saldo_atualizado_em);if(d!=null&&d>3)P.feedN=(P.feedN||0)+1;}});
   const tipoConta=new Map(((contas.data)||[]).map(c=>[c.id,c.tipo]));
   (mv.data||[]).forEach(r=>{const P=per[r.visao];if(!P)return;const m={categoria:catName.get(r.categoria_id)||"",descricao:r.descricao_limpa||r.descricao_original||"",observacao:r.observacao||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",_cartao:tipoConta.get(r.conta_id)==="cartao"};if(isInterno(m)||isInterVisao(m))return;if(m.sentido==="Entrada")P.entReal+=m.valor;else P.saiReal+=m.valor;});
-  (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;if(p.tipo==="pagar"&&isPrevFatura(p))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
+  const hoje=todayISO();
+  (pv.data||[]).forEach(p=>{const P=per[p.visao];if(!P||!isPrevAberto(p.status))return;
+    if(p.tipo==="pagar"&&(p.vencimento||"")<hoje){P.atrasN=(P.atrasN||0)+1;P.atrasTot=(P.atrasTot||0)+Number(p.valor||0);}
+    if(p.tipo==="pagar"&&isPrevFatura(p))return;const occ=ocorrencias(p.vencimento,p.recorrencia,de,ate).length;if(!occ)return;if(p.tipo==="receber")P.entAReal+=occ*Number(p.valor||0);else if(p.tipo==="pagar")P.saiAReal+=occ*Number(p.valor||0);});
   return _finalizeCentral(per);}
 function centralRow(v){const active=v.code===VISAO;return`<div onclick="setVisao('${v.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid ${active?'var(--primary)':'var(--border)'};border-radius:12px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow)">
   <div style="font-size:20px;width:26px;text-align:center">${v.icon}</div>
-  <div style="flex:1;min-width:0"><div style="font-weight:660">${esc(v.label)}</div><div class="sub" style="font-size:11px">${esc(v.grupo)}${active?' · aberta agora':''}</div></div>
+  <div style="flex:1;min-width:0"><div style="font-weight:660">${esc(v.label)}</div><div class="sub" style="font-size:11px">${esc(v.grupo)}${active?' · aberta agora':''}</div>${(v.atrasN||v.feedN)?`<div style="font-size:10.5px;font-weight:700;margin-top:2px">${v.atrasN?`<span style="color:#dc2626">⚠️ ${v.atrasN} conta(s) atrasada(s) · ${fmtK(v.atrasTot)}</span>`:""}${v.atrasN&&v.feedN?" · ":""}${v.feedN?`<span style="color:#d97706">🔌 feed parado (${v.feedN})</span>`:""}</div>`:""}</div>
   <div style="text-align:right"><div class="${v.saldo>=0?'in':'out'}" style="font-weight:700;font-variant-numeric:tabular-nums">${fmtBRL(v.saldo)}</div><div class="sub" style="font-size:10px">abrir ›</div></div>
 </div>`;}
 function viewCentral(){const c=CENTRAL||_finalizeCentral(_emptyPer());
@@ -1991,7 +2014,7 @@ const fpPago=r=>String(r.status||"").toLowerCase()==="pago";
 const fpBadge=cd=>{const p=fpProfile(cd);return `<span class="fp-badge" style="background:${p.corBg};color:${p.cor}">${esc(p.label)}</span>`;};
 
 /* ---- drill-down: todo valor da tela abre a lista exata de contas que ele soma ---- */
-const FP_DRILL={ab:["Total em aberto","todas as competências"],mesAberto:["A pagar no mês","vencendo neste mês"],mesPago:["Já pago no mês","baixadas neste mês"],atras:["Atrasado","vencidas em meses anteriores"],prox:["Próximos meses","a vencer depois deste mês"],vencidasNoMes:["Já vencido no mês","do mês, já passaram do vencimento"]};
+const FP_DRILL={ab:["Tudo em aberto","mês + atrasadas + meses futuros"],mesAberto:["A pagar no mês","vencendo neste mês"],mesPago:["Já pago no mês","baixadas neste mês"],atras:["Atrasado","vencidas em meses anteriores"],prox:["Próximos meses","a vencer depois deste mês"],vencidasNoMes:["Já vencido no mês","do mês, já passaram do vencimento"]};
 function fpDrillGo(id){document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpDetalhe(id);}
 function fpDrowRows(list){const hoje=todayISO();return list.map(r=>{const late=!fpPago(r)&&r.venc<hoje;return `<div class="fp-drow" onclick="fpDrillGo('${r.id}')"><span class="fp-drow-day ${late?"late":""}">${fpDDMM(r.venc)}</span><span class="fp-drow-desc"><b>${esc(r.desc)}</b>${(r.conta||r.categoria)?`<span class="fp-obs">${esc([r.conta,r.categoria].filter(Boolean).join(" · "))}</span>`:""}</span>${fpBadge(r.visao)}<span class="fp-drow-val out">${fmtBRL(r.valor)}</span></div>`;}).join("")||`<div class="empty">Nada nesta lista.</div>`;}
 function fpDrill(bucket,visao){
@@ -2081,12 +2104,15 @@ function viewFinanceiro(){
 
   /* KPIs — “total em aberto” e “próximos” são de TODAS as competências */
   const kpi=(lbl,val,hint,cls,bucket)=>`<div class="kpi${bucket?" clk":""}"${bucket?` onclick="fpDrill('${bucket}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" title="Ver as contas desse total"`:""}><div class="lbl">${lbl}${bucket?`<span class="kpi-go">›</span>`:""}</div><div class="val ${cls||""}">${fmtBRL(val)}</div><div class="hint">${hint}</div></div>`;
+  /* ORDEM (31/08, pedido do Gustavo): o mês manda — o antigo card líder "Total em aberto"
+     somava TODOS os meses futuros numa tela ancorada em Ago/26 e "a conta não batia".
+     Ele vai pro FIM, renomeado, dizendo às claras o que soma. */
   const kpis=`<div class="fp-kpis">
-    ${kpi("Total em aberto",fpSum(c.ab),c.ab.length+" conta(s) · todas as competências","","ab")}
-    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) no mês","","mesAberto")}
-    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd","mesPago")}
+    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) vencendo no mês","","mesAberto")}
     ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) vencida(s) antes do mês","cr","atras")}
-    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) a vencer","","prox")}
+    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd","mesPago")}
+    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) DEPOIS de "+mkLabel(c.mk),"","prox")}
+    ${kpi("Tudo em aberto",fpSum(c.ab),c.ab.length+" conta(s) = mês + atrasadas + meses futuros","","ab")}
   </div>`;
 
   /* card por frente */
@@ -2101,7 +2127,7 @@ function viewFinanceiro(){
       ${ln("Já pago no mês",mPg,"in","mesPago")}
       ${ln("Atrasado",atr,"out","atras")}
       ${ln("Próximos meses",px,"","prox")}
-      <div class="fp-line tot${abOn?" clk":""}"${abOn?` onclick="fpDrill('ab','${cd}')"`:""}><span class="k">Total em aberto</span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
+      <div class="fp-line tot${abOn?" clk":""}"${abOn?` onclick="fpDrill('ab','${cd}')"`:""}><span class="k">Tudo em aberto <span style="font-weight:400;font-size:10px;opacity:.7">(c/ meses futuros)</span></span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
     </div>`;}).join("");
 
   /* gráfico: dia de vencimento × frente (só o que está EM ABERTO no mês) */

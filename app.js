@@ -86,7 +86,16 @@ let IS_PESSOAL=CUR_PROFILE.grupo==="Pessoal";            // Pessoal (Família/Ju
 let VFILTER=[VISAO,"AMBOS"];                              // o que a visão aberta enxerga
 try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}
 /* recalcula os derivados da visão (sem recarregar dados) */
-function applyVisao(code){VISAO=code;CUR_PROFILE=PROFILES.find(p=>p.code===code)||{code,label:code,grupo:"Negócios",path:""};VISAO_LABEL=CUR_PROFILE.label;IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";IS_PESSOAL=CUR_PROFILE.grupo==="Pessoal";VFILTER=[VISAO,"AMBOS"];try{localStorage.setItem(VISAO_KEY,code);}catch(e){}try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}}
+/* "ALL" = Todas as visões (31/08): a antiga tela Central virou um MODO — o seletor decide o
+   recorte e TODAS as telas (Visão Geral, Fluxo, DRE, Movimentos, Cartões…) mostram o consolidado.
+   VFILTER amplo faz o loadData trazer tudo que o usuário enxerga (RLS corta o resto). */
+const ALL_PROFILE={code:"ALL",label:"Todas as visões",grupo:"Consolidado",path:"",icon:"◎",cor:"#0f6b5c",corBg:"#e3efec"};
+const isAll=()=>VISAO==="ALL";
+function applyVisao(code){VISAO=code;
+  if(code==="ALL"){CUR_PROFILE=ALL_PROFILE;VISAO_LABEL=CUR_PROFILE.label;IS_NEGOCIOS=true;IS_PESSOAL=false;VFILTER=[...PROFILES.map(p=>p.code),"AMBOS"];}
+  else{CUR_PROFILE=PROFILES.find(p=>p.code===code)||{code,label:code,grupo:"Negócios",path:""};VISAO_LABEL=CUR_PROFILE.label;IS_NEGOCIOS=CUR_PROFILE.grupo==="Negócios";IS_PESSOAL=CUR_PROFILE.grupo==="Pessoal";VFILTER=[VISAO,"AMBOS"];}
+  try{localStorage.setItem(VISAO_KEY,code);}catch(e){}try{document.title="Central Financeira · "+VISAO_LABEL;}catch(e){}}
+if(VISAO==="ALL")applyVisao("ALL");   // boot direto no consolidado (visão salva)
 /* troca a visão ativa: recarrega dados da visão e abre a Visão Geral dela */
 async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){try{DB=await loadData();}catch(e){toast("Erro ao trocar visão: "+e.message);}}SEL.clear();MV_MES=undefined;route("dashboard");closeDrawer();}
 /* atualiza o cromo da sidebar/topo pra visão ativa (marca, DRE, env, perfil) */
@@ -99,19 +108,19 @@ async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){tr
    `vis` = regra de visibilidade por visão (o que o syncChrome fazia na mão).
    ===================================================================== */
 const NAV_CAT={
-  central:   {ico:"◎",  label:"Central"},
+  central:   {ico:"◎",  label:"Central", vis:()=>!isAll()},   /* em ALL, a Visão Geral JÁ é a central */
   financeiro:{ico:"💳", label:"Modo Financeiro"},
   dashboard: {ico:"▦",  label:"Visão Geral"},
   fluxo:     {ico:"📈", label:"Fluxo de Caixa"},
   dre:       {ico:"📊", label:"DRE",            vis:()=>IS_NEGOCIOS},
-  orcamento: {ico:"🎯", label:"Orçamento"},
+  orcamento: {ico:"🎯", label:"Orçamento", vis:()=>!isAll()},
   movimentos:{ico:"↕",  label:"Movimentos"},
   contas:    {ico:"🗓", label:"Contas do mês",  vis:()=>IS_PESSOAL},
   pagar:     {ico:"▣",  label:"Contas a Pagar", vis:()=>!IS_PESSOAL},
   receber:   {ico:"◳",  label:"A Receber",      vis:()=>!IS_PESSOAL},
   comissoes: {ico:"🤝", label:"Comissões LP",   vis:()=>VISAO==="PIPEX"},
   cartoes:   {ico:"▭",  label:"Cartões"},
-  importar:  {ico:"⭱",  label:"Importar"},
+  importar:  {ico:"⭱",  label:"Importar", vis:()=>!isAll()},
   config:    {ico:"⚙",  label:"Configurações"},
 };
 const NAV_KEY="cfin_nav_v1";
@@ -257,6 +266,9 @@ const isForaTotais=m=>/fora do extrato/i.test(m.banco||"");// convenção: conta
    da Central, onde DB.contas é o da visão aberta e o lookup por nome não alcança. */
 const isPagtoCartao=m=>m.sentido==="Entrada"&&(m._cartao===true||(m.banco&&typeof isCartaoConta==="function"&&isCartaoConta(m.banco)));
 const isInterno=m=>isForaTotais(m)||isPagtoCartao(m)||INTERNO_CAT_RX.test(m.categoria||"")||INTERNO_DESC_RX.test(m.descricao||"");
+/* No consolidado (Todas as visões), transferência ENTRE as próprias visões (PJ→PF etc.)
+   também é interna — senão o mesmo dinheiro conta como entrada numa e saída na outra. */
+const isForaAgregado=m=>isInterno(m)||(VISAO==="ALL"&&typeof isInterVisao==="function"&&isInterVisao(m));
 /* previsto que é FATURA DE CARTÃO (auto ou lançado na mão): compromisso de caixa real
    (fica nas Contas do mês e no Modo Financeiro), mas NÃO soma em "saídas previstas"/
    projeção/Fluxo — o gasto já contou quando cada COMPRA entrou no cartão; somar a
@@ -364,9 +376,9 @@ async function loadData(){
   const [contas,cats,mv,ct,pv,rg,gl,orc,tg,mt]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
-    sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
+    sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id,observacao").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
-    sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao").in("visao",VFILTER).order("vencimento").limit(20000),
+    sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao,visao").in("visao",VFILTER).order("vencimento").limit(20000),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
     sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000),
@@ -378,10 +390,10 @@ async function loadData(){
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const mtMap=new Map();((mt&&mt.data)||[]).forEach(r=>{const a=mtMap.get(r.movimento_id)||[];a.push(r.tag_id);mtMap.set(r.movimento_id,a);});
-  const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null,tags:(mtMap.get(r.id)||[])}));
+  const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),observacao:r.observacao||"",mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null,tags:(mtMap.get(r.id)||[])}));
   const cartoes=ct.data.map(r=>({_row:r.id,data:(r.data_compra||"").slice(0,10),descricao:r.descricao||"",cartao:cb.get(r.cartao_id)?.nome||"",valor:Number(r.valor||0),subcategoria:nameOf(r.categoria_id),mesFatura:(r.data_fatura||"").slice(5,7)+"/"+(r.data_fatura||"").slice(0,4)}));
-  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||""}));
-  const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||""}));
+  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||"",visao:p.visao}));
+  const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||"",visao:p.visao}));
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
@@ -454,8 +466,10 @@ function inPeriod(m){if(PERIOD.mode==="ano")return m.ano===PERIOD.ano;if(PERIOD.
 function periodLabel(){if(PERIOD.mode==="ano")return"ano "+PERIOD.ano;if(PERIOD.mode==="mes")return ML[PERIOD.mes-1]+"/"+PERIOD.ano;return(PERIOD.de?fmtDate(PERIOD.de):"início")+" → "+(PERIOD.ate?fmtDate(PERIOD.ate):"hoje");}
 
 let DB=null,CURRENT="dashboard",SEL=new Set();
-function route(name){if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();SELMODE=false;document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));document.querySelectorAll("#bnav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
-function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isInterno(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
+function route(name){
+  if(name==="central"){if(VISAO!=="ALL"){setVisao("ALL");return;}name="dashboard";}   /* Central = Visão Geral em modo Todas */
+  if(name==="dre"&&!IS_NEGOCIOS)name="dashboard";if(name==="comissoes"&&VISAO!=="PIPEX")name="dashboard";if(name==="contas"&&!IS_PESSOAL)name="pagar";if((name==="pagar"||name==="receber")&&IS_PESSOAL)name="contas";CURRENT=name;SEL.clear();SELMODE=false;document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));document.querySelectorAll("#bnav a").forEach(a=>a.classList.toggle("active",a.dataset.route===name));try{renderTopSwitch();}catch(e){}(ROUTES[name]||viewDashboard)();}
+function kpis(){const reais=DB.movimentos.filter(m=>inPeriod(m)&&!isForaAgregado(m));const ent=reais.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);const sai=reais.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);const aPagar=DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto").reduce((s,c)=>s+c.valor,0);const aReceber=DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").reduce((s,a)=>s+a.previstoLiquido,0);return{ent,sai,saldo:ent-sai,aPagar,aReceber,proj:(ent-sai)+aReceber-aPagar};}
 
 /* ===== Motor de recorrência + números do período (Visão Geral) =====
    "A realizar" = agendados (previstos abertos) + recorrentes projetados no período. */
@@ -482,7 +496,7 @@ function saldoCorrente(){const b=contaSaldos();let t=0;b.forEach((v,n)=>{if(!isC
 /* números do módulo Visão Geral p/ o período [de,ate] */
 function overviewNumbers(de,ate){
   const inR=iso=>{iso=(iso||"").slice(0,10);return iso>=de&&iso<=ate;};
-  const mv=(DB.movimentos||[]).filter(m=>!isInterno(m)&&inR(m.data));
+  const mv=(DB.movimentos||[]).filter(m=>!isForaAgregado(m)&&inR(m.data));
   const entReal=mv.filter(m=>m.sentido==="Entrada").reduce((s,m)=>s+m.valor,0);
   const saiReal=mv.filter(m=>m.sentido==="Saída").reduce((s,m)=>s+m.valor,0);
   let entAReal=0;(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;entAReal+=ocorrencias(a.dataPrevista,a.recorrencia,de,ate).length*Number(a.previstoLiquido||0);});
@@ -494,7 +508,7 @@ function overviewNumbers(de,ate){
 function ovDrill(kind,fil,ord){
   fil=fil||"all";ord=ord||"data";   // fil: all|real|prev · ord: data|valor
   const{de,ate}=ovBounds();const items=[];
-  DB.movimentos.filter(m=>!isInterno(m)&&(m.data||"").slice(0,10)>=de&&(m.data||"").slice(0,10)<=ate&&(kind==="ent"?m.sentido==="Entrada":m.sentido==="Saída"))
+  DB.movimentos.filter(m=>!isForaAgregado(m)&&(m.data||"").slice(0,10)>=de&&(m.data||"").slice(0,10)<=ate&&(kind==="ent"?m.sentido==="Entrada":m.sentido==="Saída"))
     .forEach(m=>items.push({d:m.data,desc:m.descricao,extra:[m.categoria,m.banco].filter(Boolean).join(" · "),v:m.valor,prev:false,_row:m._row}));
   if(kind==="ent")(DB.aReceber||[]).forEach(a=>{if(!isPrevAberto(a.status))return;ocorrencias(a.dataPrevista,a.recorrencia,de,ate).forEach(d=>items.push({d,desc:a.linha,extra:"a realizar"+(a.recorrencia?" · "+a.recorrencia:""),v:Number(a.previstoLiquido||0),prev:true}));});
   else(DB.contasPagar||[]).forEach(c=>{if(!isPrevAberto(c.status)||isPrevFatura(c))return;ocorrencias(c.vencimento,c.recorrencia,de,ate).forEach(d=>items.push({d,desc:c.descricao,extra:"a realizar"+(c.recorrencia?" · "+c.recorrencia:""),v:Number(c.valor||0),prev:true}));});
@@ -561,8 +575,8 @@ function movimentoModal(m){ const isEdit=!!m; m=m||{data:todayISO(),sentido:"Sa�
       <div class="fld"><label>Categoria <span class="link" id="lkSug">✨ sugerir</span></label><div id="catSlot"></div></div>
     </div>
     <div id="transf" style="display:none">
-      <div class="fld"><label>Conta origem</label><select id="f_orig">${banco.map(b=>`<option>${esc(b)}</option>`).join("")}</select></div>
-      <div class="fld"><label>Conta destino</label><select id="f_dest">${banco.map((b,i)=>`<option ${i===1?"selected":""}>${esc(b)}</option>`).join("")}</select></div>
+      <div class="fld"><label>Conta origem</label><select id="f_orig">${banco.map(b=>`<option ${b===m.banco?"selected":""}>${esc(b)}</option>`).join("")}</select></div>
+      <div class="fld"><label>Conta destino</label><select id="f_dest">${(()=>{const pre=banco.find(b=>b!==m.banco)||banco[1]||"";return banco.map(b=>`<option ${b===pre?"selected":""}>${esc(b)}</option>`).join("");})()}</select></div>
       <div class="sub">Não afeta resultado: cria saída na origem + entrada no destino, marcadas como internas.</div>
     </div>
   </div><div class="foot">${isEdit?`<button class="btn danger" id="del" style="margin-right:auto">Excluir</button>`:""}<button class="btn ghost" id="cancel">Cancelar</button><button class="btn" id="save">Salvar</button></div></div></div>`);
@@ -596,7 +610,7 @@ function promptCat(tipo){return new Promise(res=>{modal({title:"Nova categoria (
 async function lancarMov(o){const row={_row:"d"+Date.now()+Math.random().toString(36).slice(2,5),data:o.data,descricao:o.descricao,valor:o.valor,sentido:o.sentido,banco:o.banco,categoria:o.categoria,mes:+o.data.slice(5,7),ano:+o.data.slice(0,4)};if(MODE==="live")row._row=await sbIns("movimentos",{data:o.data,descricao_original:o.descricao,descricao_limpa:o.descricao,valor:o.valor,sinal:o.sentido==="Entrada"?1:-1,conta_id:contaId(o.banco),categoria_id:catId(o.categoria),visao:VISAO,hash:uhash(o.descricao+o.data+o.valor)});DB.movimentos.unshift(row);}
 async function editMovSave(row,o){const m=DB.movimentos.find(x=>x._row===row);if(MODE==="live")await sbUpd("movimentos",row,{data:o.data,descricao_original:o.descricao,descricao_limpa:o.descricao,valor:o.valor,sinal:o.sentido==="Entrada"?1:-1,conta_id:contaId(o.banco),categoria_id:catId(o.categoria)});if(m)Object.assign(m,{...o,mes:+o.data.slice(5,7),ano:+o.data.slice(0,4)});}
 function editMovimento(row){const m=DB.movimentos.find(x=>x._row===row);if(m)movimentoModal(m);}
-function addMovimento(){movimentoModal(null);}
+function addMovimento(){if(isAll()){toast("O consolidado é leitura — escolha uma visão pra lançar");return;}movimentoModal(null);}
 async function delMovimento(row){if(MODE==="live"){try{await sbDel("movimentos",row);}catch(e){toast("Erro: "+e.message);return;}}DB.movimentos=DB.movimentos.filter(x=>x._row!==row);toast("Excluído");await afterWrite();}
 
 /* ===== Dashboard ===== */
@@ -644,6 +658,27 @@ function ovPeriodBar(){
   else if(PERIOD.mode==="range")inner=`<input type="date" value="${PERIOD.de||''}" onchange="ovSetDe(this.value)"> <span class="sub">até</span> <input type="date" value="${PERIOD.ate||''}" onchange="ovSetAte(this.value)">`;
   else inner=`<button class="btn ghost sm" onclick="stepMes(-1)" aria-label="Mês anterior">‹</button><div style="font-weight:660;min-width:120px;text-align:center">${ML[PERIOD.mes-1]} ${PERIOD.ano}</div><button class="btn ghost sm" onclick="stepMes(1)" aria-label="Próximo mês">›</button>`;
   return`<div class="controls" style="justify-content:flex-start;align-items:center;gap:12px;flex-wrap:wrap"><div class="seg" style="display:inline-flex;gap:4px">${seg('mes','Mês')}${seg('ano','Ano')}${seg('range','Período')}</div><div style="display:flex;align-items:center;gap:8px">${inner}<span class="sub">${ovPeriodLabel()}</span></div></div>`;}
+/* painel "Suas visões" (modo Todas): saldo + alertas por visão, clique abre a visão.
+   É o corpo da antiga tela Central, agora dentro da Visão Geral consolidada. */
+function visoesPanel(){if(!isAll())return"";
+  const hoje=todayISO();
+  const rows=PROFILES.map(p=>{
+    const contas=(DB.contas||[]).filter(c=>c.visao===p.code&&c.ativo!==false);
+    let saldo=0;contas.forEach(c=>{if(c.tipo!=="cartao"&&!/cart/i.test(c.nome||"")&&c.saldo_atual!=null&&!/fora do extrato/i.test(c.nome||""))saldo+=Number(c.saldo_atual);});
+    const atras=(DB.contasPagar||[]).filter(x=>x.visao===p.code&&isPrevAberto(x.status)&&(x.vencimento||"")<hoje);
+    const atrasTot=atras.reduce((s,x)=>s+Number(x.valor||0),0);
+    const feedN=contas.filter(c=>c.saldo_atual!=null&&!/fora do extrato/i.test(c.nome||"")&&(frescorDias(c.saldo_atualizado_em)||0)>3).length;
+    return{p,saldo,atrasN:atras.length,atrasTot,feedN};});
+  const card=r=>`<div onclick="setVisao('${r.p.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:11px 14px">
+    <div style="font-size:19px;width:24px;text-align:center">${r.p.icon}</div>
+    <div style="flex:1;min-width:0"><div style="font-weight:660">${esc(r.p.label)}</div><div class="sub" style="font-size:11px;margin:0">${esc(r.p.grupo==="Pessoal"?"Vida":r.p.grupo)}</div>
+      ${(r.atrasN||r.feedN)?`<div style="font-size:10.5px;font-weight:700;margin-top:2px">${r.atrasN?`<span style="color:#dc2626">⚠️ ${r.atrasN} atrasada(s) · ${fmtK(r.atrasTot)}</span>`:""}${r.atrasN&&r.feedN?" · ":""}${r.feedN?`<span style="color:#d97706">🔌 feed parado (${r.feedN})</span>`:""}</div>`:""}</div>
+    <div style="text-align:right"><div class="${r.saldo>=0?'in':'out'}" style="font-weight:700;font-variant-numeric:tabular-nums">${fmtBRL(r.saldo)}</div><div class="sub" style="font-size:10px;margin:0">abrir ›</div></div>
+  </div>`;
+  const g=(nome,arr)=>arr.length?`<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:12px 2px 6px">${nome}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px">${arr.map(card).join("")}</div>`:"";
+  return`<div class="panel"><h2>Suas visões <span class="sub" style="font-weight:400;font-size:11px">toque pra abrir o detalhe</span></h2>
+    ${g("Negócios",rows.filter(r=>r.p.grupo==="Negócios"))}${g("Vida",rows.filter(r=>r.p.grupo==="Pessoal"))}</div>`;
+}
 function viewDashboard(){
   {const d=new Date();if(!PERIOD.ano)PERIOD.ano=d.getFullYear();if(!PERIOD.mes)PERIOD.mes=d.getMonth()+1;}
   if(!["mes","ano","range"].includes(PERIOD.mode))PERIOD.mode="mes";
@@ -654,18 +689,19 @@ function viewDashboard(){
   $("#view").innerHTML=`
   <div class="row">
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn ghost sm" onclick="route('central')" title="Voltar à Central">‹ Central</button>
-      <div><h1>${esc(VISAO_LABEL)}</h1><div class="sub">Visão geral · ${esc(CUR_PROFILE.grupo)}</div></div>
+      ${isAll()?"":`<button class="btn ghost sm" onclick="route('central')" title="Ver todas as visões">‹ Todas</button>`}
+      <div><h1>${isAll()?"Central financeira":esc(VISAO_LABEL)}</h1><div class="sub">${isAll()?"Consolidado de todas as visões · transferências entre suas visões não contam 2×":"Visão geral · "+esc(CUR_PROFILE.grupo)}</div></div>
     </div>
-    <button class="btn" onclick="addMovimento()">+ Lançar</button>
+    ${isAll()?"":`<button class="btn" onclick="addMovimento()">+ Lançar</button>`}
   </div>
   ${ovPeriodBar()}
   <div class="kpis">
-    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">contas da visão</div></div>
+    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">${isAll()?"contas correntes de todas as visões":"contas da visão"}</div></div>
     <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">realizado ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)} · toque p/ ver ›</div></div>
     <div class="kpi" onclick="ovDrill('sai')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div><div class="hint">realizado ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)} · toque p/ ver ›</div></div>
     <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div><div class="hint">saldo + receber − pagar</div></div>
   </div>
+  ${visoesPanel()}
   ${entSaiDetail(o)}
   ${contasPanel()}
   ${cartoesPanel()}
@@ -693,7 +729,7 @@ function viewDashFamilia(){
   /* envelopes: Orçamento do mês (categorias de saída com teto definido) */
   const omes=(PERIOD.mode==="mes")?PERIOD.ano+"-"+pad2(PERIOD.mes):ctHoje().slice(0,7);
   const mb=loadOrc()[omes]||{};
-  const realByCat={};DB.movimentos.filter(m=>monthKey(m.data)===omes&&!isInterno(m)&&m.sentido==="Saída").forEach(m=>{realByCat[m.categoria||"—"]=(realByCat[m.categoria||"—"]||0)+m.valor;});
+  const realByCat={};DB.movimentos.filter(m=>monthKey(m.data)===omes&&!isForaAgregado(m)&&m.sentido==="Saída").forEach(m=>{realByCat[m.categoria||"—"]=(realByCat[m.categoria||"—"]||0)+m.valor;});
   const envCats=DB.categorias.filter(c=>!c.parent_id&&c.tipo==="saida"&&+(mb[c.nome]||0)>0);
   let envTotPlan=0,envTotReal=0;
   const envRows=envCats.slice(0,6).map(c=>{const plan=+mb[c.nome],real=realByCat[c.nome]||0;envTotPlan+=plan;envTotReal+=real;
@@ -783,7 +819,7 @@ function viewMovimentos(){
   window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value,g=$("#fg").value;
     const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco)))&&(!g||(m.tags||[]).includes(g)));
     _movPieRows=base;
-    const ent=base.filter(m=>m.sentido==="Entrada"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0),sai=base.filter(m=>m.sentido==="Saída"&&!isInterno(m)).reduce((x,m)=>x+m.valor,0);
+    const ent=base.filter(m=>m.sentido==="Entrada"&&!isForaAgregado(m)).reduce((x,m)=>x+m.valor,0),sai=base.filter(m=>m.sentido==="Saída"&&!isForaAgregado(m)).reduce((x,m)=>x+m.valor,0);
     const sum=$("#movSum");if(sum)sum.innerHTML=`<b class="in">+ ${fmtK(ent)}</b> · <b class="out">− ${fmtK(sai)}</b> · saldo <b class="${ent-sai>=0?"in":"out"}">${fmtBRL(ent-sai)}</b>`;
     /* fila do "sem categoria" sempre à vista (a opção no select ficava enterrada) */
     const nNone=base.filter(m=>!m.categoria).length,bt=$("#fnone");
@@ -796,7 +832,7 @@ function viewMovimentos(){
 /* ranking de barras (visão Pessoal): top 8 + "outras" — legível onde a pizza de 25 fatias não era */
 const MV_PAL=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d"];
 function renderMovBars(){const box=$("#movBars");if(!box)return;
-  const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isInterno(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
+  const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isForaAgregado(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
   const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
   const hint=$("#barsHint");if(hint)hint.textContent=cats.length?`— ${cats.length} categorias · toque numa barra p/ filtrar`:"";
   if(!cats.length){box.innerHTML=`<div class="empty">Sem despesas no filtro.</div>`;return;}
@@ -817,7 +853,7 @@ function mvBarRest(){const rest=window._mvRest||[];const tot=rest.reduce((s,c)=>
     rest.map(c=>`<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="mvBarPick('${esc(c[0]).replace(/'/g,"\\'")}');this.closest('div[style*=fixed]')?.remove()"><td style="padding:6px 8px">${esc(c[0])}</td><td class="num" style="text-align:right;padding:6px 8px">${fmtBRL(c[1])}</td></tr>`).join(""));}
 function renderMovViz(){if(IS_PESSOAL)renderMovBars();else renderMovPie();}
 function renderMovPie(){const cv=$("#chMovCat");if(!cv)return;if(_movChart){_movChart.destroy();_movChart=null;}
-  const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isInterno(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
+  const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isForaAgregado(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
   const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
   if($("#pieHint"))$("#pieHint").textContent=cats.length?`— ${cats.length} categorias · clique p/ abrir`:"— sem despesas no filtro";
   if(!cats.length)return;
@@ -898,7 +934,7 @@ function bulkExcluir(){confirmDel(`Excluir ${SEL.size} movimento(s)?`,async()=>{
 const mvNorm=s=>String(s||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\d+/g," ").replace(/[^A-Z ]/g," ").replace(/\s+/g," ").trim();
 function histSuggester(){
   const maps=[new Map(),new Map(),new Map()];   // chaves de 3, 2 e 1 token(s)
-  DB.movimentos.filter(m=>m.categoria&&!isInterno(m)).forEach(m=>{
+  DB.movimentos.filter(m=>m.categoria&&!isForaAgregado(m)).forEach(m=>{
     const tk=mvNorm(m.descricao).split(" ").filter(Boolean);if(!tk.length)return;
     [3,2,1].forEach((n,i)=>{if(tk.length<n)return;const k=m.sentido+"|"+tk.slice(0,n).join(" ");
       let e=maps[i].get(k);if(!e){e={};maps[i].set(k,e);}e[m.categoria]=(e[m.categoria]||0)+1;});
@@ -910,7 +946,7 @@ function histSuggester(){
     return"";};
 }
 function autoCategorizar(){
-  const semCat=DB.movimentos.filter(m=>!m.categoria&&!isInterno(m)&&(!MV_MES||monthKey(m.data)===MV_MES));
+  const semCat=DB.movimentos.filter(m=>!m.categoria&&!isForaAgregado(m)&&(!MV_MES||monthKey(m.data)===MV_MES));
   if(!semCat.length){toast(MV_MES?"Nada sem categoria em "+mkLabel(MV_MES)+" — troque pra “Ver tudo” pra varrer o resto":"Tudo categorizado 🎉");return;}
   const hist=histSuggester();
   const itens=semCat.map(m=>({m,sug:suggestCategoria(m.descricao)||hist(m)})).sort((a,b)=>(b.sug?1:0)-(a.sug?1:0)||b.m.data.localeCompare(a.m.data));
@@ -954,7 +990,7 @@ function conciliar(tipo,row){const it=(tipo==="pagar"?DB.contasPagar:DB.aReceber
 function viewPagar(){const rows=DB.contasPagar;$("#view").innerHTML=`<div class="row"><div><h1>Contas a Pagar</h1><div class="sub">${rows.length} contas</div></div><button class="btn" onclick="addPagar()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editPagar('${p._row}')">${fmtDate(p.vencimento)}</td><td style="cursor:pointer" onclick="editPagar('${p._row}')">${esc(p.descricao)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td><span class="chip">${esc(p.categoria||"—")}</span></td><td>${esc(p.banco||"—")}</td><td class="num out">${fmtBRL(p.valor)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status==="aberto"?`<button class="btn ghost sm" onclick="conciliar('pagar','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="7"><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;}
 function addMonthsDate(iso,n){let[y,m,d]=iso.split("-").map(Number);m+=n;y+=Math.floor((m-1)/12);m=((m-1)%12+12)%12+1;const last=new Date(y,m,0).getDate();if(d>last)d=last;return`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
 function pagarFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"vencimento",label:"Vencimento",type:"date"},{name:"valor",label:"Valor (R$)",type:"number"},{name:"categoria",label:"Categoria",type:"select",options:catOptsByTipo("saida").filter(o=>o!=="__new")},{name:"banco",label:"Banco",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
-async function addPagar(){modal({title:"Nova conta a pagar",fields:pagarFields(true),values:{vencimento:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
+async function addPagar(){if(isAll()){toast("O consolidado é leitura — escolha uma visão pra lançar");return;}modal({title:"Nova conta a pagar",fields:pagarFields(true),values:{vencimento:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
   const parcelado=v.recorrencia==="parcelado",N=parcelado?Math.max(1,Math.round(+v.parcelas||1)):1,rec=parcelado?"":v.recorrencia,valor=Math.abs(+v.valor||0),catNome=leafCat(v.categoria);
   for(let i=0;i<N;i++){const venc=N>1?addMonthsDate(v.vencimento,i):v.vencimento;const desc=N>1?`${v.descricao} (${i+1}/${N})`:v.descricao;
     const o={_row:"p"+Date.now()+i,descricao:desc,vencimento:venc,valor,categoria:catNome,banco:v.banco,status:"aberto",recorrencia:rec};
@@ -976,14 +1012,14 @@ function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)retur
       if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:"pago",recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
       Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"pago",recorrencia:""});
       const o={_row:"p"+Date.now(),descricao:v.descricao,vencimento:nx,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"aberto",recorrencia:rec};
-      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"pagar",status:"aberto",visao:(p.visao||VISAO),recorrencia:rec,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
       DB.contasPagar.push(o);toast("Pago ✓ · próxima ocorrência criada pra "+fmtDate(nx));
     }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}}
   await afterWrite();}});
   anexSection(mhEd.bg,"previsto",row,VISAO);entField(mhEd.bg,"previstos",row,p.descricao);}
 function viewReceber(){const rows=DB.aReceber;$("#view").innerHTML=`<div class="row"><div><h1>A Receber</h1><div class="sub">${rows.length} previstos</div></div><button class="btn" onclick="addReceber()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Data prevista</th><th>Descrição</th><th>Conta</th><th class="num">Previsto</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editReceber('${p._row}')">${fmtDate(p.dataPrevista)}</td><td style="cursor:pointer" onclick="editReceber('${p._row}')">${esc(p.linha)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td>${esc(p.conta||"—")}</td><td class="num in">${fmtBRL(p.previstoLiquido)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status!=="recebido"?`<button class="btn ghost sm" onclick="conciliar('receber','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}</tbody></table></div>`;}
 function receberFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"dataPrevista",label:"Data prevista",type:"date"},{name:"valor",label:"Valor (R$)",type:"number"},{name:"conta",label:"Conta destino",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
-function addReceber(){modal({title:"Novo previsto a receber",fields:receberFields(true),values:{dataPrevista:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
+function addReceber(){if(isAll()){toast("O consolidado é leitura — escolha uma visão pra lançar");return;}modal({title:"Novo previsto a receber",fields:receberFields(true),values:{dataPrevista:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
   const parcelado=v.recorrencia==="parcelado",N=parcelado?Math.max(1,Math.round(+v.parcelas||1)):1,rec=parcelado?"":v.recorrencia,valor=Math.abs(+v.valor||0);
   for(let i=0;i<N;i++){const dt=N>1?addMonthsDate(v.dataPrevista,i):v.dataPrevista;const desc=N>1?`${v.descricao} (${i+1}/${N})`:v.descricao;
     const o={_row:"r"+Date.now()+i,linha:desc,dataPrevista:dt,previstoLiquido:valor,conta:v.conta,status:"aberto",recorrencia:rec};
@@ -1004,7 +1040,7 @@ function editReceber(row){const p=DB.aReceber.find(x=>x._row===row);if(!p)return
       if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:"recebido",recorrencia:null,conta_id:contaId(v.conta)});
       Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:"recebido",recorrencia:""});
       const o={_row:"r"+Date.now(),linha:v.descricao,dataPrevista:nx,previstoLiquido:valor,conta:v.conta,status:"aberto",recorrencia:rec};
-      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"receber",status:"aberto",visao:VISAO,recorrencia:rec,conta_id:contaId(v.conta)});
+      if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"receber",status:"aberto",visao:(p.visao||VISAO),recorrencia:rec,conta_id:contaId(v.conta)});
       DB.aReceber.push(o);toast("Recebido ✓ · próxima ocorrência criada pra "+fmtDate(nx));
     }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.dataPrevista||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.conta)});Object.assign(p,{linha:v.descricao,dataPrevista:v.dataPrevista,previstoLiquido:valor,conta:v.conta,status:v.status,recorrencia:rec});toast("Atualizado");}}
   await afterWrite();}});}
@@ -1100,7 +1136,7 @@ async function ctPay(i){
   /* o extrato (Pluggy/import) já trouxe esse valor? → concilia em vez de duplicar.
      Janela: até 7 dias do VENCIMENTO ou de HOJE (atrasado pago hoje casa com o débito de hoje). */
   const _dd=(a,b)=>Math.abs((new Date(a)-new Date(b))/864e5);
-  const match=DB.movimentos.find(m=>m.sentido===sentido&&!isInterno(m)&&Math.abs(m.valor-r.valor)<=Math.max(0.5,r.valor*0.02)&&Math.min(_dd(m.data,r.data),_dd(m.data,ctHoje()))<=7);
+  const match=DB.movimentos.find(m=>m.sentido===sentido&&!isForaAgregado(m)&&Math.abs(m.valor-r.valor)<=Math.max(0.5,r.valor*0.02)&&Math.min(_dd(m.data,r.data),_dd(m.data,ctHoje()))<=7);
   const und={mov:null,inst:null,tpl:null,prevAnchor:null,coll:isPg?"contasPagar":"aReceber"};
   try{
     if(kind){
@@ -1411,7 +1447,8 @@ async function faturaGravar(cartao,f){
   return{acao:"criado",prev:o,valor:total};
 }
 /* varre os cartões da visão aberta; 1x por dia por visão (ou forçado pelo toggle) */
-async function faturaAutoRun(opt){
+async function faturaAutoRun(opt){if(isAll())return;   /* automação de escrita não roda no consolidado */
+  
   opt=opt||{};
   if(MODE!=="live"||!faturaAutoOn())return 0;
   const hoje=todayISO();
@@ -1548,7 +1585,7 @@ function viewCartoes(){const cards=cardContas();
   <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos${sel.pagtos?` <span class="sub" style="font-weight:400;font-size:11px">compras ${fmtBRL(sel.compras)} · pagamentos ${fmtBRL(sel.pagtos)}</span>`:""}</h2><div style="display:flex;gap:8px">${selBtn()}<button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div></div>
    ${lanc}</div>`;}
 /* botão manual: mesmo caminho da automação (antes ele duplicava a cada clique) */
-async function gerarFatura(fk){
+async function gerarFatura(fk){if(isAll()){toast("Escolha uma visão pra gerar a conta");return;}
   const cartao=CART_SEL,f=faturasDoCartao(cartao).fs.find(x=>x.fk===fk);
   if(!f){toast("Fatura não encontrada");return;}
   try{
@@ -1632,7 +1669,7 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   const months=[]; let cur=real.length?real[0]:tk; const end=addMonth(tk,6);
   // monta sequência contígua do 1º realizado até tk+6
   let g=cur; const last=addMonth(tk,6); while(g<=last){months.push(g);g=addMonth(g,1);}
-  const ent={},sai={};DB.movimentos.filter(m=>!isInterno(m)).forEach(m=>{const k=monthKey(m.data);if(m.sentido==="Entrada")ent[k]=(ent[k]||0)+m.valor;else sai[k]=(sai[k]||0)+m.valor;});
+  const ent={},sai={};DB.movimentos.filter(m=>!isForaAgregado(m)).forEach(m=>{const k=monthKey(m.data);if(m.sentido==="Entrada")ent[k]=(ent[k]||0)+m.valor;else sai[k]=(sai[k]||0)+m.valor;});
   // projeção: previstos abertos por mês de vencimento; recorrentes mensais replicam pra frente
   const rec={},pag={};
   // inclui o mês CORRENTE na projeção (realizado + a receber/pagar do mês + VENCIDOS em aberto)
@@ -1687,7 +1724,7 @@ const _drillRow=(dt,desc,extra,valor,cls)=>`<tr style="border-top:1px solid var(
 /* Drill-down: clicar numa linha do DRE abre as movimentações que a compõem (mesmo período/filtro) */
 function dreDrill(cat){
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
-  const items=DB.movimentos.filter(m=>inDre(m)&&!isInterno(m)&&(m.categoria||"Outras")===cat).sort((a,b)=>a.data<b.data?1:-1);
+  const items=DB.movimentos.filter(m=>inDre(m)&&!isForaAgregado(m)&&(m.categoria||"Outras")===cat).sort((a,b)=>a.data<b.data?1:-1);
   const tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
   const per=DRE_MODE==="ano"?("ano "+DRE_ANO):(ML[DRE_MES-1]+"/"+DRE_ANO);
   const linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.banco||""),fmtBRL(m.valor),m.sentido==='Entrada'?'in':'out')).join("")||`<tr><td colspan="4" class="sub" style="padding:12px">Nenhuma movimentação.</td></tr>`;
@@ -1700,7 +1737,7 @@ function fluxoDrill(k,t){
   const nomes={e:"Entradas",s:"Saídas",r:"A receber (previsto)",p:"A pagar (previsto)"};
   let linhas="",tot=0,n=0;
   if(t==="e"||t==="s"){
-    const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isInterno(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
+    const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isForaAgregado(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
     n=items.length;tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
     linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.categoria||m.banco||""),fmtBRL(m.valor),t==="e"?"in":"out")).join("");
   }else{
@@ -1724,7 +1761,7 @@ function fluxoDrill(k,t){
 }
 function viewDRE(){ DRE_ANO=DRE_ANO||yearsList()[0]||new Date().getFullYear();DRE_MES=DRE_MES||new Date().getMonth()+1;
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
-  const rows=DB.movimentos.filter(m=>inDre(m)&&!isInterno(m));
+  const rows=DB.movimentos.filter(m=>inDre(m)&&!isForaAgregado(m));
   const receitas={},grupos={};let totRec=0,totDesp=0;
   rows.forEach(m=>{const g=dreGrupo(m.categoria,m.sentido==="Entrada"?"entrada":"saida");if(!g)return;
     if(m.sentido==="Entrada"){receitas[m.categoria||"Outras"]=(receitas[m.categoria||"Outras"]||0)+m.valor;totRec+=m.valor;}
@@ -1746,7 +1783,7 @@ function viewDRE(){ DRE_ANO=DRE_ANO||yearsList()[0]||new Date().getFullYear();DR
 let ORC_MES=null;
 function viewOrcamento(){ ORC_MES=ORC_MES||todayISO().slice(0,7); const orc=loadOrc();const mb=orc[ORC_MES]||{};
   const cats=DB.categorias.filter(c=>!c.parent_id);
-  const realByCat={};DB.movimentos.filter(m=>monthKey(m.data)===ORC_MES&&!isInterno(m)).forEach(m=>{realByCat[m.categoria||"—"]=(realByCat[m.categoria||"—"]||0)+(m.sentido==="Entrada"?m.valor:-m.valor);});
+  const realByCat={};DB.movimentos.filter(m=>monthKey(m.data)===ORC_MES&&!isForaAgregado(m)).forEach(m=>{realByCat[m.categoria||"—"]=(realByCat[m.categoria||"—"]||0)+(m.sentido==="Entrada"?m.valor:-m.valor);});
   const saidas=cats.filter(c=>c.tipo==="saida"),entradas=cats.filter(c=>c.tipo==="entrada");
   let planDesp=0,realDesp=0,planRec=0,realRec=0;
   const rowFor=(c,isRec)=>{const plan=+(mb[c.nome]||0);const real=Math.abs(realByCat[c.nome]||0);if(isRec){planRec+=plan;realRec+=real;}else{planDesp+=plan;realDesp+=real;}
@@ -2052,7 +2089,7 @@ function viewCentral(){const c=CENTRAL||_finalizeCentral(_emptyPer());
    agosto não mata a série). Não lança movimento: aqui as contas vêm de
    várias visões e o extrato (Pluggy/Inter) traz o débito real.
    ===================================================================== */
-let FP={mes:null,vis:new Set(),dados:null,carregando:false,erro:""},FP_UNDO={},FP_GEN=0;
+let FP={mes:null,vis:new Set(),dados:null,carregando:false,erro:"",hor:(()=>{try{const raw=localStorage.getItem("cfin_fp_hor");if(raw==null)return 1;const h=+raw;return[0,1,3,6].indexOf(h)>=0?h:1;}catch(e){return 1;}})()},FP_UNDO={},FP_GEN=0;
 const FP_EST_RX=/perspectiva|estimativa/i;
 const fpProfile=c=>PROFILES.find(p=>p.code===c)||{code:c,label:c==="AMBOS"?"Compartilhado":c,grupo:"",icon:"●",cor:"#64748b",corBg:"#eef0f3"};
 const fpSum=a=>a.reduce((s,r)=>s+r.valor,0);
@@ -2061,7 +2098,7 @@ const fpPago=r=>String(r.status||"").toLowerCase()==="pago";
 const fpBadge=cd=>{const p=fpProfile(cd);return `<span class="fp-badge" style="background:${p.corBg};color:${p.cor}">${esc(p.label)}</span>`;};
 
 /* ---- drill-down: todo valor da tela abre a lista exata de contas que ele soma ---- */
-const FP_DRILL={ab:["Tudo em aberto","mês + atrasadas + meses futuros"],mesAberto:["A pagar no mês","vencendo neste mês"],mesPago:["Já pago no mês","baixadas neste mês"],atras:["Atrasado","vencidas em meses anteriores"],prox:["Próximos meses","a vencer depois deste mês"],vencidasNoMes:["Já vencido no mês","do mês, já passaram do vencimento"]};
+const FP_DRILL={ab:["Tudo em aberto","mês + atrasadas + meses futuros"],mesAberto:["A pagar no recorte","ainda a vencer no período selecionado"],mesPago:["Já pago no recorte","baixadas no período"],atras:["Atrasado","venceu e não foi pago (inclui o mês)"],prox:["Fora do recorte","a vencer depois do período selecionado"],vencidasNoMes:["Já vencido no mês","do mês, já passaram do vencimento"]};
 function fpDrillGo(id){document.querySelectorAll('.modal-bg').forEach(b=>b.remove());fpDetalhe(id);}
 function fpDrowRows(list){const hoje=todayISO();return list.map(r=>{const late=!fpPago(r)&&r.venc<hoje;return `<div class="fp-drow" onclick="fpDrillGo('${r.id}')"><span class="fp-drow-day ${late?"late":""}">${fpDDMM(r.venc)}</span><span class="fp-drow-desc"><b>${esc(r.desc)}</b>${(r.conta||r.categoria)?`<span class="fp-obs">${esc([r.conta,r.categoria].filter(Boolean).join(" · "))}</span>`:""}</span>${fpBadge(r.visao)}<span class="fp-drow-val out">${fmtBRL(r.valor)}</span></div>`;}).join("")||`<div class="empty">Nada nesta lista.</div>`;}
 function fpDrill(bucket,visao){
@@ -2108,19 +2145,30 @@ async function fpLoad(){
 /* buckets do mês selecionado + recortes de visão */
 function fpCalc(){
   const mk=FP.mes,{de,ate}=monthBounds(+mk.slice(0,4),+mk.slice(5,7)),hoje=todayISO();
+  /* RECORTE DE PERÍODO (31/08, pedido dele): o período selecionado manda — em "Mês" você vê
+     o mês; futuro só entra quando amplia pra 3m/6m/Tudo. Nada de 78k de "próximos meses"
+     dominando uma tela de agosto. */
+  const hor=(FP.hor==null?1:FP.hor);   /* 1|3|6 meses · 0 = tudo */
+  const fimFk=hor===0?null:addMonth(mk,hor-1);
+  const fimAte=fimFk?fimFk+"-"+pad2(daysInMonth(+fimFk.slice(0,4),+fimFk.slice(5,7))):null;
+  const perLbl=hor===1?("em "+mkLabel(mk)):hor===0?("de "+mkLabel(mk)+" em diante"):(mkLabel(mk)+" → "+mkLabel(fimFk));
   const rows=(FP.dados.rows||[]).filter(r=>!FP.vis.size||FP.vis.has(r.visao));
   const ab=rows.filter(r=>isPrevAberto(r.status));           /* exclui pago e cancelado */
-  const noMes=r=>r.venc>=de&&r.venc<=ate;
-  const mesAberto=ab.filter(noMes).sort((a,b)=>a.venc<b.venc?-1:1);
-  const mesPago=rows.filter(r=>fpPago(r)&&noMes(r)).sort((a,b)=>a.venc<b.venc?-1:1);
-  const atras=ab.filter(r=>r.venc<de).sort((a,b)=>a.venc<b.venc?-1:1);
-  const prox=ab.filter(r=>r.venc>ate).sort((a,b)=>a.venc<b.venc?-1:1);
-  const vencidasNoMes=mesAberto.filter(r=>r.venc<hoje);
-  return{mk,de,ate,hoje,rows,ab,mesAberto,mesPago,atras,prox,vencidasNoMes};
+  const noPer=r=>r.venc>=de&&(fimAte?r.venc<=fimAte:true);
+  /* ATRASADO = venceu e não foi pago, INCLUINDO o mês corrente (31/08: IPTU de 10/08 aparecia
+     como "a pagar no mês" com Atrasado zerado — contra-intuitivo). "A pagar" = ainda VAI vencer. */
+  const atras=ab.filter(r=>r.venc<hoje).sort((a,b)=>a.venc<b.venc?-1:1);
+  const mesAberto=ab.filter(r=>r.venc>=hoje&&noPer(r)).sort((a,b)=>a.venc<b.venc?-1:1);
+  const mesAbertoTotal=ab.filter(noPer).sort((a,b)=>a.venc<b.venc?-1:1);   /* inclui vencidas do recorte (gráfico) */
+  const mesPago=rows.filter(r=>fpPago(r)&&noPer(r)).sort((a,b)=>a.venc<b.venc?-1:1);
+  const prox=fimAte?ab.filter(r=>r.venc>fimAte&&r.venc>=hoje).sort((a,b)=>a.venc<b.venc?-1:1):[];
+  const vencidasNoMes=atras.filter(r=>r.venc>=de&&r.venc<=ate);
+  return{mk,de,ate,hoje,hor,fimFk,fimAte,perLbl,rows,ab,mesAberto,mesAbertoTotal,mesPago,atras,prox,vencidasNoMes};
 }
 
 /* ---- interações ---- */
 function fpMes(n){FP.mes=addMonth(FP.mes,n);viewFinanceiro();}
+function fpHor(h){FP.hor=h;try{localStorage.setItem("cfin_fp_hor",String(h));}catch(e){}viewFinanceiro();}
 function fpHojeMes(){FP.mes=todayISO().slice(0,7);viewFinanceiro();}
 function fpVisTgl(code){if(!code){FP.vis.clear();}else if(FP.vis.has(code)){FP.vis.delete(code);}else{FP.vis.add(code);}viewFinanceiro();}
 function fpRecarregar(){FP.dados=null;FP.erro="";viewFinanceiro();}
@@ -2155,12 +2203,12 @@ function viewFinanceiro(){
      somava TODOS os meses futuros numa tela ancorada em Ago/26 e "a conta não batia".
      Ele vai pro FIM, renomeado, dizendo às claras o que soma. */
   const kpis=`<div class="fp-kpis">
-    ${kpi("A pagar em "+mkLabel(c.mk),fpSum(c.mesAberto),c.mesAberto.length+" conta(s) vencendo no mês","","mesAberto")}
-    ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) vencida(s) antes do mês","cr","atras")}
-    ${kpi("Já pago · "+mkLabel(c.mk),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd","mesPago")}
-    ${kpi("Próximos meses",fpSum(c.prox),c.prox.length+" conta(s) DEPOIS de "+mkLabel(c.mk),"","prox")}
-    ${kpi("Tudo em aberto",fpSum(c.ab),c.ab.length+" conta(s) = mês + atrasadas + meses futuros","","ab")}
-  </div>`;
+    ${kpi("A pagar "+c.perLbl,fpSum(c.mesAberto),c.mesAberto.length+" conta(s) ainda a vencer no recorte","","mesAberto")}
+    ${kpi("Atrasado",fpSum(c.atras),c.atras.length+" conta(s) que venceram e não foram pagas","cr","atras")}
+    ${kpi("Já pago "+(c.hor===1?"· "+mkLabel(c.mk):"no recorte"),fpSum(c.mesPago),c.mesPago.length+" baixada(s)","gd","mesPago")}
+    ${c.hor===0?kpi("Tudo em aberto",fpSum(c.ab),c.ab.length+" conta(s) = recorte + atrasadas","","ab"):""}
+  </div>
+  ${c.prox.length?`<div class="sub" style="margin:-6px 2px 12px">${c.prox.length} conta(s) fora do recorte (depois de ${mkLabel(c.fimFk)}) somando <b>${fmtBRL(fpSum(c.prox))}</b> · <span class="link" onclick="fpDrill('prox')">ver</span> · <span class="link" onclick="fpHor(0)">ampliar pra Tudo</span></div>`:""}`;
 
   /* card por frente */
   const cards=codesComLinha.filter(cd=>!FP.vis.size||FP.vis.has(cd)).map(cd=>{
@@ -2170,16 +2218,16 @@ function viewFinanceiro(){
     const abOn=abV.length;
     return `<div class="panel fp-vcard" style="--c:${p.cor}">
       <div class="fp-vh"><span class="fp-dot"></span><span class="fp-vt">${esc(p.label)}</span><span class="fp-vtag">· ${esc(p.grupo==="Pessoal"?"Vida":p.grupo||"—")}</span></div>
-      ${ln("A pagar em "+mkLabel(c.mk),mAb,"","mesAberto")}
-      ${ln("Já pago no mês",mPg,"in","mesPago")}
+      ${ln("A pagar "+c.perLbl,mAb,"","mesAberto")}
+      ${ln("Já pago",mPg,"in","mesPago")}
       ${ln("Atrasado",atr,"out","atras")}
-      ${ln("Próximos meses",px,"","prox")}
-      <div class="fp-line tot${abOn?" clk":""}"${abOn?` onclick="fpDrill('ab','${cd}')"`:""}><span class="k">Tudo em aberto <span style="font-weight:400;font-size:10px;opacity:.7">(c/ meses futuros)</span></span><span class="v">${fmtBRL(fpSum(abV))}</span></div>
+      ${c.hor===0?`<div class="fp-line tot${abOn?" clk":""}"${abOn?` onclick="fpDrill('ab','${cd}')"`:""}><span class="k">Tudo em aberto</span><span class="v">${fmtBRL(fpSum(abV))}</span></div>`
+        :`<div class="fp-line tot"><span class="k">Aberto no recorte + atrasadas</span><span class="v">${fmtBRL(fpSum(mAb)+fpSum(atr))}</span></div>`}
     </div>`;}).join("");
 
   /* gráfico: dia de vencimento × frente (só o que está EM ABERTO no mês) */
   const byDay={};
-  c.mesAberto.forEach(r=>{(byDay[r.venc]=byDay[r.venc]||{tot:0,por:{},itens:[]});byDay[r.venc].tot+=r.valor;byDay[r.venc].por[r.visao]=(byDay[r.venc].por[r.visao]||0)+r.valor;byDay[r.venc].itens.push(r);});
+  c.mesAbertoTotal.filter(r=>r.venc<=c.ate).forEach(r=>{(byDay[r.venc]=byDay[r.venc]||{tot:0,por:{},itens:[]});byDay[r.venc].tot+=r.valor;byDay[r.venc].por[r.visao]=(byDay[r.venc].por[r.visao]||0)+r.valor;byDay[r.venc].itens.push(r);});
   const dias=Object.keys(byDay).sort(),maxDia=Math.max(1,...dias.map(d=>byDay[d].tot));
   const chart=dias.length?`<div class="fp-chart">${dias.map(d=>{
     const o=byDay[d],late=d<hoje,h=v=>Math.max(3,Math.round(v/maxDia*145));
@@ -2219,6 +2267,8 @@ function viewFinanceiro(){
       <div style="font-weight:660;min-width:92px;text-align:center">${mkLabel(c.mk)}</div>
       <button class="btn ghost sm" onclick="fpMes(1)" aria-label="Próximo mês">›</button>
       ${c.mk!==todayISO().slice(0,7)?`<button class="btn ghost sm" onclick="fpHojeMes()">hoje</button>`:""}
+      <span style="width:8px"></span>
+      ${[[1,"Mês"],[3,"3m"],[6,"6m"],[0,"Tudo"]].map(([h,l])=>`<button class="btn ${c.hor===h?"":"ghost"} sm" onclick="fpHor(${h})">${l}</button>`).join("")}
       <button class="btn sm" onclick="addPagar()" title="Lança na visão aberta (${esc(VISAO_LABEL)})">+ Nova</button>
     </div>
   </div>
@@ -2227,26 +2277,26 @@ function viewFinanceiro(){
   ${kpis}
   <div class="secttl"><span>Visão separada</span><span class="sub" style="margin:0;text-transform:none;letter-spacing:0;font-weight:500">cada frente com o próprio subtotal</span></div>
   <div class="fp-views">${cards||`<div class="panel"><div class="empty">Nenhuma conta a pagar cadastrada nas visões que você enxerga.</div></div>`}</div>
-  <div class="secttl" style="margin-top:20px"><span>Por dia de vencimento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAberto))}</span></div>
+  <div class="secttl" style="margin-top:20px"><span>Por dia de vencimento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAbertoTotal.filter(r=>r.venc<=c.ate)))}</span></div>
   <div class="panel">
     ${legenda}
     ${chart}
     <div class="fp-lboxes">
-      <div class="fp-lbox red clk" onclick="fpDrill('atras')"><div class="ll">Atrasado · meses anteriores</div><div class="lv">${fmtBRL(fpSum(c.atras))}</div><div class="lm">${c.atras.length} conta(s) vencida(s) antes de ${mkLabel(c.mk)}</div></div>
+      <div class="fp-lbox red clk" onclick="fpDrill('atras')"><div class="ll">Atrasado · venceu e não pagou</div><div class="lv">${fmtBRL(fpSum(c.atras))}</div><div class="lm">${c.atras.length} conta(s), incluindo as do próprio mês</div></div>
       <div class="fp-lbox clk" onclick="fpDrill('vencidasNoMes')"><div class="ll">Já vencido dentro do mês</div><div class="lv">${fmtBRL(fpSum(c.vencidasNoMes))}</div><div class="lm">${c.vencidasNoMes.length} conta(s) do mês que já passaram do vencimento</div></div>
-      <div class="fp-lbox clk" onclick="fpDrill('mesAberto')"><div class="ll">A pagar em ${mkLabel(c.mk)}</div><div class="lv">${fmtBRL(fpSum(c.mesAberto))}</div><div class="lm">${c.mesAberto.length} conta(s) a vencer/vencidas no mês</div></div>
+      <div class="fp-lbox clk" onclick="fpDrill('mesAberto')"><div class="ll">A pagar ${c.perLbl}</div><div class="lv">${fmtBRL(fpSum(c.mesAberto))}</div><div class="lm">${c.mesAberto.length} conta(s) ainda a vencer</div></div>
     </div>
   </div>
-  <div class="secttl" style="margin-top:20px"><span>Detalhamento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAberto))} em aberto</span></div>
-  ${tabela([...c.mesAberto,...c.mesPago].sort((a,b)=>a.venc<b.venc?-1:(a.venc>b.venc?1:0)),true,"Nenhuma conta em "+mkLabel(c.mk)+".")}
+  <div class="secttl" style="margin-top:20px"><span>Detalhamento · ${c.perLbl}</span><span class="num">${fmtBRL(fpSum(c.mesAbertoTotal))} em aberto</span></div>
+  ${tabela([...c.mesAbertoTotal,...c.mesPago].sort((a,b)=>a.venc<b.venc?-1:(a.venc>b.venc?1:0)),true,"Nenhuma conta "+c.perLbl+".")}
   <div class="fp-grid2">
     <div>
       <div class="secttl" style="margin-top:0"><span class="out">Atrasadas · meses anteriores</span><span class="num">${fmtBRL(fpSum(c.atras))}</span></div>
       ${tabela(c.atras,false,"Nada atrasado. 🎉")}
     </div>
     <div>
-      <div class="secttl" style="margin-top:0"><span>Próximos meses</span><span class="num">${fmtBRL(fpSum(c.prox))}</span></div>
-      ${tabela(c.prox,false,"Nada lançado pra frente.")}
+      <div class="secttl" style="margin-top:0"><span>Fora do recorte${c.fimFk?" · depois de "+mkLabel(c.fimFk):""}</span><span class="num">${fmtBRL(fpSum(c.prox))}</span></div>
+      ${tabela(c.prox,false,c.hor===0?"O recorte Tudo já cobre o futuro.":"Nada além do recorte.")}
     </div>
   </div>
   <div class="sub" style="margin:10px 2px 30px">Lê a tabela <code>previstos</code> (tipo “pagar”) ao vivo. Mostra as contas <b>já cadastradas</b> — recorrentes não são projetados aqui (quem projeta é a Visão Geral / Contas do mês). Itens com “PERSPECTIVA/ESTIMATIVA” na descrição vêm marcados como estimativa.</div>`;
@@ -2516,9 +2566,9 @@ function quickAdd(){
 function profileUrls(){const root=new URL(CUR_PROFILE.path?"../":"./",location.href);const u={};PROFILES.forEach(p=>u[p.code]=new URL(p.path,root).href);return u;}
 /* itens do menu de visões (usado pelo seletor do topo) */
 /* o menu só oferece as visões que a pessoa pode ver (admin vê todas) */
-function visaoMenuItems(){const vis=visoesVisiveis();return `<a data-code="__central" class="${CURRENT==='central'?'cur':''}">◎ Central (todas)</a>`+["Negócios","Pessoal"].map(g=>{const arr=vis.filter(p=>p.grupo===g);return arr.length?`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+arr.map(p=>`<a data-code="${p.code}" class="${p.code===VISAO&&CURRENT!=='central'?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join(""):"";}).join("");}
+function visaoMenuItems(){const vis=visoesVisiveis();return `<a data-code="__central" class="${VISAO==='ALL'?'cur':''}">◎ Todas as visões</a>`+["Negócios","Pessoal"].map(g=>{const arr=vis.filter(p=>p.grupo===g);return arr.length?`<div class="profile-grp">${g==='Pessoal'?'Vida':g}</div>`+arr.map(p=>`<a data-code="${p.code}" class="${p.code===VISAO?"cur":""}">${p.icon} ${esc(p.label)}</a>`).join(""):"";}).join("");}
 /* aplica a escolha do menu (Central consolidada ou uma visão) */
-function visaoPick(code){if(code==="__central"){route("central");return;}if(code===VISAO&&CURRENT!=="central"){route("dashboard");return;}setVisao(code);}
+function visaoPick(code){if(code==="__central"){if(VISAO==="ALL")route("dashboard");else setVisao("ALL");return;}if(code===VISAO){route("dashboard");return;}setVisao(code);}
 /* SELETOR DE VISÃO no topo: mostra onde estou (visão ativa ou Central) e troca */
 function renderTopSwitch(){
   const box=document.getElementById("vswBox");if(!box)return;

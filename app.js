@@ -276,8 +276,13 @@ const isForaAgregado=m=>isInterno(m)||(VISAO==="ALL"&&typeof isInterVisao==="fun
 const isPrevFatura=p=>/auto:fatura/i.test(p.obs||p.observacao||"")||/^fatura\s/i.test(p.descricao||p.desc||"");
 /* Inter-visão: transferências entre as PRÓPRIAS entidades do Gustavo (Outliers↔PF/Família/Jucá, fluxo Rebeca-RC).
    Na visão individual contam como receita/despesa (útil p/ orçamento); na Central consolidada são NETADAS
-   p/ não duplicar (o dinheiro já foi contado uma vez na origem). Detecta por contraparte + tag em observacao. */
-const INTERVISAO_DESC_RX=/outliers corretora|gustavo melo juc|gustavo juc[aá] corretora/i;
+   p/ não duplicar (o dinheiro já foi contado uma vez na origem). Detecta por contraparte + tag em observacao.
+   "outliers" SOZINHO, sem exigir " corretora": o feed do Nubank trunca a contraparte em
+   "Transferência Recebida|OUTLIERS". Exigindo a palavra completa, o netting ficava ASSIMÉTRICO —
+   a saída do PJ ("Pix enviado — Gustavo Melo Juca") era netada e a entrada na Família não, o que
+   inflou R$ 72.469,19 de entradas (e R$ 1.337,32 de saídas) no consolidado desde 03/05/26.
+   Conferido na base inteira: TODO lançamento com "outliers" é entidade dele, zero terceiro. */
+const INTERVISAO_DESC_RX=/outliers|gustavo melo juc|gustavo juc[aá] corretora/i;
 const isInterVisao=m=>INTERVISAO_DESC_RX.test(m.descricao||"")||/#intervisao|#rebeca-?rc/i.test(m.observacao||"");
 
 function suggestCategoria(desc){const up=(desc||"").toUpperCase();if(!up)return"";
@@ -2725,5 +2730,8 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!isPrevFatura({descricao:"Fatura Cartao Inter PF 09/2026",obs:""}))f.push("previsto de fatura não reconhecido (dupla contagem em saídas previstas)");
   if(isPrevFatura({descricao:"Faturamento cliente X",obs:""}))f.push("isPrevFatura pegando não-fatura");
   if(!isInterno({sentido:"Saída",banco:"Inter PF",categoria:"Pagamento de fatura",descricao:"qualquer"}))f.push("categoria 'Pagamento de fatura' não é interna");
+  if(!isInterVisao({descricao:"Transferência Recebida|OUTLIERS"}))f.push("transferência inter-visão truncada pelo feed não netada (receita fantasma no consolidado)");
+  if(!isInterVisao({descricao:"Pix enviado  — Gustavo Melo Juca"}))f.push("saída inter-visão não netada");
+  if(isInterVisao({descricao:"Pix recebido de MARIA BETANIA ALMEIDA"}))f.push("isInterVisao pegando terceiro (esconderia receita real)");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

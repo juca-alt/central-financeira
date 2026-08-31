@@ -1452,7 +1452,10 @@ function cartaoResumo(nome){
   let prox=null;
   if(vencidas.length)prox={tipo:"atraso",valor:vencidas.reduce((s,x)=>s+Math.max(0,x.saldo),0),quando:vencidas[0].venc,fk:vencidas[vencidas.length-1].fk};
   else if(fechadas.length)prox={tipo:"fechada",valor:fechadas[0].compras,quando:fechadas[0].venc,fk:fechadas[0].fk};
-  else if(corrente)prox={tipo:"corrente",valor:corrente.compras-corrente.pagtos,quando:corrente.fech,fk:corrente.fk};
+  /* fatura corrente = COMPRAS brutas do ciclo (31/08): pagamento que cai DENTRO do ciclo
+     quita a fatura ANTERIOR (é assim que faturaMes agrupa) — descontar aqui zerava o hero
+     ("Set/26 R$ 0,00" com 3,2k de compras) */
+  else if(corrente)prox={tipo:"corrente",valor:corrente.compras,quando:corrente.fech,fk:corrente.fk};
   const gastoAteHoje=f.movs.filter(m=>m.sentido==="Saída"&&m.data<=hoje).reduce((s,m)=>s+m.valor,0);
   return{f,prox,gastoAteHoje,conta:f.conta,bancoDev:f.bancoDev};
 }

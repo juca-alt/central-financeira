@@ -645,7 +645,7 @@ function cartoesPanel(){const b=contaSaldos();
   const rows=items.map(([n,v])=>`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">💳 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${frescorTag(meta.get(n))}</div>`).join("");
   return`<div class="panel"><h2>Cartões <span class="link" onclick="route('cartoes')" style="font-weight:600">ver faturas ›</span></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 function entSaiDetail(o){const r=(lbl,v,cls)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)"><span class="sub">${lbl}</span><b class="${cls||''}" style="font-variant-numeric:tabular-nums">${fmtBRL(v)}</b></div>`;
-  return`<div class="grid2" style="grid-template-columns:1fr 1fr">
+  return`<div class="grid2 g2-even">
     <div class="panel"><h2>📈 Entradas</h2>${r('Realizado',o.entReal,'in')}${r('A realizar',o.entAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.entPrev)}</b></div></div>
     <div class="panel"><h2>📉 Saídas</h2>${r('Realizado',o.saiReal,'out')}${r('A realizar',o.saiAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.saiPrev)}</b></div></div>
   </div>`;}
@@ -785,7 +785,7 @@ function selBtn(){return `<button class="btn ${SELMODE?"":"ghost"} sm" onclick="
 function selRow(id){if(SEL.has(id))SEL.delete(id);else SEL.add(id);
   if(CURRENT==="movimentos")renderMovTable(true);else (ROUTES[CURRENT]||viewDashboard)();}   /* em Movimentos só redesenha a lista — não perde os filtros */
 function bulkBar(){if(!SEL.size)return SELMODE?`<div class="sub" style="margin:6px 0">Toque nos lançamentos pra selecionar.</div>`:"";
-  return `<div class="bulkbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;position:sticky;top:6px;z-index:20;background:var(--card);border:1px solid var(--primary);border-radius:10px;padding:8px 10px;margin:6px 0;box-shadow:var(--shadow)"><b style="white-space:nowrap">${SEL.size} sel.</b><button class="btn sm" onclick="bulkCategorizar()">Categoria</button><button class="btn sm" onclick="bulkTags()">🏷️ Tags</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();(ROUTES[CURRENT]||viewDashboard)()" style="margin-left:auto">Limpar</button></div>`;}
+  return `<div class="bulkbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--primary);border-radius:10px;padding:8px 10px;margin:6px 0;box-shadow:var(--shadow)"><b style="white-space:nowrap">${SEL.size} sel.</b><button class="btn sm" onclick="bulkCategorizar()">Categoria</button><button class="btn sm" onclick="bulkTags()">🏷️ Tags</button><button class="btn sm danger" onclick="bulkExcluir()">Excluir</button><button class="btn sm ghost" onclick="SEL.clear();(ROUTES[CURRENT]||viewDashboard)()" style="margin-left:auto">Limpar</button></div>`;}
 function bulkTags(){
   const tags=(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));
   if(!tags.length){toast("Crie tags em Configurações › 🏷️ Tags primeiro");return;}
@@ -1346,7 +1346,16 @@ async function lpMarcarRecebido(comp){const m=(LP.meses||[]).find(x=>x.competenc
 
 /* ===== Cartões (lê dos movimentos lançados nas contas tipo cartão) ===== */
 const cardContas=()=>(DB.contas||[]).filter(c=>c.tipo==="cartao"||/cart/i.test(c.nome));
-let CART_SEL=null, FAT_SEL=null;
+let CART_SEL=null, FAT_SEL=null, REGUA_X=null;
+/* A regua e recriada inteira a cada toque (viewCartoes reescreve #view), entao o scroll
+   horizontal voltava pro zero e a fatura escolhida sumia da tela. Guardamos a posicao
+   antes do re-render; quando NAO ha posicao guardada (1a abertura), centralizamos a
+   fatura selecionada em vez de deixar ele procurar. */
+function selFatura(fk){const el=document.getElementById("faturaRegua");REGUA_X=el?el.scrollLeft:null;FAT_SEL=fk;viewCartoes();}
+function reguaRestaura(){const rg=document.getElementById("faturaRegua");if(!rg)return;
+  if(REGUA_X!=null){rg.scrollLeft=REGUA_X;REGUA_X=null;return;}
+  const sc=document.getElementById("fatSelCard");if(!sc)return;
+  rg.scrollLeft=Math.max(0,sc.offsetLeft-(rg.clientWidth-sc.offsetWidth)/2);}
 /* Config de fatura por cartao (dia do mes): f=fechamento, v=vencimento. Default: fecha fim do mes, vence 10. */
 /* pag = conta que PAGA a fatura (o débito real sai dela, não do cartão) */
 const FATURA_CFG={"cartao inter empresas":{f:3,v:10,pag:"Inter PJ"},"cartao inter microbusiness":{f:3,v:10,pag:"Inter PJ"},"cartao inter pf":{f:5,v:12,pag:"Inter PF"},"cartao nubank familia":{f:3,v:10,pag:"Conta Nubank Familia"}}; // Nubank: vence 10 (creditData Pluggy), fecha ~7 dias antes
@@ -1566,11 +1575,11 @@ function viewCartoes(){const cards=cardContas();
   /* COR SEGUE O STATUS (31/08, queixa dele): antes seguia compras−pagtos do CICLO — como o
      pagamento cai no ciclo SEGUINTE, fatura PAGA ficava vermelha. E fatura futura de parcela
      aparecia "Aberta" (parecia conta em aberto): agora é "Futura", cinza. */
-  const regua=`<div style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 4px">${showFs.map(f=>{
+  const regua=`<div id="faturaRegua" style="display:flex;gap:10px;overflow-x:auto;padding:2px 2px 4px">${showFs.map(f=>{
      const st=f.fk>curFk?"futura":f.status;
      const vCls=st==="paga"?"in":(st==="vencida"?"out":"");
      return`
-     <div onclick="FAT_SEL='${f.fk}';viewCartoes()" style="cursor:pointer;flex:0 0 auto;min-width:150px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--card);${st==="futura"?"opacity:.75;":""}${f.fk===FAT_SEL?'box-shadow:0 0 0 2px var(--primary) inset;border-color:var(--primary)':''}">
+     <div ${f.fk===FAT_SEL?'id="fatSelCard" ':''}onclick="selFatura('${f.fk}')" style="cursor:pointer;flex:0 0 auto;min-width:150px;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--card);${st==="futura"?"opacity:.75;":""}${f.fk===FAT_SEL?'box-shadow:0 0 0 2px var(--primary) inset;border-color:var(--primary)':''}">
        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px"><b style="font-size:12.5px">${mkLabel(f.fk)}${faturaPrevisto(CART_SEL,f.fk)?` <span title="Já está em Contas a Pagar" style="font-size:11px">📄</span>`:""}</b><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;${stBadge(st)}">${stLabel(st)}</span></div>
        <div style="font-size:18px;font-weight:700;margin:5px 0 2px" class="${vCls}">${fmtBRL(f.compras)}</div>
        <div class="sub" style="margin:0;font-size:10.5px">venc ${fmtDate(f.venc)} · ${f.n} compras</div>
@@ -1596,7 +1605,8 @@ function viewCartoes(){const cards=cardContas();
   </div>
   ${regua}
   <div class="panel"><div class="row"><h2 style="margin:0">Fatura ${mkLabel(sel.fk)} · ${sel.txs.length} lançamentos${sel.pagtos?` <span class="sub" style="font-weight:400;font-size:11px">compras ${fmtBRL(sel.compras)} · pagamentos ${fmtBRL(sel.pagtos)}</span>`:""}</h2><div style="display:flex;gap:8px">${selBtn()}<button class="btn ghost sm" onclick="gerarFatura('${sel.fk}')">Gerar conta a pagar</button></div></div>
-   ${lanc}</div>`;}
+   ${lanc}</div>`;
+  reguaRestaura();}
 /* botão manual: mesmo caminho da automação (antes ele duplicava a cada clique) */
 async function gerarFatura(fk){if(isAll()){toast("Escolha uma visão pra gerar a conta");return;}
   const cartao=CART_SEL,f=faturasDoCartao(cartao).fs.find(x=>x.fk===fk);
@@ -1746,7 +1756,7 @@ function drillModal(titulo,sub,rowsHtml){
   ov.querySelector("#drillX").onclick=close;
   document.addEventListener("keydown",onKey);
 }
-const _drillRow=(dt,desc,extra,valor,cls)=>`<tr style="border-top:1px solid var(--border)"><td style="white-space:nowrap;padding:5px 8px">${dt}</td><td style="padding:5px 8px">${desc}</td><td class="sub" style="white-space:nowrap;padding:5px 8px">${extra}</td><td class="num ${cls}" style="text-align:right;white-space:nowrap;padding:5px 8px">${valor}</td></tr>`;
+const _drillRow=(dt,desc,extra,valor,cls)=>`<tr style="border-top:1px solid var(--border)"><td style="white-space:nowrap;padding:5px 8px">${dt}</td><td style="padding:5px 8px">${desc}</td><td class="sub" style="padding:5px 8px">${extra}</td><td class="num ${cls}" style="text-align:right;white-space:nowrap;padding:5px 8px">${valor}</td></tr>`;
 /* Drill-down: clicar numa linha do DRE abre as movimentações que a compõem (mesmo período/filtro) */
 function dreDrill(cat){
   const inDre=m=>DRE_MODE==="ano"?m.ano===DRE_ANO:(m.ano===DRE_ANO&&m.mes===DRE_MES);
@@ -2767,6 +2777,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!isInterVisao({descricao:"Transferência Recebida|OUTLIERS"}))f.push("transferência inter-visão truncada pelo feed não netada (receita fantasma no consolidado)");
   if(!isInterVisao({descricao:"Pix enviado  — Gustavo Melo Juca"}))f.push("saída inter-visão não netada");
   if(isInterVisao({descricao:"Pix recebido de MARIA BETANIA ALMEIDA"}))f.push("isInterVisao pegando terceiro (esconderia receita real)");
+  if(typeof selFatura!=="function"||typeof reguaRestaura!=="function")f.push("regua de faturas sem preservacao de scroll (fatura selecionada some da tela no mobile)");
   {const _c=[{apolice:"A",acordo:true,no_fluxo:true},{apolice:"B",acordo:true,no_fluxo:false}];
    if(_c.filter(x=>x.acordo&&x.no_fluxo).length!==1)f.push("previsão LP projetando sobre o acordo em vez do fluxo (infla a receita do Pipe X)");}
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));

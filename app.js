@@ -1684,29 +1684,42 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
   let g=cur; const last=addMonth(tk,6); while(g<=last){months.push(g);g=addMonth(g,1);}
   const ent={},sai={};DB.movimentos.filter(m=>!isForaAgregado(m)).forEach(m=>{const k=monthKey(m.data);if(m.sentido==="Entrada")ent[k]=(ent[k]||0)+m.valor;else sai[k]=(sai[k]||0)+m.valor;});
   // projeção: previstos abertos por mês de vencimento; recorrentes mensais replicam pra frente
-  const rec={},pag={};
+  const rec={},pag={},orc={},pagCats={};
   // inclui o mês CORRENTE na projeção (realizado + a receber/pagar do mês + VENCIDOS em aberto)
   // ocorrências normais do mês + a ÂNCORA VENCIDA (aberta) somada no mês corrente — recorrente ou não:
   // ex.: MJM venc 20/06 aberto + recorrência de 20/07 ⇒ julho mostra 2× (o atrasado não some)
   DB.aReceber.filter(a=>(a.status||"").toLowerCase()!=="recebido").forEach(a=>{const k=monthKey(a.dataPrevista);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(a.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)rec[mm]=(rec[mm]||0)+x*a.previstoLiquido;});});
-  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto"&&!isPrevFatura(c)).forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x)pag[mm]=(pag[mm]||0)+x*c.valor;});});
+  DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto"&&!isPrevFatura(c)).forEach(c=>{const k=monthKey(c.vencimento);if(!k)return;months.forEach(mm=>{if(mm<tk)return;let x=0;if(mm===k||(c.recorrencia==="mensal"&&mm>=k))x++;if(mm===tk&&k<tk)x++;if(x){pagCats[mm]=pagCats[mm]||new Set();if(c.categoria)pagCats[mm].add(c.categoria);pag[mm]=(pag[mm]||0)+x*c.valor;}});});
+  /* Orçamento como projeção de despesa VARIÁVEL.
+     Só entra a categoria que NÃO tem conta a pagar prevista naquele mês — assim
+     o teto de "Mercado" projeta, mas o teto de "Moradia" não soma em cima do
+     condomínio que já está cadastrado. Fica em linha separada pra você distinguir
+     compromisso (boleto) de estimativa (média). */
+  const ORC=(typeof loadOrc==="function"?loadOrc():{})||{};
+  months.forEach(mm=>{ if(mm<tk) return;
+    const mb=ORC[mm]; if(!mb) return;
+    const jaPrevisto=pagCats[mm]||new Set();
+    let t=0; Object.keys(mb).forEach(cat=>{ if(!jaPrevisto.has(cat)) t+=Number(mb[cat]||0); });
+    if(t>0) orc[mm]=t;
+  });
   // ACUMULADO ANCORADO NO SALDO REAL (30/08): a soma cega de movimentos não tem saldo de
   // abertura e derivava um acumulado deslocado da realidade. Âncora: no fim do mês corrente,
   // acumulado = saldo real das contas (override do banco) + previstos restantes do mês.
   // Passado deriva pra trás (acc−net), futuro pra frente.
-  const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0;const net=(e-s)+(r-p);return{k,e,s,r,p,net,acc:0,proje:fut};});
+  const data=months.map(k=>{const proje=k>=tk;const fut=k>tk;const e=ent[k]||0,s=sai[k]||0,r=proje?(rec[k]||0):0,p=proje?(pag[k]||0):0,o=proje?(orc[k]||0):0;const net=(e-s)+(r-p-o);return{k,e,s,r,p,o,net,acc:0,proje:fut};});
   const i0=data.findIndex(c=>c.k===tk);
-  if(i0>=0){data[i0].acc=saldoCorrente()+(rec[tk]||0)-(pag[tk]||0);
+  if(i0>=0){data[i0].acc=saldoCorrente()+(rec[tk]||0)-(pag[tk]||0)-(orc[tk]||0);
     for(let i=i0+1;i<data.length;i++)data[i].acc=data[i-1].acc+data[i].net;
     for(let i=i0-1;i>=0;i--)data[i].acc=data[i+1].acc-data[i+1].net;
   }else{let acc=0;data.forEach(c=>{acc+=c.net;c.acc=acc;});}
   const cell=(v,cls,k,t)=>`<td class="${v?cls:''} fxc" data-k="${k}" data-t="${t}" style="${v?'cursor:pointer':''}" title="${v?'Ver detalhes':''}">${v?fmtBRL(v):"—"}</td>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção (a receber/pagar + recorrentes). <span class="pj">Roxo</span> = projetado. Acumulado ancorado no saldo real das contas hoje.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
+  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção. <span class="pj">Roxo</span> = a receber/pagar cadastrado. <span class="orcx">Âmbar</span> = teto do Orçamento nas categorias sem conta cadastrada. Acumulado ancorado no saldo real das contas hoje.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
    <div class="panel" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th>${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>
     <tr><td class="h">Entradas</td>${data.map(c=>cell(c.e,"in",c.k,"e")).join("")}</tr>
     <tr><td class="h">Saídas</td>${data.map(c=>cell(c.s,"out",c.k,"s")).join("")}</tr>
     <tr><td class="h">A receber (prev.)</td>${data.map(c=>`<td class="${c.r?'pj':''} fxc" data-k="${c.k}" data-t="r" style="${c.r?'cursor:pointer':''}">${c.r?fmtBRL(c.r):"—"}</td>`).join("")}</tr>
     <tr><td class="h">A pagar (prev.)</td>${data.map(c=>`<td class="${c.p?'pj':''} fxc" data-k="${c.k}" data-t="p" style="${c.p?'cursor:pointer':''}">${c.p?'−'+fmtBRL(c.p):"—"}</td>`).join("")}</tr>
+    <tr><td class="h">Orçamento (est.)</td>${data.map(c=>`<td class="${c.o?'orcx':''} fxc" data-k="${c.k}" data-t="o" style="${c.o?'cursor:pointer':''}">${c.o?'−'+fmtBRL(c.o):"—"}</td>`).join("")}</tr>
     <tr style="border-top:2px solid var(--border)"><td class="h"><b>Saldo do mês</b></td>${data.map(c=>`<td class="${c.net>=0?'in':'out'}"><b>${fmtBRL(c.net)}</b></td>`).join("")}</tr>
     <tr><td class="h"><b>Saldo acumulado</b></td>${data.map(c=>`<td class="${c.acc>=0?'in':'out'}"><b>${fmtBRL(c.acc)}</b></td>`).join("")}</tr>
    </tbody></table></div><div class="panel"><h2>Saldo acumulado projetado</h2><canvas id="chAcc" height="90"></canvas></div>`;
@@ -1747,9 +1760,22 @@ function dreDrill(cat){
    t: e=Entradas s=Saídas r=A receber p=A pagar */
 function fluxoDrill(k,t){
   const tk=todayISO().slice(0,7);
-  const nomes={e:"Entradas",s:"Saídas",r:"A receber (previsto)",p:"A pagar (previsto)"};
+  const nomes={e:"Entradas",s:"Saídas",r:"A receber (previsto)",p:"A pagar (previsto)",o:"Orçamento estimado (categorias sem conta cadastrada)"};
   let linhas="",tot=0,n=0;
-  if(t==="e"||t==="s"){
+  if(t==="o"){
+    const ORC=(typeof loadOrc==="function"?loadOrc():{})||{};
+    const mb=ORC[k]||{};
+    // mesmas categorias que o viewFluxo somou: as que NAO tem conta a pagar prevista no mes
+    const jaPrevisto=new Set();
+    DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto"&&!isPrevFatura(c)).forEach(c=>{
+      const vk=monthKey(c.vencimento); if(!vk)return;
+      if(vk===k||(c.recorrencia==="mensal"&&k>=vk)||(k===tk&&vk<tk)){ if(c.categoria)jaPrevisto.add(c.categoria); }
+    });
+    const items=Object.keys(mb).filter(cat=>!jaPrevisto.has(cat)&&Number(mb[cat]||0)>0)
+      .map(cat=>({cat,valor:Number(mb[cat])})).sort((a,b)=>b.valor-a.valor);
+    n=items.length; tot=items.reduce((acc,x)=>acc+x.valor,0);
+    linhas=items.map(x=>_drillRow("teto",esc(x.cat),"teto do orçamento · sem conta cadastrada",fmtBRL(x.valor),"out")).join("");
+  }else if(t==="e"||t==="s"){
     const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isForaAgregado(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
     n=items.length;tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
     linhas=items.map(m=>_drillRow((m.data||"").slice(8,10)+"/"+(m.data||"").slice(5,7),esc(m.descricao||""),esc(m.categoria||m.banco||""),fmtBRL(m.valor),t==="e"?"in":"out")).join("");

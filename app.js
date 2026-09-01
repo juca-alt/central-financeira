@@ -1291,7 +1291,7 @@ function lpRenderCarteira(){const ativas=LP.cart.filter(c=>/ativa/i.test(c.statu
     <div class="kpi"><div class="lbl">Override MFB (${LP.pover}%)</div><div class="val in" id="lpKOver">${fmtBRL(over)}</div><div class="hint">sua receita PJ estimada/mês</div></div>
     <div class="kpi"><div class="lbl">No acordo Pipe X</div><div class="val">${noAcordo.length}</div><div class="hint">apólices marcadas</div></div>
     <div class="kpi"><div class="lbl">Previsão Pipe X/mês</div><div class="val in" id="lpKPrev">${fmtBRL(prev)}</div><div class="hint">${LP.pdiv}% × (1−${LP.pimp}%) s/ FYC de quem está <b>no fluxo</b> (${noFluxo.length})${foraDoFluxo?` · ${foraDoFluxo} no acordo fora do fluxo`:""}</div></div></div>
-  <div class="panel"><div class="controls" style="margin-bottom:10px"><div class="fld"><label class="sub" style="margin:0">% Override MFB</label><input type="number" min="0" max="100" step="1" value="${LP.pover}" oninput="LP.pover=+this.value||0;lpRenderCarteira()" style="width:80px"></div><div class="fld" style="flex:1"><label class="sub" style="margin:0">Buscar cliente</label><input placeholder="Buscar..." value="${esc(LP.qc)}" oninput="LP.qc=this.value;lpRenderCartTable()"></div><button class="btn" onclick="lpPrevRecorrente()">Lançar previsão recorrente (${fmtBRL(prev)}/mês)</button></div>
+  <div class="panel"><div class="controls" style="margin-bottom:10px"><div class="fld"><label class="sub" style="margin:0">% Override MFB</label><input type="number" min="0" max="100" step="1" value="${LP.pover}" oninput="LP.pover=+this.value||0;lpRenderCarteira()" style="width:80px"></div><div class="fld" style="flex:1"><label class="sub" style="margin:0">Buscar cliente</label><input placeholder="Buscar..." value="${esc(LP.qc)}" oninput="LP.qc=this.value;lpRenderCartTable()"></div><button class="btn ghost" onclick="lpPrevRecorrente()" title="O previsto da parceria agora vem do módulo Pipe X">Previsão de referência: ${fmtBRL(prev)}/mês</button></div>
   <table><thead><tr><th>Segurado</th><th>Apólice</th><th>Status</th><th class="num">Prêmio</th><th class="num">FYC ${esc(LP.fycComp||"—")}</th><th class="num">Override ${LP.pover}%</th><th style="text-align:center">Acordo Pipe X</th><th class="num">Prev. Pipe X</th></tr></thead><tbody id="lpCartTb"></tbody></table>
   <div class="sub" style="margin-top:8px">O <b>override</b> incide sobre o FYC de toda a produção do Daniel (sua receita MFB, visão PJ). A coluna <b>Acordo Pipe X</b> marca os clientes do acordo comercial (${LP.pdiv}% − imposto) — só eles entram na previsão de receita do Pipe X. FYC vem do último mês fechado na aba Meses.</div></div>`;
   lpRenderCartTable();}
@@ -1302,8 +1302,16 @@ function lpRenderCartTable(){const tb=document.getElementById("lpCartTb");if(!tb
 async function lpAcordo(ap,v){const k=LP.cart.find(c=>String(c.apolice)===String(ap));if(!k)return;
   if(MODE==="live"){const u=await sb.from("lp_carteira").update({acordo:v}).eq("apolice",k.apolice);if(u.error){toast("Erro: "+u.error.message);return;}}
   k.acordo=v;lpRenderCarteira();}
+/* FONTE ÚNICA (decisão 01/09): quem gera o previsto da parceria com o Daniel é o MÓDULO
+   PIPE X (rateio por cliente da carteira dele, corte dia 20, venc dia 05), não esta tela.
+   Antes, as duas escreviam em PIPEX e o mesmo mês era previsto duas vezes com números
+   diferentes — havia um "Previsão comissão LP (acordo)" de 934,79 vencendo 20/08 vivo no
+   banco junto do fechamento de agosto. O número daqui continua útil como REFERÊNCIA
+   (confere a régua desta tela contra a do módulo), mas não vira mais linha de previsto. */
 async function lpPrevRecorrente(){const prev=Math.round(LP.cart.filter(c=>c.acordo&&c.no_fluxo).reduce((s,c)=>s+(LP.fyc[c.apolice]||0),0)*lpFator()*100)/100;
-  if(!(prev>0)){toast("Previsão zerada — a base é quem está NO FLUXO (marcado no acordo + selecionado no fechamento do mês)");return;}
+  toast("Referência: "+fmtBRL(prev)+"/mês. O previsto da parceria é lançado pelo módulo Pipe X — esta tela não escreve mais, pra não duplicar.");
+  return;
+  /* eslint-disable no-unreachable */
   const DESC="Previsão comissão LP (acordo)";
   const d=new Date(),m=d.getMonth()+2,yy=d.getFullYear()+Math.floor((m-1)/12),mm=((m-1)%12)+1,prox=`${yy}-${String(mm).padStart(2,"0")}-20`;
   modal({title:"Previsão recorrente de receita",extraHTML:`<div class="sub">Cria/atualiza <b>1 previsto mensal</b> em A Receber de <b>${fmtBRL(prev)}</b> (FYC ${esc(LP.fycComp||"?")} do acordo × ${LP.pdiv}% × (1−${LP.pimp}%)), vencendo todo dia 20 a partir de ${fmtDate(prox)}. Ele aparece no Fluxo de Caixa como projeção. Quando fechar o mês real na aba Meses, o lançamento real entra separado — ajuste ou exclua a previsão se necessário.</div>`,saveLabel:"Lançar previsão",onSave:async()=>{
@@ -2778,6 +2786,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!isInterVisao({descricao:"Pix enviado  — Gustavo Melo Juca"}))f.push("saída inter-visão não netada");
   if(isInterVisao({descricao:"Pix recebido de MARIA BETANIA ALMEIDA"}))f.push("isInterVisao pegando terceiro (esconderia receita real)");
   if(typeof selFatura!=="function"||typeof reguaRestaura!=="function")f.push("regua de faturas sem preservacao de scroll (fatura selecionada some da tela no mobile)");
+  if(!/esta tela não escreve mais/.test(String(lpPrevRecorrente)))f.push("lpPrevRecorrente voltou a escrever previsto — colide com o módulo Pipe X e duplica a receita da PIPEX");
   {const _c=[{apolice:"A",acordo:true,no_fluxo:true},{apolice:"B",acordo:true,no_fluxo:false}];
    if(_c.filter(x=>x.acordo&&x.no_fluxo).length!==1)f.push("previsão LP projetando sobre o acordo em vez do fluxo (infla a receita do Pipe X)");}
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));

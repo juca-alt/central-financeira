@@ -1774,7 +1774,7 @@ function fluxoDrill(k,t){
     const items=Object.keys(mb).filter(cat=>!jaPrevisto.has(cat)&&Number(mb[cat]||0)>0)
       .map(cat=>({cat,valor:Number(mb[cat])})).sort((a,b)=>b.valor-a.valor);
     n=items.length; tot=items.reduce((acc,x)=>acc+x.valor,0);
-    linhas=items.map(x=>_drillRow("teto",esc(x.cat),"média mai–ago/26",fmtBRL(x.valor),"out")).join("");
+    linhas=items.map(x=>_drillRow("teto",esc(x.cat),"teto do orçamento · sem conta cadastrada",fmtBRL(x.valor),"out")).join("");
   }else if(t==="e"||t==="s"){
     const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isForaAgregado(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
     n=items.length;tot=items.reduce((s,m)=>s+Number(m.valor||0),0);

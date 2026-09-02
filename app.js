@@ -118,6 +118,7 @@ const NAV_CAT={
   contas:    {ico:"🗓", label:"Contas do mês",  vis:()=>IS_PESSOAL},
   pagar:     {ico:"▣",  label:"Contas a Pagar", vis:()=>!IS_PESSOAL},
   receber:   {ico:"◳",  label:"A Receber",      vis:()=>!IS_PESSOAL},
+  pipex:     {ico:"◈",  label:"Pipe X",         vis:()=>VISAO==="PIPEX"},
   comissoes: {ico:"🤝", label:"Comissões LP",   vis:()=>VISAO==="PIPEX"},
   cartoes:   {ico:"▭",  label:"Cartões"},
   importar:  {ico:"⭱",  label:"Importar", vis:()=>!isAll()},
@@ -378,7 +379,7 @@ const DEMO=(()=>{
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,mv,ct,pv,rg,gl,orc,tg,mt]=await Promise.all([
+  const [contas,cats,mv,ct,pv,rg,gl,orc,tg,mt,px]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id,observacao").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
@@ -388,10 +389,11 @@ async function loadData(){
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
     sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000),
     sb.from("tags").select("id,nome,cor,visao,ativo").in("visao",VFILTER).order("nome"),
-    sb.from("movimento_tags").select("movimento_id,tag_id").limit(50000)]);
+    sb.from("movimento_tags").select("movimento_id,tag_id").limit(50000),
+    sb.from("pipex_state").select("data").limit(1)]);
   /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
   const enumNovo=[contas,cats,mv,ct,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
-  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{},tags:[]};
+  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{},tags:[],pipex:null};
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const mtMap=new Map();((mt&&mt.data)||[]).forEach(r=>{const a=mtMap.get(r.movimento_id)||[];a.push(r.tag_id);mtMap.set(r.movimento_id,a);});
@@ -402,7 +404,7 @@ async function loadData(){
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
-  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[])};
+  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1626,6 +1628,81 @@ async function gerarFatura(fk){if(isAll()){toast("Escolha uma visão pra gerar a
   }catch(e){toast("Erro: "+e.message);}
 }
 
+/* ===== Pipe X — parceria com o Daniel =====================================
+   O modulo Pipe X (app separado) grava o estado em `pipex_state.data`; aqui a
+   Central LE esse estado e mostra o que ele significa em dinheiro.
+
+   REGUA (regra do Gustavo): devido do mes = soma, por apolice que ENTRA no
+   mes, de  comissao x % acordado x (1 - imposto do Simples).  Corte dia 20
+   (janela 21->20); vence dia 05 do mes seguinte.  % vem da carteira: 50%
+   padrao, 20% (Hildete, Pablo), 0% = abono (Sinval, Ricardo, Paulo Carolino).
+
+   O VALOR desta tela nao e repetir o modulo — e CONFRONTAR: para cada mes ela
+   compara o devido calculado com o previsto que esta gravado no banco. Foi
+   assim que apareceu que Mai/26 estava 402,35 quando devia 484,24 e Jun/26
+   estava 510,54 quando devia 685,32. Se as duas pontas divergirem de novo, a
+   tela avisa em vez de deixar passar. */
+const pxDevido=(px,per)=>!px?0:Math.round((px.rows||[]).reduce((s,r)=>{
+  const c=(r.cells||{})[per]; if(!c||!c.entra)return s;
+  return s+Number(c.com||0)*(Number(c.pct||0)/100)*(1-Number(px.tax||0));},0)*100)/100;
+const pxLinhas=(px,per)=>!px?[]:(px.rows||[]).map(r=>{
+  const c=(r.cells||{})[per]||{};
+  return{seg:r.seg,apolice:r.apolice,com:Number(c.com||0),pct:Number(c.pct||0),entra:!!c.entra,
+         liq:Math.round(Number(c.com||0)*(Number(c.pct||0)/100)*(1-Number(px.tax||0))*100)/100};})
+  .filter(x=>x.entra||x.com).sort((a,b)=>b.liq-a.liq||a.seg.localeCompare(b.seg,"pt"));
+/* o previsto que a Central gravou pra esse mes (mesma convencao de descricao) */
+const pxPrevisto=per=>(DB.aReceber||[]).find(a=>(a.descricao||"")==="Comissão LP Daniel · "+per)||null;
+
+let PX_PER=null;
+function viewPipeX(){
+  const px=DB.pipex;
+  if(!px){$("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel</div></div></div>
+    <div class="panel"><div class="empty">Nenhum estado do módulo Pipe X salvo ainda.<br>Abra o módulo, faça um fechamento e ele grava aqui — esta tela passa a mostrar o devido, o pago e o que diverge dos previstos.</div></div>`;return;}
+  const pers=(px.periodos||[]).map(p=>p.id);
+  if(!PX_PER||!pers.includes(PX_PER))PX_PER=pers.filter(p=>pxDevido(px,p)>0).pop()||pers[pers.length-1];
+
+  const linhasPer=pers.map(p=>{
+    const dev=pxDevido(px,p), prev=pxPrevisto(p);
+    const gravado=prev?Number(prev.previstoLiquido||prev.valor||0):null;
+    const diverge=gravado!=null&&Math.abs(gravado-dev)>0.01;
+    return{p,dev,gravado,diverge,status:prev?(prev.status||"aberto"):null};
+  }).filter(x=>x.dev>0||x.gravado);
+
+  const totDev=linhasPer.reduce((s,x)=>s+x.dev,0);
+  const emAberto=linhasPer.filter(x=>x.status&&String(x.status).toLowerCase()!=="recebido").reduce((s,x)=>s+(x.gravado??x.dev),0);
+  const recebido=totDev-emAberto;
+  const nDiv=linhasPer.filter(x=>x.diverge).length;
+  const semPrev=linhasPer.filter(x=>x.gravado==null).length;
+
+  const per=(px.periodos||[]).find(p=>p.id===PX_PER)||{};
+  const det=pxLinhas(px,PX_PER);
+  const devPer=pxDevido(px,PX_PER);
+
+  $("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel · corte dia 20 · vence dia 05 · imposto ${((px.tax||0)*100).toFixed(0)}% · estado de ${esc(px.gerado||"?")}</div></div></div>
+  <div class="kpis">
+    <div class="kpi"><div class="lbl">Devido no total</div><div class="val">${fmtBRL(totDev)}</div><div class="hint">${linhasPer.length} meses com movimento</div></div>
+    <div class="kpi"><div class="lbl">Já recebido</div><div class="val in">${fmtBRL(recebido)}</div></div>
+    <div class="kpi"><div class="lbl">Em aberto</div><div class="val ${emAberto>0?"out":""}">${fmtBRL(emAberto)}</div><div class="hint">o que o Daniel ainda deve</div></div>
+    <div class="kpi"><div class="lbl">Confere com o previsto?</div><div class="val ${nDiv||semPrev?"out":"in"}">${nDiv||semPrev?"⚠ "+(nDiv+semPrev):"✓ tudo"}</div><div class="hint">${nDiv?nDiv+" divergindo":""}${nDiv&&semPrev?" · ":""}${semPrev?semPrev+" sem previsto":""}</div></div>
+  </div>
+  <div class="panel"><h2>Mês a mês — módulo × Central</h2>
+   <div class="sub">O <b>devido</b> sai da régua do módulo. O <b>previsto</b> é a linha gravada na Central. Divergiram = alguém está desatualizado.</div>
+   <table><thead><tr><th>Mês</th><th>Janela</th><th class="num">Devido (módulo)</th><th class="num">Previsto (Central)</th><th>Situação</th></tr></thead><tbody>
+   ${linhasPer.map(x=>{
+     const pp=(px.periodos||[]).find(q=>q.id===x.p)||{};
+     const sit=x.gravado==null?`<span class="chip none">sem previsto</span>`
+       :x.diverge?`<span class="chip none">⚠ difere ${fmtBRL(Math.abs(x.gravado-x.dev))}</span>`
+       :`<span class="chip">${esc(String(x.status||"aberto"))}</span>`;
+     return`<tr style="cursor:pointer" onclick="PX_PER='${esc(x.p)}';viewPipeX()"><td><b>${esc(x.p)}</b></td><td class="sub">${esc(pp.ini||"")} – ${esc(pp.fim||"")}</td><td class="num">${fmtBRL(x.dev)}</td><td class="num ${x.diverge?"out":""}">${x.gravado==null?"—":fmtBRL(x.gravado)}</td><td>${sit}</td></tr>`;}).join("")}
+   </tbody></table></div>
+  <div class="panel"><h2>Detalhe · ${esc(PX_PER)}</h2>
+   <div class="sub">Janela ${esc(per.ini||"")} – ${esc(per.fim||"")} · ${det.filter(d=>d.entra).length} apólices entram · devido ${fmtBRL(devPer)}</div>
+   <table><thead><tr><th>Cliente</th><th>Apólice</th><th class="num">Comissão</th><th class="num">%</th><th class="num">Cabe a você</th></tr></thead><tbody>
+   ${det.map(d=>`<tr${d.entra?"":' class="lp-off"'}><td>${esc(d.seg)}${d.entra?"":' <span class="chip none">não entra</span>'}${d.pct===0&&d.entra?' <span class="chip">abono</span>':""}</td><td><span class="chip">${esc(d.apolice)}</span></td><td class="num">${fmtBRL(d.com)}</td><td class="num">${d.pct}%</td><td class="num in">${d.entra?fmtBRL(d.liq):"—"}</td></tr>`).join("")
+     ||`<tr><td colspan="5"><div class="empty">Nada neste período.</div></td></tr>`}
+   </tbody></table></div>`;
+}
+
 /* ===== Importar ===== */
 function viewImportar(){$("#view").innerHTML=`<div class="row"><div><h1>Importar</h1><div class="sub">Tipo + destino + arquivo (ou cole)</div></div></div><div class="panel"><div class="controls"><div class="fld"><label class="sub" style="margin:0">Tipo</label><select id="impTipo"><option value="auto">Detectar</option><option value="ofx">Extrato OFX</option><option value="csv">Extrato CSV</option><option value="fatura">Fatura cartão</option><option value="compensatio">Compensatio</option></select></div><div class="fld"><label class="sub" style="margin:0">Lançar em</label><select id="impDest"></select></div></div><div class="controls"><input id="impFile" type="file" accept=".ofx,.qfx,.csv,.txt,.xml,.pdf,.xlsx,.jpg,.jpeg,.png,.webp,.heic"><span class="sub">ou cole ↓ · PDF/foto lê com IA</span></div><textarea id="imp" placeholder="Cole o conteúdo..." style="width:100%;height:120px;font-family:ui-monospace,monospace;font-size:12px"></textarea><div style="margin-top:10px"><button class="btn" onclick="doImport()">Processar</button></div><div id="impOut" style="margin-top:14px"></div></div>`;const fill=()=>{const t=$("#impTipo").value;const opts=(t==="fatura")?cartaoOpts():bancoOpts();$("#impDest").innerHTML=opts.map(o=>`<option>${esc(o)}</option>`).join("");};$("#impTipo").onchange=fill;fill();}
 function doImport(){const file=$("#impFile").files[0];
@@ -2591,7 +2668,7 @@ async function fpAfterWrite(visao){
   viewFinanceiro();
 }
 
-const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
@@ -2787,6 +2864,8 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(isInterVisao({descricao:"Pix recebido de MARIA BETANIA ALMEIDA"}))f.push("isInterVisao pegando terceiro (esconderia receita real)");
   if(typeof selFatura!=="function"||typeof reguaRestaura!=="function")f.push("regua de faturas sem preservacao de scroll (fatura selecionada some da tela no mobile)");
   if(!/esta tela não escreve mais/.test(String(lpPrevRecorrente)))f.push("lpPrevRecorrente voltou a escrever previsto — colide com o módulo Pipe X e duplica a receita da PIPEX");
+  {const _px={tax:0.06,rows:[{cells:{"X":{com:1000,pct:50,entra:true}}},{cells:{"X":{com:9999,pct:50,entra:false}}},{cells:{"X":{com:500,pct:0,entra:true}}}]};
+   if(pxDevido(_px,"X")!==470)f.push("régua do Pipe X errada (devido do mês) — era 470, deu "+pxDevido(_px,"X"));}
   {const _c=[{apolice:"A",acordo:true,no_fluxo:true},{apolice:"B",acordo:true,no_fluxo:false}];
    if(_c.filter(x=>x.acordo&&x.no_fluxo).length!==1)f.push("previsão LP projetando sobre o acordo em vez do fluxo (infla a receita do Pipe X)");}
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));

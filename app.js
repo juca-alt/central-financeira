@@ -747,7 +747,7 @@ function viewDashFamilia(){
   <div class="row">
     <div style="display:flex;align-items:center;gap:12px">
       <button class="btn ghost sm" onclick="route('central')" title="Voltar à Central">‹ Central</button>
-      <div><h1>${esc(VISAO_LABEL)}</h1><div class="sub">Painel da casa · ${ovPeriodLabel()}</div></div>
+      <div><h1>${esc(VISAO_LABEL)}</h1><div class="sub">${PERM.nome?`Olá, ${esc(PERM.nome.split(" ")[0])} · `:""}Painel da casa · ${ovPeriodLabel()}</div></div>
     </div>
     <button class="btn" onclick="addMovimento()">+ Lançar</button>
   </div>
@@ -1956,54 +1956,78 @@ function delTag(id){const t=tagById(id);if(!t)return;confirmDel(`Excluir a tag "
    pra pré-autorizar alguém ANTES do primeiro login (o user_id só nasce no login).
    Enquanto a migração `scripts/acessos-multiusuario-2026-08-01.sql` não rodar, as
    tabelas não existem: PERM.legacy=true e o app segue como era (tudo liberado). */
-let PERM={admin:false,legacy:true,email:"",visoes:{}};
+let PERM={admin:false,legacy:true,email:"",nome:"",visaoPadrao:null,visoes:{}};
 const podeVer   =c=>PERM.legacy||PERM.admin||!!(PERM.visoes[c]&&PERM.visoes[c].ler);
 const podeEditar=c=>PERM.legacy||PERM.admin||!!(PERM.visoes[c]&&PERM.visoes[c].escrever);
 const visoesVisiveis=()=>PROFILES.filter(p=>podeVer(p.code));
 
 async function loadPerm(){
-  PERM={admin:false,legacy:true,email:"",visoes:{}};
+  PERM={admin:false,legacy:true,email:"",nome:"",visaoPadrao:null,visoes:{}};
   if(MODE!=="live")return;
   try{
     const{data:s}=await sb.auth.getSession();
     PERM.email=((s&&s.session&&s.session.user&&s.session.user.email)||"").toLowerCase();
     const[u,v]=await Promise.all([
-      sb.from("app_usuarios").select("admin,nome").eq("email",PERM.email).maybeSingle(),
+      sb.from("app_usuarios").select("admin,nome,visao_padrao").eq("email",PERM.email).maybeSingle(),
       sb.from("usuario_visoes").select("visao,ler,escrever").eq("email",PERM.email)]);
     /* tabela ainda não existe (migração não rodou) → mantém o comportamento antigo */
     if(u.error&&/(does not exist|schema cache)/i.test(u.error.message||""))return;
     PERM.legacy=false;
     PERM.admin=!!(u.data&&u.data.admin);
+    PERM.nome=(u.data&&u.data.nome)||"";
+    PERM.visaoPadrao=(u.data&&u.data.visao_padrao)||null;
     ((v&&v.data)||[]).forEach(r=>PERM.visoes[r.visao]={ler:r.ler!==false,escrever:!!r.escrever});
+    /* 2.0: carimba o último acesso da própria pessoa (RPC só mexe na linha dela; falha não trava nada) */
+    try{sb.rpc("app_touch").then(()=>{},()=>{});}catch(e){}
   }catch(e){/* qualquer falha → legacy, nunca trancar o app por causa disso */}
 }
 
-/* Painel de administração: só aparece pra quem é admin. */
-function acessosPanel(){
-  const codes=PROFILES.map(p=>p.code);
-  const users=(ACESSOS.users||[]);
-  const cel=(u,code)=>{const p=(ACESSOS.perm[u.email]||{})[code]||{};
-    const cb=(campo,on)=>`<label class="acc-cb"><input type="checkbox" ${on?"checked":""} ${u.admin?"disabled":""} onchange="acessoSet('${esc(u.email)}','${code}','${campo}',this.checked)"><span>${campo==="ler"?"ver":"editar"}</span></label>`;
-    return `<td>${u.admin?`<span class="chip">tudo</span>`:cb("ler",p.ler)+cb("escrever",p.escrever)}</td>`;};
-  return `<div class="panel">
-    <h2>Quem tem acesso <button class="btn sm" onclick="acessoAdd()">+ Pessoa</button></h2>
-    <div class="sub" style="margin-bottom:10px">A pessoa entra com o Google dela e só enxerga o que estiver marcado aqui. Pode cadastrar o e-mail <b>antes</b> do primeiro login. <b>Ver</b> = leitura; <b>editar</b> = pode lançar e alterar.</div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Pessoa</th>${codes.map(c=>`<th>${esc(PROFILES.find(p=>p.code===c).label)}</th>`).join("")}<th></th></tr></thead>
-    <tbody>${users.map(u=>`<tr>
-      <td><b>${esc(u.nome||u.email.split("@")[0])}</b>${u.admin?` <span class="chip">admin</span>`:""}<div class="sub" style="margin:0">${esc(u.email)}</div></td>
-      ${codes.map(c=>cel(u,c)).join("")}
-      <td class="num">${u.email===PERM.email?`<span class="chip">você</span>`:`<button class="btn danger sm" onclick="acessoDel('${esc(u.email)}')">Remover</button>`}</td>
-    </tr>`).join("")||`<tr><td colspan="${codes.length+2}"><div class="empty">Ninguém cadastrado ainda.</div></td></tr>`}</tbody></table></div>
-  </div>`;
-}
-let ACESSOS={users:[],perm:{}};
+/* =====================================================================
+   PESSOAS & ACESSOS (Central 2.0, 02/09) — painel do administrador.
+   Cada pessoa é um card: quem é, quando entrou pela última vez, em que
+   visão o app abre pra ela, o que pode ver/editar e o(s) token(s) do
+   Claude dela — o conector MCP usa o MESMO escopo destas permissões.
+   ===================================================================== */
+let ACESSOS={users:[],perm:{},tokens:[]};
+const MCP_URL=t=>((window.CONFIG&&CONFIG.SUPABASE_URL)||"")+"/functions/v1/mcp-financeiro/t/"+t;
+const fmtQuando=s=>{if(!s)return"nunca entrou";const d=new Date(s);if(isNaN(d))return"—";const diff=(Date.now()-d)/864e5;
+  return(diff<1?"hoje":diff<2?"ontem":Math.floor(diff)+" dias atrás")+" · "+d.toLocaleDateString("pt-BR")+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});};
 async function acessosLoad(){
-  const[u,v]=await Promise.all([
-    sb.from("app_usuarios").select("email,nome,admin").order("admin",{ascending:false}),
-    sb.from("usuario_visoes").select("email,visao,ler,escrever")]);
+  const[u,v,t]=await Promise.all([
+    sb.from("app_usuarios").select("email,nome,admin,visao_padrao,ultimo_acesso").order("admin",{ascending:false}),
+    sb.from("usuario_visoes").select("email,visao,ler,escrever"),
+    sb.from("mcp_tokens").select("id,email,token,label,ativo,criado_em,ultimo_uso,revogado_em").order("criado_em")]);
   if(u.error)throw new Error(u.error.message);
-  ACESSOS.users=u.data||[];ACESSOS.perm={};
+  ACESSOS.users=u.data||[];ACESSOS.perm={};ACESSOS.tokens=(t&&t.data)||[];
   ((v&&v.data)||[]).forEach(r=>{(ACESSOS.perm[r.email]=ACESSOS.perm[r.email]||{})[r.visao]={ler:r.ler,escrever:r.escrever};});
+}
+function acessosPanel(){
+  const users=ACESSOS.users||[];
+  const card=u=>{const perm=ACESSOS.perm[u.email]||{};const eu=u.email===PERM.email;
+    const visRow=p=>{const x=perm[p.code]||{};
+      const cb=(campo,on,lbl)=>`<label class="acc-cb"><input type="checkbox" ${on?"checked":""} ${u.admin?"disabled":""} onchange="acessoSet('${esc(u.email)}','${p.code}','${campo}',this.checked)"><span>${lbl}</span></label>`;
+      return`<div class="pp-vis"><span class="pp-vis-ic" style="background:${p.corBg};color:${p.cor}">${p.icon}</span><b>${esc(p.label)}</b>${u.admin?`<span class="chip">tudo</span>`:cb("ler",x.ler,"ver")+cb("escrever",x.escrever,"editar")}</div>`;};
+    const liberadas=u.admin?PROFILES:PROFILES.filter(p=>(perm[p.code]||{}).ler);
+    const padrao=u.visao_padrao||"";
+    const toks=ACESSOS.tokens.filter(t=>t.email===u.email);
+    const vivo=t=>t.ativo&&!t.revogado_em;
+    const tokRow=t=>`<div class="tok ${vivo(t)?"":"off"}"><div class="tok-main"><b>${esc(t.label||"Claude")}</b><small>criado ${fmtDate(t.criado_em)} · ${t.ultimo_uso?"usado "+fmtQuando(t.ultimo_uso):"nunca usado"}${vivo(t)?"":" · <span class='out'>revogado</span>"}</small></div>${vivo(t)?`<button class="btn sm" onclick="tokenCopiar('${t.id}')">Copiar link</button><button class="btn ghost sm" onclick="tokenKit('${esc(u.email)}')">Prompt</button><button class="btn danger sm" onclick="tokenRevogar('${t.id}')">Revogar</button>`:""}</div>`;
+    return`<div class="panel pp-card">
+      <div class="pp-head"><div class="pp-av" ${u.admin?'style="background:#0b1220;color:#fff"':""}>${esc((u.nome||u.email)[0].toUpperCase())}</div>
+        <div class="pp-id"><b>${esc(u.nome||u.email.split("@")[0])}</b>${u.admin?` <span class="chip">admin</span>`:""}${eu?` <span class="chip">você</span>`:""}<div class="sub" style="margin:0">${esc(u.email)}</div><div class="sub" style="margin:2px 0 0;font-size:12px">Último acesso: <b>${fmtQuando(u.ultimo_acesso)}</b></div></div>
+        ${eu?"":`<button class="btn danger sm" onclick="acessoDel('${esc(u.email)}')">Remover</button>`}</div>
+      <div class="pp-grid">
+        <div><div class="pp-lbl">O que vê e edita</div>${PROFILES.map(visRow).join("")}</div>
+        <div><div class="pp-lbl">O app abre em</div>
+          <select onchange="acessoPadrao('${esc(u.email)}',this.value)" style="width:100%"><option value="" ${padrao?"":"selected"}>${u.admin?"Central consolidada (todas)":"Primeira visão liberada"}</option>${liberadas.map(p=>`<option value="${p.code}" ${padrao===p.code?"selected":""}>${p.icon} ${esc(p.label)}</option>`).join("")}</select>
+          <div class="pp-lbl" style="margin-top:14px">Claude da pessoa (conector MCP)</div>
+          <div class="sub" style="margin:0 0 6px;font-size:12px">O Claude dela(e) consulta e lança só o que está marcado ao lado.</div>
+          ${toks.length?toks.map(tokRow).join(""):`<div class="sub" style="font-size:12px">Nenhum token ainda.</div>`}
+          <button class="btn soft sm" style="margin-top:8px" onclick="tokenGerar('${esc(u.email)}')">+ Gerar token</button>
+        </div>
+      </div></div>`;};
+  return`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:240px"><h2 style="margin:0">Pessoas & acessos</h2><div class="sub" style="margin:2px 0 0">Quem entra, o que cada um vê e edita, em que visão o app abre e o Claude de cada um. A pessoa entra com o Google dela; dá pra cadastrar o e-mail <b>antes</b> do primeiro login.</div></div><button class="btn" onclick="acessoAdd()">+ Pessoa</button></div>
+    ${users.map(card).join("")||`<div class="panel"><div class="empty">Ninguém cadastrado ainda.</div></div>`}`;
 }
 async function acessoSet(email,visao,campo,valor){
   const atual=(ACESSOS.perm[email]||{})[visao]||{ler:false,escrever:false};
@@ -2014,6 +2038,13 @@ async function acessoSet(email,visao,campo,valor){
   if(error){toast("Erro: "+error.message);return;}
   (ACESSOS.perm[email]=ACESSOS.perm[email]||{})[visao]=row;
   toast("Acesso atualizado ✓");viewConfig();
+}
+async function acessoPadrao(email,code){
+  const{error}=await sb.from("app_usuarios").update({visao_padrao:code||null}).eq("email",email);
+  if(error){toast("Erro: "+error.message);return;}
+  const u=ACESSOS.users.find(x=>x.email===email);if(u)u.visao_padrao=code||null;
+  if(email===PERM.email)PERM.visaoPadrao=code||null;
+  toast(code?"Vai abrir em "+((PROFILES.find(p=>p.code===code)||{}).label||code)+" ✓":"Entrada padrão ✓");
 }
 function acessoAdd(){
   modal({title:"Dar acesso a alguém",fields:[
@@ -2028,12 +2059,79 @@ function acessoAdd(){
     }});
 }
 async function acessoDel(email){
-  modal({title:"Remover acesso",fields:[],extraHTML:`<div class="sub">Tira <b>${esc(email)}</b> do app. Nenhum lançamento é apagado — só o acesso.</div>`,saveLabel:"Remover",onSave:async()=>{
+  modal({title:"Remover acesso",fields:[],extraHTML:`<div class="sub">Tira <b>${esc(email)}</b> do app (e revoga os tokens do Claude dela). Nenhum lançamento é apagado — só o acesso.</div>`,saveLabel:"Remover",onSave:async()=>{
     const{error}=await sb.from("app_usuarios").delete().eq("email",email);
     if(error){toast("Erro: "+error.message);return false;}
     await acessosLoad();toast("Acesso removido");viewConfig();
   }});
 }
+/* --- tokens do Claude (conector MCP por pessoa) --- */
+function tokenNovo(){const b=new Uint8Array(20);crypto.getRandomValues(b);return"cf_"+[...b].map(x=>x.toString(16).padStart(2,"0")).join("");}
+async function copiar(txt,msg){try{await navigator.clipboard.writeText(txt);toast(msg||"Copiado ✓");}catch(e){window.prompt("Copie:",txt);}}
+function tokenGerar(email){
+  const u=ACESSOS.users.find(x=>x.email===email)||{email};
+  modal({title:"Token do Claude de "+(u.nome||email),fields:[{name:"label",label:"Nome do token"}],values:{label:"Claude de "+(u.nome||email.split("@")[0])},saveLabel:"Gerar",onSave:async v=>{
+    const token=tokenNovo();
+    const{error}=await sb.from("mcp_tokens").insert({email,token,label:v.label||null});
+    if(error){toast("Erro: "+error.message);return false;}
+    await acessosLoad();viewConfig();
+    setTimeout(()=>tokenMostrar(token,u),60);
+  }});
+}
+function tokenMostrar(token,u){
+  const url=MCP_URL(token);
+  modal({title:"Conector pronto",fields:[],saveLabel:"Fechar",onSave:()=>{},extraHTML:`<div class="sub">Cole este link em <b>claude.ai › Configurações › Conectores › Adicionar conector personalizado</b> (nome: Central Financeira). O link carrega o token da pessoa: quem tiver o link tem o acesso dela.</div><div class="tok-url">${esc(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn" onclick="copiar('${esc(url)}','Link copiado ✓')">Copiar link</button><button type="button" class="btn ghost" onclick="tokenKit('${esc(u.email)}')">Copiar prompt de boas-vindas</button></div>`});
+}
+function tokenCopiar(id){const t=ACESSOS.tokens.find(x=>x.id===id);if(!t)return;copiar(MCP_URL(t.token),"Link do conector copiado ✓");}
+function tokenRevogar(id){const t=ACESSOS.tokens.find(x=>x.id===id);if(!t)return;
+  modal({title:"Revogar token",fields:[],extraHTML:`<div class="sub">O Claude que usa <b>${esc(t.label||"este token")}</b> para de funcionar na hora. Dá pra gerar outro depois.</div>`,saveLabel:"Revogar",onSave:async()=>{
+    const{error}=await sb.from("mcp_tokens").update({ativo:false,revogado_em:new Date().toISOString()}).eq("id",id);
+    if(error){toast("Erro: "+error.message);return false;}
+    await acessosLoad();toast("Token revogado");viewConfig();}});
+}
+/* prompt que a pessoa cola no Claude dela: quem ela é, o que pode, como pedir */
+function kitPrompt(u,perm){
+  perm=perm||ACESSOS.perm[u.email]||{};
+  const ler=u.admin?PROFILES:PROFILES.filter(p=>(perm[p.code]||{}).ler);
+  const edt=u.admin?PROFILES:PROFILES.filter(p=>(perm[p.code]||{}).escrever);
+  const nome=(u.nome||u.email.split("@")[0]).split(" ")[0];
+  const lista=arr=>arr.map(p=>p.label+" ("+p.code+")").join(", ")||"nenhuma";
+  return[
+`Você é o assistente financeiro de ${nome} na Central Financeira, o app de finanças da família.`,
+`Você tem o conector "Central Financeira" (MCP). Comece toda conversa chamando quem_sou_eu pra confirmar o seu escopo.`,
+`Visões que ${nome} pode CONSULTAR: ${lista(ler)}.`,
+`Visões em que ${nome} pode LANÇAR e ALTERAR: ${lista(edt)}.`,
+``,
+`Como trabalhar:`,
+`- "Como está o mês?" → resumo_do_mes. "Quanto tem?" → saldos. "O que entrou/saiu?" → listar_movimentos. "O que vence?" → listar_contas_a_pagar.`,
+`- Antes de LANÇAR, DAR BAIXA, CATEGORIZAR ou IMPORTAR, mostre exatamente o que vai fazer e espere um "ok". Nunca escreva sem confirmação.`,
+`- Categoria válida vem de listar_categorias; não invente nome. Datas em YYYY-MM-DD, meses em YYYY-MM.`,
+`- Só importe movimentos a partir de EXTRATO do banco (texto ou PDF), nunca de comprovante de Pix: comprovante prova que o dinheiro entrou, o extrato é que registra.`,
+`- Transferência entre contas, pagamento de fatura e investimento não são receita nem despesa.`,
+`- Responda curto, em português, com valores em R$. Se algo estiver fora do seu escopo, diga que precisa pedir ao Gustavo (Configurações › Pessoas & acessos).`,
+  ].join("\n");
+}
+function tokenKit(email){const u=ACESSOS.users.find(x=>x.email===email);if(!u)return;copiar(kitPrompt(u),"Prompt de boas-vindas copiado ✓");}
+/* --- Minha conta (todo mundo vê a própria: visões, entrada padrão, seu conector) --- */
+let MINHA={tokens:null};
+function minhaContaPanel(){
+  const vis=visoesVisiveis();const nome=PERM.nome||"";
+  if(MINHA.tokens===null&&MODE==="live"){MINHA.tokens=[];sb.from("mcp_tokens").select("id,token,label,ativo,criado_em,ultimo_uso,revogado_em").eq("email",PERM.email).then(r=>{MINHA.tokens=(r.data||[]).filter(t=>t.ativo&&!t.revogado_em);if(CFG_TAB==="conta")viewConfig();});}
+  const toks=MINHA.tokens||[];
+  const tokRow=t=>`<div class="tok"><div class="tok-main"><b>${esc(t.label||"Claude")}</b><small>${t.ultimo_uso?"usado "+fmtQuando(t.ultimo_uso):"ainda não usado"}</small></div><button class="btn sm" onclick="copiar('${esc(MCP_URL(t.token))}','Link do conector copiado ✓')">Copiar link</button><button class="btn ghost sm" onclick="copiar(kitPrompt({email:PERM.email,nome:PERM.nome,admin:PERM.admin},PERM.visoes),'Prompt copiado ✓')">Prompt</button></div>`;
+  return`<div class="panel pp-card"><div class="pp-head"><div class="pp-av">${esc((nome||PERM.email||"?")[0].toUpperCase())}</div><div class="pp-id"><b>${esc(nome||(PERM.email||"visitante").split("@")[0])}</b>${PERM.admin?` <span class="chip">admin</span>`:""}<div class="sub" style="margin:0">${esc(PERM.email||"modo demo")}</div></div></div>
+    <div class="pp-grid">
+      <div><div class="pp-lbl">Suas visões</div>${vis.map(p=>`<div class="pp-vis"><span class="pp-vis-ic" style="background:${p.corBg};color:${p.cor}">${p.icon}</span><b>${esc(p.label)}</b><span class="chip">${podeEditar(p.code)?"vê e edita":"só vê"}</span></div>`).join("")||`<div class="sub">Nenhuma visão liberada ainda.</div>`}
+        <div class="pp-lbl" style="margin-top:14px">O app abre em</div>
+        <select onchange="minhaVisaoPadrao(this.value)" style="width:100%"><option value="" ${PERM.visaoPadrao?"":"selected"}>${PERM.admin?"Central consolidada (todas)":"Primeira visão liberada"}</option>${vis.map(p=>`<option value="${p.code}" ${PERM.visaoPadrao===p.code?"selected":""}>${p.icon} ${esc(p.label)}</option>`).join("")}</select></div>
+      <div><div class="pp-lbl">Seu Claude (conector MCP)</div>
+        <div class="sub" style="margin:0 0 6px;font-size:12px">Cole o link em <b>claude.ai › Configurações › Conectores › Adicionar conector personalizado</b>. Seu Claude passa a consultar e lançar aqui, com as mesmas permissões ao lado. O botão <b>Prompt</b> copia as instruções pra colar na primeira conversa.</div>
+        ${toks.length?toks.map(tokRow).join(""):`<div class="sub" style="font-size:12px">${MODE!=="live"?"Disponível no modo logado.":"Nenhum token ativo. "+(PERM.admin?"Gere um em Pessoas & acessos.":"Peça ao Gustavo pra gerar o seu.")}</div>`}
+      </div></div></div>`;
+}
+async function minhaVisaoPadrao(code){if(MODE!=="live")return;const{error}=await sb.rpc("app_set_visao_padrao",{v:code||null});if(error){toast("Erro: "+error.message);return;}PERM.visaoPadrao=code||null;toast(code?"O app vai abrir em "+((PROFILES.find(p=>p.code===code)||{}).label||code)+" ✓":"Entrada padrão ✓");}
+/* visão de entrada: a padrão da pessoa se estiver liberada; senão a primeira liberada (não-admin); admin sem padrão cai na Central */
+function homeVisao(perm,visiveis){const v=perm.visaoPadrao;if(v&&visiveis.includes(v))return v;if(!perm.legacy&&!perm.admin)return visiveis[0]||null;return null;}
 function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''}" onclick="CFG_TAB='${id}';viewConfig()">${lbl}</button>`;
   let body="";
   if(CFG_TAB==="contas"||CFG_TAB==="cartoes"){const isCard=CFG_TAB==="cartoes";const list=(DB.contas||[]).filter(c=>isCard?(c.tipo==="cartao"||/cart/i.test(c.nome)):!(c.tipo==="cartao"||/cart/i.test(c.nome)));
@@ -2049,6 +2147,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
   if(CFG_TAB==="tags")body=tagsPanel();
   if(CFG_TAB==="acessos")body=PERM.admin?acessosPanel():`<div class="panel"><div class="empty">Só o administrador vê esta aba.</div></div>`;
+  if(CFG_TAB==="conta")body=minhaContaPanel();
   if(CFG_TAB==="contatos"){
     body=`<div class="panel"><h2>Contatos & Clientes <button class="btn sm" onclick="entNova().then(n=>{if(n)entLoad(true).then(()=>viewConfig());})">+ Novo</button></h2>
       <div class="sub">Cadastro único de quem você paga/recebe (Débora, Pedro França, MJM…). Movimentos e contas apontam pra cá — é o ID de cliente do sistema; os apelidos alimentam a detecção automática.</div>
@@ -2065,7 +2164,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
       <button class="btn ghost" onclick="audVer('movimentos')">Só movimentos</button>
       <button class="btn ghost" onclick="audVer('previstos')">Só contas a pagar/receber</button>
     </div></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("tags","🏷️ Tags")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${PERM.admin?tab("acessos","🔐 Acessos"):""}</div>${body}`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("tags","🏷️ Tags")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${tab("conta","👤 Minha conta")}${PERM.admin?tab("acessos","🔐 Pessoas & acessos"):""}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
@@ -2681,6 +2780,7 @@ function closeDrawer(){const s=document.getElementById("sideNav"),o=document.get
   b.addEventListener("click",e=>{
     const a=e.target.closest("a");if(!a)return;
     if(a.dataset.bnav==="menu"){openDrawer();return;}
+    if(a.dataset.route==="financeiro"&&IS_PESSOAL){route("contas");return;}   /* 2.0: na Família/Jucá, "Contas" = Contas do mês */
     if(a.dataset.route)route(a.dataset.route);
   });
   const f=document.getElementById("bnavFab");if(f)f.onclick=()=>quickAdd();
@@ -2718,8 +2818,9 @@ function renderTopSwitch(){
 }
 /* chip de conta no rodapé (identidade + acesso a senha/sair); a troca de visão vive no topo */
 function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";pb.dataset.email=email||"";
-  const ini=((email||VISAO_LABEL||"?").trim()[0]||"?").toUpperCase();
-  pb.innerHTML=`<div class="profile-chip" style="cursor:default"><div class="av">${esc(ini)}</div><div style="min-width:0"><div class="pn">${esc(VISAO_LABEL)}</div><div class="ps" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(email||"conta conectada")}</div></div></div>`;
+  const quem=(typeof PERM!=="undefined"&&PERM.nome)||"";
+  const ini=((quem||email||VISAO_LABEL||"?").trim()[0]||"?").toUpperCase();
+  pb.innerHTML=`<div class="profile-chip" title="Minha conta" onclick="CFG_TAB='conta';route('config')"><div class="av">${esc(ini)}</div><div style="min-width:0"><div class="pn">${esc(quem||VISAO_LABEL)}</div><div class="ps" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(email||"conta conectada")}</div></div></div>`;
 }
 /* fecha os menus abertos ao clicar fora — registrado uma vez */
 document.addEventListener("click",()=>{document.querySelectorAll(".vsw-menu.open,.profile-menu.open").forEach(m=>m.classList.remove("open"));});
@@ -2776,11 +2877,16 @@ async function bootApp(){
       return;}
     /* caiu numa visão que essa pessoa não pode ver → manda pra primeira liberada */
     if(!podeVer(VISAO)){const primeira=visoesVisiveis()[0];if(primeira)applyVisao(primeira.code);}
+    /* 2.0 — ENTRADA PERSONALIZADA: quem tem visão padrão (Configurações › Minha conta, ou marcada pelo admin)
+       abre nela; quem não é admin abre na SUA visão, nunca na consolidada (que mistura Outliers com Família).
+       Deep-link ?v= continua mandando. Admin sem padrão segue caindo na Central. */
+    const _home=urlVisao?null:homeVisao(PERM,visoesVisiveis().map(p=>p.code));
+    if(_home)applyVisao(_home);
     if(PERM.admin){try{await acessosLoad();}catch(e){}}
     DB=await loadData();
     try{await faturaAutoRun();}catch(e){}   /* fatura que fechou vira conta a pagar (1x/dia por visão) */
     try{CENTRAL=await loadCentral();}catch(e){CENTRAL=_finalizeCentral(_emptyPer());}
-    route("central");}   /* app único: entra pela Central consolidada */
+    route(_home?"dashboard":"central");}   /* app único: admin entra pela Central consolidada; pessoa entra na visão dela */
   catch(e){document.getElementById("view").innerHTML=`<div class="panel"><h2>Erro ao carregar</h2><div class="sub">${esc(e.message)}</div></div>`;}
 }
 
@@ -2868,5 +2974,13 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    if(pxDevido(_px,"X")!==470)f.push("régua do Pipe X errada (devido do mês) — era 470, deu "+pxDevido(_px,"X"));}
   {const _c=[{apolice:"A",acordo:true,no_fluxo:true},{apolice:"B",acordo:true,no_fluxo:false}];
    if(_c.filter(x=>x.acordo&&x.no_fluxo).length!==1)f.push("previsão LP projetando sobre o acordo em vez do fluxo (infla a receita do Pipe X)");}
+  /* 2.0 — entrada personalizada: padrão liberada vence; padrão NÃO liberada cai na primeira; admin sem padrão vai pra Central */
+  if(homeVisao({legacy:false,admin:false,visaoPadrao:"FAMILIA"},["PJ","FAMILIA"])!=="FAMILIA")f.push("homeVisao ignora a visão padrão da pessoa");
+  if(homeVisao({legacy:false,admin:false,visaoPadrao:"JUCA"},["PJ","FAMILIA"])!=="PJ")f.push("homeVisao abre numa visão NÃO liberada (vazaria tela vazia)");
+  if(homeVisao({legacy:false,admin:true,visaoPadrao:null},["PJ","FAMILIA"])!==null)f.push("homeVisao tira o admin da Central consolidada");
+  if(homeVisao({legacy:true,admin:false,visaoPadrao:null},["PJ"])!==null)f.push("homeVisao muda o comportamento legado (sem tabela de acesso)");
+  if(!/mcp-financeiro\/t\//.test(MCP_URL("x")))f.push("MCP_URL sem o segmento /t/<token> (claude.ai descarta query string)");
+  if(!/^cf_[0-9a-f]{40}$/.test(tokenNovo()))f.push("tokenNovo fora do formato cf_<40 hex>");
+  if(typeof minhaContaPanel!=="function"||typeof acessosPanel!=="function")f.push("painéis de conta/acessos ausentes");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

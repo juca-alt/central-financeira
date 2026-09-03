@@ -1,7 +1,7 @@
 {
-  "name": "Central Financeira PJ",
-  "short_name": "Financeiro PJ",
-  "description": "Gestão financeira da master franquia",
+  "name": "Central Financeira",
+  "short_name": "Central",
+  "description": "Finanças da família e dos negócios, numa central só",
   "start_url": ".",
   "scope": "./",
   "display": "standalone",

@@ -634,12 +634,36 @@ function frescorDias(ts){try{const d=Math.floor((Date.now()-new Date(ts).getTime
 function frescorTag(ts){if(!ts)return'';const d=frescorDias(ts);let f='';try{f=new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){}
   if(d!=null&&d>3)return`<div style="font-size:9px;margin-top:2px;color:#dc2626;font-weight:700">⚠️ feed parado · dado de ${f} (${d}d)</div>`;
   return`<div style="font-size:9px;opacity:.55;margin-top:2px">🔄 saldo do banco · ${f}</div>`;}
+/* =====================================================================
+   TÓPICOS DOBRÁVEIS (norte de UX dele, 03/09): tela longa vira lista de blocos que
+   encolhem e estendem. Três regras: (1) bloco fechado mostra o RESUMO no cabeçalho;
+   (2) o que responde "o que eu faço agora" (hero, KPIs, Precisa de você, Suas visões)
+   fica FORA do sistema; (3) a escolha persiste por aparelho + abrir/fechar tudo.
+   `dobr(id, painelHTML, resumo, fechadoPorPadrão)` embrulha um painel já pronto. */
+const DOBR_KEY="cfin_dobr_v1";
+let DOBR=(()=>{try{return JSON.parse(localStorage.getItem(DOBR_KEY)||"{}")||{};}catch(e){return{};}})();
+function dobrSave(){try{localStorage.setItem(DOBR_KEY,JSON.stringify(DOBR));}catch(e){}}
+const isMobile=()=>!!(window.matchMedia&&window.matchMedia("(max-width:920px)").matches);
+function dobrClosed(id,def){return Object.prototype.hasOwnProperty.call(DOBR,id)?!!DOBR[id]:!!def;}
+function dobr(id,html,resumo,def){if(!html)return"";const closed=dobrClosed(id,def);
+  html=html.replace('<div class="panel"',`<div class="panel dobr${closed?" closed":""}" data-dobr="${id}"`);
+  html=html.replace(/<h2([^>]*)>/,(m,a)=>`<h2${a} onclick="dobrToggle(event,'${id}')"><span class="dobr-caret" aria-hidden="true">▾</span>`);
+  html=html.replace(/<\/h2>/,`<span class="dobr-sum">${resumo||""}</span></h2>`);
+  return html;}
+function dobrToggle(ev,id){if(ev&&ev.target&&ev.target.closest("button,a,.link,select,input,label"))return;
+  const el=document.querySelector(`[data-dobr="${id}"]`);if(!el)return;el.classList.toggle("closed");DOBR[id]=el.classList.contains("closed");dobrSave();}
+function dobrTodos(fechar){document.querySelectorAll("[data-dobr]").forEach(el=>{el.classList.toggle("closed",!!fechar);DOBR[el.dataset.dobr]=!!fechar;});dobrSave();}
+function dobrBar(){return`<div class="dobr-bar"><span class="link" onclick="dobrTodos(false)">abrir tudo</span><span style="color:var(--muted)">·</span><span class="link" onclick="dobrTodos(true)">fechar tudo</span></div>`;}
 function contasPanel(){const b=contaSaldos();
   const meta=new Map((DB.contas||[]).filter(c=>c.saldo_atual!=null).map(c=>[c.nome,c.saldo_atualizado_em]));
   const items=[...b.entries()].filter(([n,v])=>!isCartaoConta(n)&&(v!==0||n!=="(sem conta)")).sort((a,b)=>b[1]-a[1]);
   if(!items.length)return'';
   const rows=items.map(([n,v])=>{const tag=frescorTag(meta.get(n));return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
   return`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Saldo por conta <button class="btn ghost sm" id="btnSyncBancos" onclick="syncBancos()" title="Pede refresh no Pluggy e dispara os syncs (Pluggy + Inter PJ) agora">⚡ Atualizar bancos</button></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
+/* versões dobráveis, com o total no cabeçalho (usadas nas duas Visões Gerais) */
+function cartoesTotal(){let t=0;contaSaldos().forEach((v,n)=>{if(isCartaoConta(n))t+=v;});return t;}
+function contasPanelD(){return dobr("ov-contas",contasPanel(),fmtBRL(saldoCorrente()));}
+function cartoesPanelD(){return dobr("ov-cartoes",cartoesPanel(),fmtBRL(cartoesTotal()));}
 function cartoesPanel(){const b=contaSaldos();
   const items=[...b.entries()].filter(([n,v])=>isCartaoConta(n)).sort((a,b)=>a[1]-b[1]);
   if(!items.length)return'';
@@ -648,8 +672,8 @@ function cartoesPanel(){const b=contaSaldos();
   return`<div class="panel"><h2>Cartões <span class="link" onclick="route('cartoes')" style="font-weight:600">ver faturas ›</span></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 function entSaiDetail(o){const r=(lbl,v,cls)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)"><span class="sub">${lbl}</span><b class="${cls||''}" style="font-variant-numeric:tabular-nums">${fmtBRL(v)}</b></div>`;
   return`<div class="grid2 g2-even">
-    <div class="panel"><h2>📈 Entradas</h2>${r('Realizado',o.entReal,'in')}${r('A realizar',o.entAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.entPrev)}</b></div></div>
-    <div class="panel"><h2>📉 Saídas</h2>${r('Realizado',o.saiReal,'out')}${r('A realizar',o.saiAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.saiPrev)}</b></div></div>
+    ${dobr("ov-ent",`<div class="panel"><h2>📈 Entradas</h2>${r('Realizado',o.entReal,'in')}${r('A realizar',o.entAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.entPrev)}</b></div></div>`,fmtBRL(o.entPrev),isMobile())}
+    ${dobr("ov-sai",`<div class="panel"><h2>📉 Saídas</h2>${r('Realizado',o.saiReal,'out')}${r('A realizar',o.saiAReal)}<div style="display:flex;justify-content:space-between;padding:8px 0 0"><span class="sub" style="font-weight:600">Previsto</span><b>${fmtBRL(o.saiPrev)}</b></div></div>`,fmtBRL(o.saiPrev),isMobile())}
   </div>`;}
 function stepMes(n){let m=PERIOD.mes+n,y=PERIOD.ano;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}PERIOD.mes=m;PERIOD.ano=y;viewDashboard();}
 function stepAno(n){PERIOD.ano=(PERIOD.ano||new Date().getFullYear())+n;viewDashboard();}
@@ -664,7 +688,9 @@ function ovPeriodBar(){
   if(PERIOD.mode==="ano")inner=`<button class="btn ghost sm" onclick="stepAno(-1)" aria-label="Ano anterior">‹</button><div style="font-weight:660;min-width:70px;text-align:center">${PERIOD.ano}</div><button class="btn ghost sm" onclick="stepAno(1)" aria-label="Próximo ano">›</button>`;
   else if(PERIOD.mode==="range")inner=`<input type="date" value="${PERIOD.de||''}" onchange="ovSetDe(this.value)"> <span class="sub">até</span> <input type="date" value="${PERIOD.ate||''}" onchange="ovSetAte(this.value)">`;
   else inner=`<button class="btn ghost sm" onclick="stepMes(-1)" aria-label="Mês anterior">‹</button><div style="font-weight:660;min-width:120px;text-align:center">${ML[PERIOD.mes-1]} ${PERIOD.ano}</div><button class="btn ghost sm" onclick="stepMes(1)" aria-label="Próximo mês">›</button>`;
-  return`<div class="controls" style="justify-content:flex-start;align-items:center;gap:12px;flex-wrap:wrap"><div class="seg" style="display:inline-flex;gap:4px">${seg('mes','Mês')}${seg('ano','Ano')}${seg('range','Período')}</div><div style="display:flex;align-items:center;gap:8px">${inner}<span class="sub">${ovPeriodLabel()}</span></div></div>`;}
+  /* celular (03/09): os 3 chips viram um select e o rótulo do intervalo some — a barra cabe numa linha só */
+  const segs=isMobile()?`<select class="ov-mode" onchange="setOvMode(this.value)" aria-label="Recorte">${[['mes','Mês'],['ano','Ano'],['range','Período']].map(([m,l])=>`<option value="${m}" ${PERIOD.mode===m?'selected':''}>${l}</option>`).join("")}</select>`:`<div class="seg" style="display:inline-flex;gap:4px">${seg('mes','Mês')}${seg('ano','Ano')}${seg('range','Período')}</div>`;
+  return`<div class="controls" style="justify-content:flex-start;align-items:center;gap:${isMobile()?8:12}px;flex-wrap:wrap">${segs}<div style="display:flex;align-items:center;gap:8px">${inner}<span class="sub so-desktop">${ovPeriodLabel()}</span></div></div>`;}
 /* painel "Suas visões" (modo Todas): saldo + alertas por visão, clique abre a visão.
    É o corpo da antiga tela Central, agora dentro da Visão Geral consolidada. */
 function visoesPanel(){if(!isAll())return"";
@@ -709,10 +735,11 @@ function viewDashboard(){
     <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div><div class="hint">saldo + receber − pagar</div></div>
   </div>
   ${visoesPanel()}
+  ${dobrBar()}
   ${entSaiDetail(o)}
-  ${contasPanel()}
-  ${cartoesPanel()}
-  <div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Movimentos do período ${selBtn()}</h2>${miniMov(recentes)}</div>`;
+  ${contasPanelD()}
+  ${cartoesPanelD()}
+  ${dobr("ov-mov",`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Movimentos do período ${recentes.length?selBtn():""}</h2>${miniMov(recentes)}</div>`,`${recentes.length} lançamento${recentes.length===1?"":"s"}`,isMobile())}`;
 }
 /* ===== Home da visão Pessoal (Família/Jucá): o mês como unidade mental =====
    Hero = SOBRA PREVISTA DO MÊS (renda prevista − saídas previstas), triagem
@@ -767,11 +794,13 @@ function viewDashFamilia(){
     <h2>Precisa de você <span class="link" onclick="route('contas')" style="font-weight:600">contas do mês ›</span></h2>
     ${precisa.length?precisa.map(pRow).join(""):`<div class="empty">Nada pendente por agora 🎉 — compromissos em dia.</div>`}
   </div>
-  ${envCats.length?`<div class="panel"><h2>Variáveis do mês <span class="sub" style="font-weight:400">${fmtK(envTotReal)} / ${fmtK(envTotPlan)} · <span class="link" onclick="route('orcamento')">ajustar ›</span></span></h2>${envRows}</div>`
-    :`<div class="panel"><h2>Variáveis do mês</h2><div class="sub">Defina tetos por categoria (mercado, lazer, transporte…) no <span class="link" onclick="route('orcamento')">Orçamento ›</span> e acompanhe as barras aqui.</div></div>`}
-  ${contasPanel()}
-  ${cartoesPanel()}
-  <div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Movimentos do período <span class="link" onclick="route('movimentos')" style="font-weight:600">ver todos ›</span></span>${selBtn()}</h2>${miniMov(recentes)}</div>`;
+  ${dobrBar()}
+  ${dobr("fam-var",envCats.length?`<div class="panel"><h2>Variáveis do mês <span class="link" onclick="route('orcamento')" style="font-weight:600">ajustar ›</span></h2>${envRows}</div>`
+    :`<div class="panel"><h2>Variáveis do mês <span class="link" onclick="route('orcamento')" style="font-weight:600">Orçamento ›</span></h2><div class="sub">Defina tetos por categoria (mercado, lazer, transporte…) no Orçamento e acompanhe as barras aqui.</div></div>`,
+    envCats.length?`${fmtK(envTotReal)} / ${fmtK(envTotPlan)}`:"sem tetos",!envCats.length)}
+  ${contasPanelD()}
+  ${cartoesPanelD()}
+  ${dobr("ov-mov",`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Movimentos do período <span class="link" onclick="route('movimentos')" style="font-weight:600">ver todos ›</span></span>${recentes.length?selBtn():""}</h2>${miniMov(recentes)}</div>`,`${recentes.length} lançamento${recentes.length===1?"":"s"}`,isMobile())}`;
 }
 function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.</div>`;
   return bulkBar()+`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
@@ -806,14 +835,17 @@ let _movRows=[],_movPieRows=[],_movChart=null,MV_MES;   // MV_MES: undefined=nã
 const isCartaoConta=n=>{const c=(DB.contas||[]).find(x=>x.nome===n);return c?c.tipo==="cartao":/cart/i.test(n||"");};
 function mvMes(n){MV_MES=MV_MES?addMonth(MV_MES,n):todayISO().slice(0,7);viewMovimentos();}
 function mvMesTudo(){MV_MES=MV_MES?null:todayISO().slice(0,7);viewMovimentos();}
+/* celular (03/09): os 6 filtros ficam numa gaveta — a lista começava só depois de 84% da tela */
+let MV_FILT_OPEN=false;
+function mvFiltToggle(){MV_FILT_OPEN=!MV_FILT_OPEN;const g=$("#mvFilt");if(g)g.classList.toggle("hide",!MV_FILT_OPEN);const b=document.querySelector("#view button[onclick='mvFiltToggle()']");if(b){b.className="btn "+(MV_FILT_OPEN?"":"ghost")+" sm";b.textContent="🔍 Filtrar "+(MV_FILT_OPEN?"▴":"▾");}}
 function viewMovimentos(){
   if(MV_MES===undefined)MV_MES=IS_PESSOAL?todayISO().slice(0,7):null;   // Família abre no mês atual; Negócios mantém "Tudo"
   const isMob=window.matchMedia&&window.matchMedia("(max-width:920px)").matches;
   const vizPanel=IS_PESSOAL
     ?`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro <span class="sub" id="barsHint" style="font-weight:400"></span></h2><div id="movBars"></div></div>`
-    :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><canvas id="chMovCat" height="${isMob?220:100}"></canvas></div>`;
+    :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><div style="position:relative;height:${isMob?240:230}px"><canvas id="chMovCat"></canvas></div></div>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">toque em categoria/valor pra editar na própria linha</div></div>
-   <div style="display:flex;gap:8px;flex-wrap:wrap">${isMob?selBtn():""}<button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button><button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap">${isMob?"":`<button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button>`}<button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
   <div class="controls" style="align-items:center">
     <button class="btn ghost sm" onclick="mvMes(-1)" aria-label="Mês anterior">‹</button>
     <div style="font-weight:660;min-width:88px;text-align:center">${MV_MES?mkLabel(MV_MES):"Tudo"}</div>
@@ -821,7 +853,8 @@ function viewMovimentos(){
     <button class="btn ${MV_MES?"ghost":""} sm" onclick="mvMesTudo()">${MV_MES?"Ver tudo":"Mês atual"}</button>
     <span class="sub" id="movSum" style="margin-left:auto"></span>
   </div>
-  <div class="controls"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select><button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button></div>
+  ${isMob?`<div class="controls" style="align-items:center"><button class="btn ${MV_FILT_OPEN?"":"ghost"} sm" onclick="mvFiltToggle()">🔍 Filtrar ${MV_FILT_OPEN?"▴":"▾"}</button>${selBtn()}<button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button></div>`:""}
+  <div class="controls mv-filt${isMob&&!MV_FILT_OPEN?" hide":""}" id="mvFilt"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select>${isMob?`<button class="btn soft sm" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft sm" onclick="autoCategorizar()">✨ Auto-categorizar</button>`:`<button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button>`}</div>
   ${isMob?`<div id="movWrap"></div>${vizPanel}`:`${vizPanel}<div id="movWrap"></div>`}`;
   window._movFilter=()=>{const q=$("#fq").value.toLowerCase(),s=$("#fs").value,b=$("#fb").value,c=$("#fc").value,t=$("#ft").value,g=$("#fg").value;
     const base=DB.movimentos.filter(m=>(!MV_MES||monthKey(m.data)===MV_MES)&&(!q||m.descricao.toLowerCase().includes(q))&&(!s||m.sentido===s)&&(!b||m.banco===b)&&(!t||(t==="cartao"?isCartaoConta(m.banco):!isCartaoConta(m.banco)))&&(!g||(m.tags||[]).includes(g)));
@@ -866,7 +899,7 @@ function renderMovPie(){const cv=$("#chMovCat");if(!cv)return;if(_movChart){_mov
   if(!cats.length)return;
   const pal=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d","#ea580c","#0d9488","#9333ea","#475569"];
   _movChart=new Chart(cv,{type:"doughnut",data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:cats.map((c,i)=>pal[i%pal.length])}]},
-    options:{onClick:(e,el)=>{if(el&&el.length){const cat=cats[el[0].index][0];const sel=$("#fc");if(sel){sel.value=(cat==="sem cat.")?"__none":cat;window._movFilter();}}},
+    options:{responsive:true,maintainAspectRatio:false,onClick:(e,el)=>{if(el&&el.length){const cat=cats[el[0].index][0];const sel=$("#fc");if(sel){sel.value=(cat==="sem cat.")?"__none":cat;window._movFilter();}}},
     plugins:{legend:{position:"right",labels:{font:{size:10},boxWidth:12}},tooltip:{callbacks:{label:c=>c.label+": "+fmtBRL(c.parsed)}}}}});
 }
 /* rótulo humano de dia (Hoje/Ontem/dd Mmm) p/ os cards mobile */
@@ -1808,8 +1841,9 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
     for(let i=i0-1;i>=0;i--)data[i].acc=data[i+1].acc-data[i+1].net;
   }else{let acc=0;data.forEach(c=>{acc+=c.net;c.acc=acc;});}
   const cell=(v,cls,k,t)=>`<td class="${v?cls:''} fxc" data-k="${k}" data-t="${t}" style="${v?'cursor:pointer':''}" title="${v?'Ver detalhes':''}">${v?fmtBRL(v):"—"}</td>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção. <span class="pj">Roxo</span> = a receber/pagar cadastrado. <span class="orcx">Âmbar</span> = teto do Orçamento nas categorias sem conta cadastrada. Acumulado ancorado no saldo real das contas hoje.</div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
-   <div class="panel" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th>${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>
+  const mesAtualK=todayISO().slice(0,7),isMob=isMobile();
+  const grafico=`<div class="panel"><h2>Saldo acumulado projetado</h2><canvas id="chAcc" height="${isMob?170:90}"></canvas></div>`;
+  const tabela=`<div class="panel" id="fxWrap" style="overflow-x:auto"><table class="cf"><thead><tr><th class="h">Mês</th>${data.map(c=>`<th class="${c.k===mesAtualK?"fx-cur":""}">${mkLabel(c.k)}${c.proje?' <span class="pj">•</span>':''}</th>`).join("")}</tr></thead><tbody>
     <tr><td class="h">Entradas</td>${data.map(c=>cell(c.e,"in",c.k,"e")).join("")}</tr>
     <tr><td class="h">Saídas</td>${data.map(c=>cell(c.s,"out",c.k,"s")).join("")}</tr>
     <tr><td class="h">A receber (prev.)</td>${data.map(c=>`<td class="${c.r?'pj':''} fxc" data-k="${c.k}" data-t="r" style="${c.r?'cursor:pointer':''}">${c.r?fmtBRL(c.r):"—"}</td>`).join("")}</tr>
@@ -1817,8 +1851,13 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
     <tr><td class="h">Orçamento (est.)</td>${data.map(c=>`<td class="${c.o?'orcx':''} fxc" data-k="${c.k}" data-t="o" style="${c.o?'cursor:pointer':''}">${c.o?'−'+fmtBRL(c.o):"—"}</td>`).join("")}</tr>
     <tr style="border-top:2px solid var(--border)"><td class="h"><b>Saldo do mês</b></td>${data.map(c=>`<td class="${c.net>=0?'in':'out'}"><b>${fmtBRL(c.net)}</b></td>`).join("")}</tr>
     <tr><td class="h"><b>Saldo acumulado</b></td>${data.map(c=>`<td class="${c.acc>=0?'in':'out'}"><b>${fmtBRL(c.acc)}</b></td>`).join("")}</tr>
-   </tbody></table></div><div class="panel"><h2>Saldo acumulado projetado</h2><canvas id="chAcc" height="90"></canvas></div>`;
+   </tbody></table></div>`;
+  /* celular: o gráfico responde "pra onde vai o saldo" antes da tabela; a legenda longa é só desktop */
+  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção<span class="so-desktop">. <span class="pj">Roxo</span> = a receber/pagar cadastrado. <span class="orcx">Âmbar</span> = teto do Orçamento nas categorias sem conta cadastrada. Acumulado ancorado no saldo real das contas hoje.</span></div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
+   ${isMob?grafico+tabela:tabela+grafico}`;
   $("#fh").value=String(FLUXO_H);$("#fh").onchange=e=>{FLUXO_H=+e.target.value;viewFluxo();};
+  /* a tabela abre já no mês atual (no celular só cabe 1,5 mês por vez) */
+  {const w=$("#fxWrap"),th=w&&w.querySelector("th.fx-cur"),h=w&&w.querySelector("th.h");if(w&&th&&h)w.scrollLeft=Math.max(0,th.offsetLeft-h.offsetWidth-(isMob?8:2*th.offsetWidth+8));}   /* desktop: 2 meses realizados antes do atual */
   document.querySelectorAll("#view td.fxc").forEach(td=>{td.onclick=()=>{if(td.textContent.trim()!=="—")fluxoDrill(td.dataset.k,td.dataset.t);};});
   _charts.forEach(c=>c.destroy());_charts=[];_charts.push(new Chart($("#chAcc"),{type:"line",data:{labels:data.map(c=>mkLabel(c.k)),datasets:[{label:"Saldo",data:data.map(c=>c.acc),borderColor:"#3b5bdb",backgroundColor:"rgba(59,91,219,.12)",fill:true,tension:.25,pointBackgroundColor:data.map(c=>c.proje?"#7c3aed":"#3b5bdb")}]},options:{plugins:{legend:{display:false}},scales:{y:{ticks:{callback:fmtK}}}}}));
 }
@@ -2982,5 +3021,10 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/mcp-financeiro\/t\//.test(MCP_URL("x")))f.push("MCP_URL sem o segmento /t/<token> (claude.ai descarta query string)");
   if(!/^cf_[0-9a-f]{40}$/.test(tokenNovo()))f.push("tokenNovo fora do formato cf_<40 hex>");
   if(typeof minhaContaPanel!=="function"||typeof acessosPanel!=="function")f.push("painéis de conta/acessos ausentes");
+  /* tópicos dobráveis: fechado = corpo some e o resumo aparece no cabeçalho; a escolha salva vence o padrão */
+  {const h=dobr("__t",'<div class="panel"><h2>T</h2><p>corpo</p></div>',"R$ 1",true);
+   if(!/data-dobr="__t"/.test(h)||!/class="panel dobr closed"/.test(h)||!/dobr-sum">R\$ 1</.test(h))f.push("dobr() não embrulha o painel (resumo/fechado)");
+   DOBR.__t=false;if(dobrClosed("__t",true)!==false)f.push("dobrClosed ignora a escolha salva");delete DOBR.__t;}
+  if(typeof mvFiltToggle!=="function")f.push("gaveta de filtros do Movimentos ausente");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

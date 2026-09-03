@@ -9,3 +9,4 @@ _tmp_*
 # em ~/Documents/Central Financeira/sql-privado/
 scripts/*-20[0-9][0-9]-*.sql
 scripts/PLUGGY*.md
+.claude/

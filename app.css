@@ -404,3 +404,21 @@ tbody tr{transition:background .1s}
   #updBanner span{min-width:0}
   .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
 }
+
+/* --- Pessoas & acessos / Minha conta (Central 2.0, 02/09) --- */
+.pp-card{padding:16px}
+.pp-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.pp-av{width:44px;height:44px;border-radius:12px;background:var(--primary-soft);color:var(--primary);display:grid;place-items:center;font-weight:700;font-size:18px;flex:none}
+.pp-id{flex:1;min-width:160px}
+.pp-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:760px){.pp-grid{grid-template-columns:1fr}}
+.pp-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:6px}
+.pp-vis{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.pp-vis b{flex:1;min-width:90px;font-size:13px}
+.pp-vis-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:13px;flex:none}
+.acc-cb{display:inline-flex;align-items:center;gap:4px;font-size:12px;min-height:32px;padding:0 4px;cursor:pointer}
+.tok{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;margin-top:6px;flex-wrap:wrap;background:var(--chip)}
+.tok.off{opacity:.6}
+.tok-main{flex:1;min-width:140px}.tok-main small{display:block;color:var(--muted);font-size:11.5px}
+.tok-url{font:12px/1.4 ui-monospace,Menlo,monospace;background:var(--chip);border:1px solid var(--border);border-radius:8px;padding:8px 10px;word-break:break-all;margin-top:8px;user-select:all}
+.profile-chip{cursor:pointer}

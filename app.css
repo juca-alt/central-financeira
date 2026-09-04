@@ -297,6 +297,11 @@ tr.fp-tr{cursor:pointer}
 tr.fp-tr:hover td{background:#fafbfe}
 .fp-act{white-space:nowrap;width:1%;padding-right:0}
 .fp-act .btn{padding:4px 10px;font-weight:700}
+/* topo do Modo Financeiro: período | horizonte | + Nova (desktop em linha; celular por mídia abaixo) */
+.fp-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.fp-per{display:flex;align-items:center;gap:6px}
+.fp-per-lbl{font-weight:660;min-width:92px;text-align:center}
+.fp-hor{display:flex;gap:6px}
 .fp-fil{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .fp-fil button{background:var(--card);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
 .fp-fil button.on{color:#fff;border-color:transparent;background:var(--c,var(--primary))}
@@ -408,6 +413,19 @@ tbody tr{transition:background .1s}
   #updBanner button{flex:0 0 auto;white-space:nowrap}
   #updBanner span{min-width:0}
   .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+  /* Modo Financeiro no celular (04/09): título curto, período numa linha, horizonte
+     segmentado ocupando a largura, + Nova em linha própria; tudo com alvo de 44px. */
+  .fp-head{flex-direction:column;align-items:stretch;gap:10px;margin-bottom:12px}
+  .fp-head h1{font-size:19px}
+  .fp-top{display:grid;grid-template-columns:1fr auto;gap:8px}
+  .fp-per{grid-column:1/-1;justify-content:space-between}
+  .fp-per .btn{min-width:44px}
+  .fp-per-lbl{flex:1;font-size:16px}
+  .fp-hor{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+  .fp-hor .btn{padding-left:6px;padding-right:6px}
+  .fp-top .btn,.fp-fil button,.fp-fil-row .btn{min-height:44px}
+  .fp-fil-row{gap:8px}
+  .fp-fil-row .fp-fil{flex:1 1 auto}
 }
 
 /* --- Pessoas & acessos / Minha conta (Central 2.0, 02/09) --- */

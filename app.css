@@ -179,10 +179,13 @@
   .side .logout:active{background:rgba(148,163,184,.14)}
   .side .logout:hover{color:#cbd5e1}
   /* ===== Banner de atualização ===== */
-  #updBanner{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(120px);z-index:9998;
+  /* escondido = fora da tela E invisível (visibility): o deslocamento sozinho não basta, porque no
+     celular o `bottom` cresce com a safe-area e o banner "oculto" vazava por cima da barra inferior. */
+  #updBanner{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(calc(100% + 40px));z-index:9998;
     background:#0b1220;color:#fff;border-radius:13px;padding:11px 13px 11px 16px;display:flex;align-items:center;gap:12px;
-    box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:13.5px;font-weight:600;transition:transform .3s ease;opacity:.98}
-  #updBanner.show{transform:translateX(-50%) translateY(0)}
+    box-shadow:0 10px 30px rgba(0,0,0,.35);font-size:13.5px;font-weight:600;opacity:.98;
+    visibility:hidden;pointer-events:none;transition:transform .3s ease,visibility 0s linear .3s}
+  #updBanner.show{transform:translateX(-50%) translateY(0);visibility:visible;pointer-events:auto;transition:transform .3s ease,visibility 0s}
   #updBanner button{background:var(--primary);color:#fff;border:0;border-radius:9px;padding:8px 14px;font-weight:700;font-size:13px;cursor:pointer}
 
   /* ===== Contas do mês + cards mobile (visão Pessoal) ===== */
@@ -397,9 +400,11 @@ tbody tr{transition:background .1s}
   /* banner de update e toast sobem acima da barra inferior */
   /* no celular o banner centralizado ficava com ~190px: o texto quebrava em 3 linhas, o botao
      em 2, e ele tampava a lista. Ocupa a largura com margem, em uma linha so. */
-  #updBanner{left:12px;right:12px;transform:translateY(120px);justify-content:space-between;
-    bottom:calc(84px + env(safe-area-inset-bottom))}
+  #updBanner{left:12px;right:12px;justify-content:space-between;
+    bottom:calc(84px + env(safe-area-inset-bottom));
+    transform:translateY(calc(100% + 100px + env(safe-area-inset-bottom)))}
   #updBanner.show{transform:translateY(0)}
+  #updBanner button{min-height:44px}
   #updBanner button{flex:0 0 auto;white-space:nowrap}
   #updBanner span{min-width:0}
   .toast{bottom:calc(84px + env(safe-area-inset-bottom))}

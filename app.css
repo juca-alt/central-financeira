@@ -454,7 +454,7 @@ tbody tr{transition:background .1s}
 .dobr h2>.dobr-sum{margin-left:auto;font-size:12.5px;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .dobr h2>.link+.dobr-sum,.dobr h2>button+.dobr-sum{margin-left:0}
 .dobr.closed h2{margin-bottom:0}
-.dobr.closed>:not(h2){display:none}
+.dobr.closed>:not(h2){display:none!important}   /* !important: filho com display inline (grid dos cartões) não pode vencer o fechado */
 .dobr-bar{display:flex;gap:6px;justify-content:flex-end;font-size:12px;margin:-4px 2px 8px}
 @media(prefers-reduced-motion:reduce){.dobr h2>.dobr-caret{transition:none}}
 /* texto só de desktop: no celular empurra o conteúdo pra fora da tela */

@@ -646,7 +646,7 @@ function dobrSave(){try{localStorage.setItem(DOBR_KEY,JSON.stringify(DOBR));}cat
 const isMobile=()=>!!(window.matchMedia&&window.matchMedia("(max-width:920px)").matches);
 function dobrClosed(id,def){return Object.prototype.hasOwnProperty.call(DOBR,id)?!!DOBR[id]:!!def;}
 function dobr(id,html,resumo,def){if(!html)return"";const closed=dobrClosed(id,def);
-  html=html.replace('<div class="panel"',`<div class="panel dobr${closed?" closed":""}" data-dobr="${id}"`);
+  html=html.replace(/<div class="panel( [^"]*)?"/,(m,extra)=>`<div class="panel${extra||""} dobr${closed?" closed":""}" data-dobr="${id}"`);
   html=html.replace(/<h2([^>]*)>/,(m,a)=>`<h2${a} onclick="dobrToggle(event,'${id}')"><span class="dobr-caret" aria-hidden="true">▾</span>`);
   html=html.replace(/<\/h2>/,`<span class="dobr-sum">${resumo||""}</span></h2>`);
   return html;}
@@ -1141,20 +1141,22 @@ function viewContas(){
     <div class="dot-day"><b>${d.slice(8,10)}</b><span>${ML[+d.slice(5,7)-1]}</span></div>
     <div class="ct-main"><b>${esc(r.desc)}</b><small>${rec?`<span class="chip rec">${esc(r.p.recorrencia)}</span> · `:""}${esc(banco||"—")}${(!r.paid&&(r.late||d<hoje)&&mk===tk)?` · <span class="ct-latebdg">em atraso</span>`:""}</small></div>
     <div class="ct-val num ${isPg?"":"in"}" onclick="event.stopPropagation();ctValEdit(${r._i},this)" title="Tocar pra editar o valor">${fmtBRL(r.valor)}</div></div>`;};
-  const sect=(t,arr,cls)=>arr.length?`<div class="secttl"><span class="${cls||""}">${t}</span><span class="num">${fmtBRL(sum(arr))}</span></div><div class="panel ct-grp">${arr.map(row).join("")}</div>`:"";
+  /* UX 2.0 (04/09): cada grupo é um tópico dobrável com o total no cabeçalho; "Pagas/Recebidos"
+     é histórico e nasce fechado no celular (a escolha fica salva por aparelho) */
+  const sect=(t,arr,cls,key,def)=>arr.length?dobr("ct-"+key,`<div class="panel ct-grp"><h2 class="secttl ${cls||""}" style="margin:2px 0 4px">${t}</h2><div>${arr.map(row).join("")}</div></div>`,fmtBRL(sum(arr)),!!def):"";
   const tabBtn=(id,l)=>`<button class="btn ${CT.tab===id?"":"ghost"} sm" onclick="CT.tab='${id}';viewContas()">${l}</button>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Contas do mês</h1><div class="sub">Compromissos da casa · toque no ✓ pra dar baixa (lança o movimento junto)</div></div>
+  $("#view").innerHTML=`<div class="row"><div><h1>Contas do mês</h1><div class="sub"><span class="so-desktop">Compromissos da casa · </span>toque no ✓ pra dar baixa<span class="so-desktop"> (lança o movimento junto)</span></div></div>
     <div class="controls" style="margin:0"><button class="btn ghost sm" onclick="CT.mes=addMonth(CT.mes,-1);viewContas()" aria-label="Mês anterior">‹</button><div style="font-weight:660;min-width:96px;text-align:center">${mkLabel(mk)}</div><button class="btn ghost sm" onclick="CT.mes=addMonth(CT.mes,1);viewContas()" aria-label="Próximo mês">›</button></div></div>
   <div class="controls"><div class="seg" style="display:inline-flex;gap:4px">${tabBtn("pagar","A pagar")}${tabBtn("receber","A receber")}</div><button class="btn" style="margin-left:auto" onclick="${isPg?"addPagar()":"addReceber()"}">+ Nova</button></div>
   <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
     <div class="kpi"><div class="lbl">${isPg?"🗓️ Compromissos de":"🗓️ Previsto pra"} ${mkLabel(mk)}</div><div class="val">${fmtBRL(sum(rows))}</div><div class="hint">${rows.length} lançamento(s)</div></div>
     <div class="kpi"><div class="lbl">${isPg?"Ainda falta":"Ainda a receber"}</div><div class="val ${isPg?"out":"in"}">${fmtBRL(sum(open))}</div><div class="hint">${isPg?"pago":"recebido"} ${fmtBRL(sum(paid))}</div></div>
   </div>
-  ${sect(isPg?"Atrasadas":"Atrasados",grp.late,"out")}
-  ${sect("Esta semana",grp.week)}
-  ${sect("Até o fim do mês",grp.rest)}
-  ${sect("No mês",grp.fut)}
-  ${sect(isPg?"Pagas":"Recebidos",paid,"in")}
+  ${sect(isPg?"Atrasadas":"Atrasados",grp.late,"out","late")}
+  ${sect("Esta semana",grp.week,"","week")}
+  ${sect("Até o fim do mês",grp.rest,"","rest")}
+  ${sect("No mês",grp.fut,"","fut")}
+  ${sect(isPg?"Pagas":"Recebidos",paid,"in","paid",isMobile())}
   ${rows.length?"":`<div class="panel"><div class="empty">Nada em ${mkLabel(mk)}. Use “+ Nova” pra cadastrar um compromisso${isPg?" (aluguel, escola, luz…)":""} — recorrente aparece aqui todo mês sozinho.</div></div>`}`;
 }
 function ctEdit(i){const r=_ctRows[i];if(!r)return;(CT.tab==="pagar"?editPagar:editReceber)(r.p._row);}
@@ -1563,7 +1565,7 @@ function cartaoResumo(nome){
 }
 function cartoesGeralPanel(cards){
   const hoje=todayISO();
-  return`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:10px;margin-bottom:14px">${cards.map(c=>{
+  return`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:10px">${cards.map(c=>{
     const r=cartaoResumo(c.nome),ativo=c.nome===CART_SEL;
     const p=r.prox;
     const proxTxt=!p?`<span class="sub" style="margin:0">sem fatura</span>`
@@ -1638,10 +1640,14 @@ function viewCartoes(){const cards=cardContas();
         <div class="ct-main"><b>${esc(m.descricao)}</b><small>${m.categoria?esc(m.categoria):'<span class="chip none">sem cat.</span>'}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
         <div class="ct-val num ${m.sentido==='Entrada'?'in':''}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</div></div>`;}).join("")||`<div class="empty">Sem lançamentos nesta fatura.</div>`
     :`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${txs.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${rowClick(m)}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="5"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table>`);
-  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">toque num cartão pra abrir o detalhe</div></div></div>
-  ${cartoesGeralPanel(cards)}
+  /* UX 2.0 (04/09): no CELULAR "Todos os cartões" vira tópico dobrável (total da dívida no
+     cabeçalho) e nasce fechado — o hero do cartão aberto já responde "quanto pago e quando".
+     No desktop o grid fica à vista como antes (cabe numa linha). */
+  const totDiv=cards.reduce((s,c)=>{const r=cartaoResumo(c.nome);return s+(r.bancoDev!=null?r.bancoDev:r.gastoAteHoje);},0);
+  $("#view").innerHTML=`<div class="row"><div><h1>Cartões</h1><div class="sub">${isMob?"abra “Todos os cartões” pra trocar de cartão":"toque num cartão pra abrir o detalhe"}</div></div></div>
+  ${isMob?dobr("cd-todos",`<div class="panel"><h2>Todos os cartões</h2>${cartoesGeralPanel(cards)}</div>`,`${cards.length} cartão${cards.length>1?"ões":""} · ${fmtBRL(totDiv)}`,true):`<div style="margin-bottom:14px">${cartoesGeralPanel(cards)}</div>`}
   <div class="panel">
-    <div class="row" style="margin:0 0 6px"><h2 style="margin:0">💳 ${esc(CART_SEL)}</h2><span class="sub" style="margin:0;font-size:11px">fecha dia ${cfg.f} · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</span></div>
+    <div class="row" style="margin:0 0 6px"><h2 style="margin:0">💳 ${esc(CART_SEL)}</h2><span class="sub so-desktop" style="margin:0;font-size:11px">fecha dia ${cfg.f} · vence dia ${cfg.v} · melhor dia de compra ${melhorDia}</span></div>
     ${hero}
     <div class="sub" style="margin:10px 0 0;font-size:12px">${confer}</div>
     <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin:8px 0 0;cursor:pointer;font-size:12px"><input type="checkbox" ${faturaAutoOn()?"checked":""} onchange="faturaAutoSet(this.checked)" style="margin:0"> Fatura fechada vira Conta a Pagar sozinha${(()=>{const pg=faturaContaPag(CART_SEL);return pg?` <b>· debita em ${esc(pg)}</b>`:` <b style="color:#dc2626">· sem conta pagadora definida</b>`;})()}</label>
@@ -3033,5 +3039,8 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    if(!/data-dobr="__t"/.test(h)||!/class="panel dobr closed"/.test(h)||!/dobr-sum">R\$ 1</.test(h))f.push("dobr() não embrulha o painel (resumo/fechado)");
    DOBR.__t=false;if(dobrClosed("__t",true)!==false)f.push("dobrClosed ignora a escolha salva");delete DOBR.__t;}
   if(typeof mvFiltToggle!=="function")f.push("gaveta de filtros do Movimentos ausente");
+  if(!/dobr\("ct-"\+key/.test(String(viewContas)))f.push("Contas do mês sem grupos dobráveis");
+  if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
+  if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

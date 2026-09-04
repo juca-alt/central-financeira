@@ -2414,6 +2414,10 @@ async function fpLoad(){
   return{rows,semVenc:todas.length-rows.length};
 }
 
+/* RECORTE DA VISÃO ATIVA (04/09): o seletor manda. Em "Todas" o Modo Financeiro consolida
+   tudo que o usuário enxerga; numa visão específica (ex.: Outliers) só entra ela + AMBOS —
+   antes abria em "Todas" mesmo com Outliers no topo e "as visões se misturavam". */
+function fpRows(){const all=(FP.dados&&FP.dados.rows)||[];return isAll()?all:all.filter(r=>VFILTER.indexOf(r.visao)>=0);}
 /* buckets do mês selecionado + recortes de visão */
 function fpCalc(){
   const mk=FP.mes,{de,ate}=monthBounds(+mk.slice(0,4),+mk.slice(5,7)),hoje=todayISO();
@@ -2424,7 +2428,7 @@ function fpCalc(){
   const fimFk=hor===0?null:addMonth(mk,hor-1);
   const fimAte=fimFk?fimFk+"-"+pad2(daysInMonth(+fimFk.slice(0,4),+fimFk.slice(5,7))):null;
   const perLbl=hor===1?("em "+mkLabel(mk)):hor===0?("de "+mkLabel(mk)+" em diante"):(mkLabel(mk)+" → "+mkLabel(fimFk));
-  const rows=(FP.dados.rows||[]).filter(r=>!FP.vis.size||FP.vis.has(r.visao));
+  const rows=fpRows().filter(r=>!FP.vis.size||FP.vis.has(r.visao));
   const ab=rows.filter(r=>isPrevAberto(r.status));           /* exclui pago e cancelado */
   const noPer=r=>r.venc>=de&&(fimAte?r.venc<=fimAte:true);
   /* ATRASADO = venceu e não foi pago, INCLUINDO o mês corrente (31/08: IPTU de 10/08 aparecia
@@ -2462,12 +2466,14 @@ function viewFinanceiro(){
     return;}
 
   const c=fpCalc(),hoje=c.hoje;FP.calc=c;   /* guardado pro drill-down (clique nos valores) */
-  const codesComLinha=[...new Set((FP.dados.rows||[]).map(r=>r.visao))];
+  const codesComLinha=[...new Set(fpRows().map(r=>r.visao))];
   const podeAlgo=codesComLinha.some(cd=>podeEditar(cd));
+  const consolidado=isAll();   /* chips por frente e "Visão separada" só fazem sentido no consolidado */
 
-  /* filtros por frente */
+  /* filtros por frente (só em Todas) */
   const chip=(code,label,cor)=>`<button class="${(!code&&!FP.vis.size)||(code&&FP.vis.has(code))?"on":""}" style="--c:${cor||"var(--primary)"}" onclick="fpVisTgl(${code?`'${code}'`:""})">${code?`<span class="fp-dot" style="--c:${cor}"></span>`:"◎ "}${esc(label)}</button>`;
-  const filtros=`<div class="fp-fil">${chip("","Todas")}${codesComLinha.map(cd=>{const p=fpProfile(cd);return chip(cd,p.label,p.cor);}).join("")}</div>`;
+  const filtros=consolidado?`<div class="fp-fil">${chip("","Todas")}${codesComLinha.map(cd=>{const p=fpProfile(cd);return chip(cd,p.label,p.cor);}).join("")}</div>`
+    :`<div class="fp-fil"><span class="fp-badge" style="background:${CUR_PROFILE.corBg||"#eef0f3"};color:${CUR_PROFILE.cor||"#64748b"}">${esc(VISAO_LABEL)}</span><span class="sub" style="margin:0">só esta visão · <span class="link" onclick="setVisao('ALL').then(()=>route('financeiro'))">ver todas ›</span></span></div>`;
 
   /* KPIs — “total em aberto” e “próximos” são de TODAS as competências */
   const kpi=(lbl,val,hint,cls,bucket)=>`<div class="kpi${bucket?" clk":""}"${bucket?` onclick="fpDrill('${bucket}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}" title="Ver as contas desse total"`:""}><div class="lbl">${lbl}${bucket?`<span class="kpi-go">›</span>`:""}</div><div class="val ${cls||""}">${fmtBRL(val)}</div><div class="hint">${hint}</div></div>`;
@@ -2532,23 +2538,24 @@ function viewFinanceiro(){
   const semVenc=FP.dados.semVenc?`<div class="sub" style="margin:-6px 2px 12px">⚠️ ${FP.dados.semVenc} conta(s) sem data de vencimento ficaram de fora — abra <b>Contas a Pagar</b> na visão delas pra datar.</div>`:"";
 
   $("#view").innerHTML=`
-  <div class="row">
-    <div><h1>Modo Financeiro · Contas a Pagar</h1><div class="sub">${mkLabel(c.mk)} — ${codesComLinha.length} frente(s) que você enxerga, separadas e consolidadas${podeAlgo?" · toque no ✓ pra dar baixa":""}</div></div>
-    <div class="controls" style="margin:0">
-      <button class="btn ghost sm" onclick="fpMes(-1)" aria-label="Mês anterior">‹</button>
-      <div style="font-weight:660;min-width:92px;text-align:center">${mkLabel(c.mk)}</div>
-      <button class="btn ghost sm" onclick="fpMes(1)" aria-label="Próximo mês">›</button>
-      ${c.mk!==todayISO().slice(0,7)?`<button class="btn ghost sm" onclick="fpHojeMes()">hoje</button>`:""}
-      <span style="width:8px"></span>
-      ${[[1,"Mês"],[3,"3m"],[6,"6m"],[0,"Tudo"]].map(([h,l])=>`<button class="btn ${c.hor===h?"":"ghost"} sm" onclick="fpHor(${h})">${l}</button>`).join("")}
-      <button class="btn sm" onclick="addPagar()" title="Lança na visão aberta (${esc(VISAO_LABEL)})">+ Nova</button>
+  <div class="row fp-head">
+    <div><h1>${consolidado?"Modo Financeiro · Contas a Pagar":"Contas a Pagar · "+esc(VISAO_LABEL)}</h1><div class="sub">${mkLabel(c.mk)} — ${consolidado?codesComLinha.length+" frente(s) que você enxerga, separadas e consolidadas":"só o que é de "+esc(VISAO_LABEL)+(codesComLinha.indexOf("AMBOS")>=0?" (e o compartilhado)":"")}${podeAlgo?" · toque no ✓ pra dar baixa":""}</div></div>
+    <div class="fp-top">
+      <div class="fp-per">
+        <button class="btn ghost sm" onclick="fpMes(-1)" aria-label="Mês anterior">‹</button>
+        <div class="fp-per-lbl">${mkLabel(c.mk)}</div>
+        <button class="btn ghost sm" onclick="fpMes(1)" aria-label="Próximo mês">›</button>
+        ${c.mk!==todayISO().slice(0,7)?`<button class="btn ghost sm" onclick="fpHojeMes()">hoje</button>`:""}
+      </div>
+      <div class="fp-hor">${[[1,"Mês"],[3,"3m"],[6,"6m"],[0,"Tudo"]].map(([h,l])=>`<button class="btn ${c.hor===h?"":"ghost"} sm" onclick="fpHor(${h})">${l}</button>`).join("")}</div>
+      <button class="btn sm fp-nova" onclick="addPagar()" title="Lança na visão aberta (${esc(VISAO_LABEL)})">+ Nova</button>
     </div>
   </div>
-  <div class="controls">${filtros}<button class="btn ghost sm" style="margin-left:auto" onclick="fpRecarregar()">↻ Atualizar</button></div>
+  <div class="controls fp-fil-row">${filtros}<button class="btn ghost sm" style="margin-left:auto" onclick="fpRecarregar()" aria-label="Recarregar">↻ Atualizar</button></div>
   ${semVenc}
   ${kpis}
-  <div class="secttl"><span>Visão separada</span><span class="sub" style="margin:0;text-transform:none;letter-spacing:0;font-weight:500">cada frente com o próprio subtotal</span></div>
-  <div class="fp-views">${cards||`<div class="panel"><div class="empty">Nenhuma conta a pagar cadastrada nas visões que você enxerga.</div></div>`}</div>
+  ${consolidado?`<div class="secttl"><span>Visão separada</span><span class="sub" style="margin:0;text-transform:none;letter-spacing:0;font-weight:500">cada frente com o próprio subtotal</span></div>
+  <div class="fp-views">${cards||`<div class="panel"><div class="empty">Nenhuma conta a pagar cadastrada nas visões que você enxerga.</div></div>`}</div>`:""}
   <div class="secttl" style="margin-top:20px"><span>Por dia de vencimento · ${mkLabel(c.mk)}</span><span class="num">${fmtBRL(fpSum(c.mesAbertoTotal.filter(r=>r.venc<=c.ate)))}</span></div>
   <div class="panel">
     ${legenda}

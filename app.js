@@ -712,6 +712,18 @@ function visoesPanel(){if(!isAll())return"";
   return`<div class="panel"><h2>Suas visões <span class="sub" style="font-weight:400;font-size:11px">toque pra abrir o detalhe</span></h2>
     ${g("Negócios",rows.filter(r=>r.p.grupo==="Negócios"))}${g("Vida",rows.filter(r=>r.p.grupo==="Pessoal"))}</div>`;
 }
+/* ===== Visão VAZIA (2.0, 04/09): em vez de uma tela de zeros, um roteiro de 3 passos.
+   Aparece só quando a visão não tem movimento nem previsto; some sozinho no 1º dado. ===== */
+function primeirosPassos(){
+  if(isAll())return"";
+  const vazia=!(DB.movimentos||[]).length&&!(DB.contasPagar||[]).length&&!(DB.aReceber||[]).length;
+  if(!vazia)return"";
+  const passo=(n,t,d,act,lbl)=>`<div class="ct-row" style="cursor:default"><div class="dot-day"><b>${n}</b></div><div class="ct-main"><b>${t}</b><small>${d}</small></div><button class="btn sm" onclick="${act}">${lbl}</button></div>`;
+  return`<div class="panel pp-vazia"><h2>👋 Primeiros passos</h2><div class="sub" style="margin-bottom:4px">${esc(VISAO_LABEL)} ainda está vazia. Três passos e a tela ganha vida:</div>
+    ${passo(1,"Cadastre as contas do mês","aluguel, escola, luz… o que é recorrente aparece todo mês sozinho",IS_PESSOAL?"route('contas')":"route('pagar')","Contas")}
+    ${passo(2,"Traga o extrato do banco","importe OFX, CSV ou PDF — ou conecte o banco em Configurações","route('importar')","Importar")}
+    ${passo(3,"Ou lance um gasto na mão","um toque e a Visão Geral já muda","addMovimento()","+ Lançar")}
+  </div>`;}
 function viewDashboard(){
   {const d=new Date();if(!PERIOD.ano)PERIOD.ano=d.getFullYear();if(!PERIOD.mes)PERIOD.mes=d.getMonth()+1;}
   if(!["mes","ano","range"].includes(PERIOD.mode))PERIOD.mode="mes";
@@ -722,12 +734,13 @@ function viewDashboard(){
   $("#view").innerHTML=`
   <div class="row">
     <div style="display:flex;align-items:center;gap:12px">
-      ${isAll()?"":`<button class="btn ghost sm" onclick="route('central')" title="Ver todas as visões">‹ Todas</button>`}
+      ${isAll()?"":`<button class="btn ghost sm so-desktop" onclick="route('central')" title="Ver todas as visões">‹ Todas</button>`}
       <div><h1>${isAll()?"Central financeira":esc(VISAO_LABEL)}</h1><div class="sub">${isAll()?"Consolidado de todas as visões · transferências entre suas visões não contam 2×":"Visão geral · "+esc(CUR_PROFILE.grupo)}</div></div>
     </div>
     ${isAll()?"":`<button class="btn" onclick="addMovimento()">+ Lançar</button>`}
   </div>
   ${ovPeriodBar()}
+  ${primeirosPassos()}
   <div class="kpis">
     <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">${isAll()?"contas correntes de todas as visões":"contas da visão"}</div></div>
     <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">realizado ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)} · toque p/ ver ›</div></div>
@@ -773,12 +786,13 @@ function viewDashFamilia(){
   $("#view").innerHTML=`
   <div class="row">
     <div style="display:flex;align-items:center;gap:12px">
-      <button class="btn ghost sm" onclick="route('central')" title="Voltar à Central">‹ Central</button>
+      <button class="btn ghost sm so-desktop" onclick="route('central')" title="Voltar à Central">‹ Central</button>
       <div><h1>${esc(VISAO_LABEL)}</h1><div class="sub">${PERM.nome?`Olá, ${esc(PERM.nome.split(" ")[0])} · `:""}Painel da casa · ${ovPeriodLabel()}</div></div>
     </div>
     <button class="btn" onclick="addMovimento()">+ Lançar</button>
   </div>
   ${ovPeriodBar()}
+  ${primeirosPassos()}
   <div class="panel fam-hero">
     <div class="lbl">Sobra prevista ${PERIOD.mode==="mes"?"do mês":"do período"}</div>
     <div class="val ${sobra>=0?"":"neg"}">${fmtBRL(sobra)}</div>
@@ -3040,6 +3054,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    DOBR.__t=false;if(dobrClosed("__t",true)!==false)f.push("dobrClosed ignora a escolha salva");delete DOBR.__t;}
   if(typeof mvFiltToggle!=="function")f.push("gaveta de filtros do Movimentos ausente");
   if(!/dobr\("ct-"\+key/.test(String(viewContas)))f.push("Contas do mês sem grupos dobráveis");
+  if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
   if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));

@@ -115,6 +115,7 @@ const NAV_CAT={
   dre:       {ico:"📊", label:"DRE",            vis:()=>IS_NEGOCIOS},
   orcamento: {ico:"🎯", label:"Orçamento", vis:()=>!isAll()},
   movimentos:{ico:"↕",  label:"Movimentos"},
+  conciliacao:{ico:"⇄", label:"Conciliação", vis:()=>!isAll()},
   contas:    {ico:"🗓", label:"Contas do mês",  vis:()=>IS_PESSOAL},
   pagar:     {ico:"▣",  label:"Contas a Pagar", vis:()=>!IS_PESSOAL},
   receber:   {ico:"◳",  label:"A Receber",      vis:()=>!IS_PESSOAL},
@@ -128,7 +129,7 @@ const NAV_KEY="cfin_nav_v1";
 const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no menu (04/09: Central = seletor de visão) */
 const navDefault=()=>[
   {titulo:"",             itens:["financeiro","dashboard","fluxo","orcamento","dre"]},   /* 04/09: "Central" saiu do menu — o seletor de visão no topo já leva a Todas */
-  {titulo:"Lançamentos",  itens:["movimentos","contas","pagar","receber","comissoes","cartoes","importar"]},
+  {titulo:"Lançamentos",  itens:["movimentos","conciliacao","contas","pagar","receber","comissoes","cartoes","importar"]},
   {titulo:"Sistema",      itens:["config"]},
 ];
 let NAVLAY=null, NAV_HIDE=new Set(), NAV_EDIT=false;
@@ -145,7 +146,8 @@ function navLoad(){
   /* rota nova no catálogo (deploy futuro) entra no fim, sem sumir do menu */
   const vistos=new Set(NAVLAY.flatMap(g=>g.itens));
   const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r)&&!NAV_FORA.has(r));
-  if(faltando.length)NAVLAY[NAVLAY.length-1].itens.push(...faltando);
+  /* rota nova entra logo depois de "movimentos" quando existe (Conciliação ao lado dos lançamentos), senão no fim */
+  faltando.forEach(r=>{const g=NAVLAY.find(g=>g.itens.includes("movimentos"));if(g)g.itens.splice(g.itens.indexOf("movimentos")+1,0,r);else NAVLAY[NAVLAY.length-1].itens.push(r);});
 }
 function navSave(){try{localStorage.setItem(NAV_KEY,JSON.stringify({grupos:NAVLAY,ocultos:[...NAV_HIDE]}));}catch(e){}}
 function navReset(){NAVLAY=navDefault();NAV_HIDE=new Set();navSave();renderNav();toast("Menu voltou ao padrão");}
@@ -1186,14 +1188,21 @@ function ctValEdit(i,el){const r=_ctRows[i];if(!r||el.querySelector("input"))ret
   inp.addEventListener("blur",commit);inp.addEventListener("keydown",e=>{if(e.key==="Enter")inp.blur();if(e.key==="Escape"){done=true;viewContas();}});}
 /* ✓ de 1 toque: dá baixa + lança/concilia o movimento; recorrente rola a âncora */
 async function ctPay(i){
-  const r=_ctRows[i];if(!r)return;const p=r.p,isPg=CT.tab==="pagar";
+  const r=_ctRows[i];if(!r)return;const isPg=CT.tab==="pagar";
   if(r.paid)return ctUndo(r);
-  const paidSt=isPg?"pago":"recebido",sentido=isPg?"Saída":"Entrada";
-  const banco=isPg?p.banco:p.conta,kind=recKind(p.recorrencia),hoje=ctHoje();
+  const sentido=isPg?"Saída":"Entrada";
   /* o extrato (Pluggy/import) já trouxe esse valor? → concilia em vez de duplicar.
      Janela: até 7 dias do VENCIMENTO ou de HOJE (atrasado pago hoje casa com o débito de hoje). */
   const _dd=(a,b)=>Math.abs((new Date(a)-new Date(b))/864e5);
   const match=DB.movimentos.find(m=>m.sentido===sentido&&!isForaAgregado(m)&&Math.abs(m.valor-r.valor)<=Math.max(0.5,r.valor*0.02)&&Math.min(_dd(m.data,r.data),_dd(m.data,ctHoje()))<=7);
+  await ctBaixa(r,isPg,match);
+}
+/* NÚCLEO da baixa (04/09): usado pelo ✓ das Contas do mês (par automático) e pela tela
+   Conciliação (par escolhido). r = ocorrência {p,data,valor,desc}; match = movimento do extrato
+   que quita (não lança movimento novo) ou null (lança). */
+async function ctBaixa(r,isPg,match){
+  const p=r.p,paidSt=isPg?"pago":"recebido",sentido=isPg?"Saída":"Entrada";
+  const banco=isPg?p.banco:p.conta,kind=recKind(p.recorrencia),hoje=ctHoje();
   const und={mov:null,inst:null,tpl:null,prevAnchor:null,coll:isPg?"contasPagar":"aReceber"};
   try{
     if(kind){
@@ -1254,6 +1263,69 @@ async function ctUndo(r){
   }catch(e){toast("Erro: "+e.message);}
   await afterWrite();
 }
+
+/* ===== CONCILIAÇÃO (04/09, pedido dele): encontro de contas =====
+   O que está a pagar/receber × o que o extrato trouxe. Cada ocorrência aberta vencida (ou
+   vencendo em até 3 dias) procura no extrato um movimento do MESMO sentido, valor igual
+   (tolerância 5%, os mais próximos primeiro) e data perto do vencimento ou de hoje (10 dias).
+   Conciliar = a MESMA baixa do ✓ das Contas do mês (ctBaixa) com o par escolhido: quita o
+   previsto sem lançar movimento novo (erro 12/34 do Livro: nada entra 2×). */
+let CONC={alt:{}},_concPares=[];
+function concPares(){
+  const hoje=ctHoje(),lim=addDaysISO(hoje,3),tk=hoje.slice(0,7);
+  const meses=[addMonth(tk,-2),addMonth(tk,-1),tk],seen=new Set(),abertos=[];
+  for(const tab of["pagar","receber"])for(const mk of meses)ctOcc(tab,mk).forEach(o=>{
+    if(o.paid||o.data>lim)return;const k=o.p._row+"|"+o.data;if(seen.has(k))return;seen.add(k);
+    abertos.push({...o,tab,key:k});});
+  abertos.sort((a,b)=>a.data<b.data?-1:1);
+  const _dd=(a,b)=>Math.abs((new Date(a)-new Date(b))/864e5),usados=new Set();
+  const cand=o=>{const sent=o.tab==="pagar"?"Saída":"Entrada";
+    return DB.movimentos.filter(m=>m.sentido===sent&&!usados.has(m._row)&&!isForaAgregado(m)&&m.data<=hoje&&Math.min(_dd(m.data,o.data),_dd(m.data,hoje))<=10&&Math.abs(m.valor-o.valor)<=Math.max(0.5,o.valor*0.05))
+      .map(m=>({m,dv:Math.abs(m.valor-o.valor),dd:_dd(m.data,o.data)})).sort((a,b)=>a.dv-b.dv||a.dd-b.dd).slice(0,3);};
+  return abertos.map(o=>{const cs=cand(o);let sel=cs[0]||null;const alt=CONC.alt[o.key];if(alt){const f=cs.find(c=>c.m._row===alt);if(f)sel=f;}
+    if(sel)usados.add(sel.m._row);return{...o,cands:cs,sel,_usados:usados};});
+}
+/* saídas dos últimos 30 dias sem nenhuma conta cadastrada por trás (nem aberta nem paga) */
+function concSoltos(pares){
+  const hoje=ctHoje(),de=addDaysISO(hoje,-30),tk=hoje.slice(0,7),used=new Set();
+  pares.forEach(x=>{if(x.sel)used.add(x.sel.m._row);});
+  const _dd=(a,b)=>Math.abs((new Date(a)-new Date(b))/864e5);
+  const pagas=[];for(const mk of[addMonth(tk,-1),tk])ctOcc("pagar",mk).forEach(o=>{if(o.paid)pagas.push(o);});
+  return DB.movimentos.filter(m=>m.sentido==="Saída"&&!m._cartao&&m.data>=de&&m.data<=hoje&&m.valor>=50&&!used.has(m._row)&&!isForaAgregado(m)&&!isInterno(m)
+    &&!pagas.some(o=>Math.abs(o.valor-m.valor)<=Math.max(0.5,o.valor*0.05)&&_dd(o.data,m.data)<=10)).sort((a,b)=>b.valor-a.valor).slice(0,20);
+}
+function viewConciliacao(){
+  if(isAll()){$("#view").innerHTML=`<div class="row"><div><h1>Conciliação</h1></div></div><div class="panel"><div class="empty">Escolha uma visão no topo pra conciliar as contas dela com o extrato.</div></div>`;return;}
+  const pares=concPares();_concPares=pares;
+  const com=pares.filter(x=>x.sel),sem=pares.filter(x=>!x.sel),soltos=concSoltos(pares);
+  const sum=a=>a.reduce((s,x)=>s+x.valor,0),hoje=ctHoje(),pode=podeEditar(VISAO);
+  const linha=(x,i)=>{const isPg=x.tab==="pagar",s=x.sel;
+    return`<div class="ct-row conc-row">
+      <div class="dot-day"><b class="${x.data<hoje?"out":""}">${x.data.slice(8,10)}</b><span>${ML[+x.data.slice(5,7)-1]}</span></div>
+      <div class="ct-main"><b>${esc(x.desc)}</b><small>${isPg?"a pagar":"a receber"}${x.data<hoje?` · <span class="ct-latebdg">${isPg?"em atraso":"atrasado"}</span>`:""}</small>
+        ${s?`<small class="conc-par">↳ extrato ${fmtDate(s.m.data)} · ${esc(s.m.descricao.slice(0,42))} · ${esc(s.m.banco||"—")} · <b>${fmtBRL(s.m.valor)}</b>${s.dv>0.005?` <span class="out">(Δ ${fmtBRL(s.dv)})</span>`:""}</small>`
+           :`<small class="conc-par" style="color:var(--muted)">↳ nada no extrato com esse valor perto de ${fmtDate(x.data)}</small>`}
+        ${x.cands.length>1?`<select class="conc-alt" onchange="CONC.alt['${x.key}']=this.value;viewConciliacao()">${x.cands.map(c=>`<option value="${c.m._row}"${s&&s.m._row===c.m._row?" selected":""}>${fmtDate(c.m.data)} · ${esc(c.m.descricao.slice(0,28))} · ${fmtBRL(c.m.valor)}</option>`).join("")}</select>`:""}
+      </div>
+      <div class="ct-val num ${isPg?"":"in"}">${fmtBRL(x.valor)}</div>
+      ${pode?(s?`<button class="btn sm" onclick="concOk(${i})">✓ Conciliar</button>`:`<button class="btn ghost sm" onclick="concOk(${i})" title="Dá baixa e lança o movimento (sem extrato)">Baixar</button>`):""}
+    </div>`;};
+  const bloco=(id,t,arr,resumo,def)=>arr.length?dobr(id,`<div class="panel ct-grp"><h2 class="secttl" style="margin:2px 0 4px">${t}</h2><div>${arr.map(x=>linha(x,pares.indexOf(x))).join("")}</div></div>`,resumo,!!def):"";
+  const solto=m=>`<div class="ct-row" onclick="editMovimento('${m._row}')" role="button" tabindex="0"><div class="dot-day"><b>${m.data.slice(8,10)}</b><span>${ML[+m.data.slice(5,7)-1]}</span></div><div class="ct-main"><b>${esc(m.descricao)}</b><small>${esc(m.banco||"—")}${m.categoria?" · "+esc(m.categoria):""}</small></div><div class="ct-val num">${fmtBRL(m.valor)}</div></div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Conciliação</h1><div class="sub">${esc(VISAO_LABEL)} · o que está pra pagar ou receber × o que o extrato trouxe</div></div></div>
+  <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+    <div class="kpi"><div class="lbl">A conciliar</div><div class="val">${pares.length}</div><div class="hint">${fmtBRL(sum(pares))}</div></div>
+    <div class="kpi"><div class="lbl">Com par no extrato</div><div class="val in">${com.length}</div><div class="hint">${fmtBRL(sum(com))}</div></div>
+    <div class="kpi"><div class="lbl">Sem par</div><div class="val ${sem.length?"out":""}">${sem.length}</div><div class="hint">${fmtBRL(sum(sem))}</div></div>
+  </div>
+  ${pares.length?"":`<div class="panel"><div class="empty">Nada a conciliar: não há conta vencida nem vencendo nos próximos 3 dias em ${esc(VISAO_LABEL)}.</div></div>`}
+  ${bloco("conc-com","Par encontrado no extrato",com,fmtBRL(sum(com)))}
+  ${bloco("conc-sem","Sem par no extrato",sem,fmtBRL(sum(sem)),isMobile())}
+  ${soltos.length?dobr("conc-soltos",`<div class="panel ct-grp"><h2 class="secttl" style="margin:2px 0 4px">Saídas dos últimos 30 dias sem conta cadastrada</h2><div>${soltos.map(solto).join("")}</div></div>`,`${soltos.length} · ${fmtBRL(soltos.reduce((s,m)=>s+m.valor,0))}`,true):""}`;
+}
+async function concOk(i){const x=_concPares[i];if(!x)return;
+  if(!podeEditar(VISAO)){toast("Você não pode dar baixa nesta visão");return;}
+  await ctBaixa(x,x.tab==="pagar",x.sel?x.sel.m:null);}
 
 /* ===== Comissões LP (PIPEX · divisão de comissão do Daniel) =====
    Extrato .xls (HTML disfarçado) do Daniel → marca quem entra na divisão →
@@ -1826,6 +1898,15 @@ async function lancarImport(){const{r,dest}=window._imp||{};if(!r)return;const i
 
 /* ===== Fluxo de Caixa (realizado + projeção c/ recorrentes) ===== */
 let FLUXO_H=6;
+/* Orçamento como previsão dos gastos VARIÁVEIS (04/09, regra dele): por categoria com teto e sem
+   conta cadastrada no mês. No mês CORRENTE o que já foi gasto na categoria migra pro realizado e
+   sai do previsto (resta = teto − gasto, nunca negativo) — sem isso o mercado contava 2× no mês. */
+function fxOrcItens(mm,jaPrevisto){
+  const ORC=(typeof loadOrc==="function"?loadOrc():{})||{},mb=ORC[mm]||{},tk=todayISO().slice(0,7);
+  const real={};if(mm===tk)DB.movimentos.forEach(m=>{if(m.sentido!=="Saída"||isForaAgregado(m)||monthKey(m.data)!==mm)return;real[m.categoria||"—"]=(real[m.categoria||"—"]||0)+m.valor;});
+  return Object.keys(mb).filter(cat=>!jaPrevisto.has(cat)&&Number(mb[cat]||0)>0)
+    .map(cat=>{const teto=Number(mb[cat]),gasto=real[cat]||0;return{cat,teto,gasto,resta:Math.max(0,teto-gasto)};}).sort((a,b)=>b.resta-a.resta);
+}
 function viewFluxo(){const tk=todayISO().slice(0,7);
   const real=[...new Set(DB.movimentos.map(m=>monthKey(m.data)).filter(Boolean))].sort().filter(k=>k<=tk).slice(-FLUXO_H);
   const months=[]; let cur=real.length?real[0]:tk; const end=addMonth(tk,6);
@@ -1844,11 +1925,8 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
      o teto de "Mercado" projeta, mas o teto de "Moradia" não soma em cima do
      condomínio que já está cadastrado. Fica em linha separada pra você distinguir
      compromisso (boleto) de estimativa (média). */
-  const ORC=(typeof loadOrc==="function"?loadOrc():{})||{};
   months.forEach(mm=>{ if(mm<tk) return;
-    const mb=ORC[mm]; if(!mb) return;
-    const jaPrevisto=pagCats[mm]||new Set();
-    let t=0; Object.keys(mb).forEach(cat=>{ if(!jaPrevisto.has(cat)) t+=Number(mb[cat]||0); });
+    const t=fxOrcItens(mm,pagCats[mm]||new Set()).reduce((a,x)=>a+x.resta,0);
     if(t>0) orc[mm]=t;
   });
   // ACUMULADO ANCORADO NO SALDO REAL (30/08): a soma cega de movimentos não tem saldo de
@@ -1874,7 +1952,7 @@ function viewFluxo(){const tk=todayISO().slice(0,7);
     <tr><td class="h"><b>Saldo acumulado</b></td>${data.map(c=>`<td class="${c.acc>=0?'in':'out'}"><b>${fmtBRL(c.acc)}</b></td>`).join("")}</tr>
    </tbody></table></div>`;
   /* celular: o gráfico responde "pra onde vai o saldo" antes da tabela; a legenda longa é só desktop */
-  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção<span class="so-desktop">. <span class="pj">Roxo</span> = a receber/pagar cadastrado. <span class="orcx">Âmbar</span> = teto do Orçamento nas categorias sem conta cadastrada. Acumulado ancorado no saldo real das contas hoje.</span></div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
+  $("#view").innerHTML=`<div class="row"><div><h1>Fluxo de Caixa</h1><div class="sub">Realizado + projeção<span class="so-desktop">. <span class="pj">Roxo</span> = a receber/pagar cadastrado. <span class="orcx">Âmbar</span> = Orçamento dos gastos variáveis (o que já foi gasto no mês sai do previsto e vai pro realizado). Acumulado ancorado no saldo real das contas hoje.</span></div></div><select id="fh"><option value="3">3m</option><option value="6" selected>6m</option><option value="12">12m</option></select></div>
    ${isMob?grafico+tabela:tabela+grafico}`;
   $("#fh").value=String(FLUXO_H);$("#fh").onchange=e=>{FLUXO_H=+e.target.value;viewFluxo();};
   /* a tabela abre já no mês atual (no celular só cabe 1,5 mês por vez) */
@@ -1918,18 +1996,15 @@ function fluxoDrill(k,t){
   const nomes={e:"Entradas",s:"Saídas",r:"A receber (previsto)",p:"A pagar (previsto)",o:"Orçamento estimado (categorias sem conta cadastrada)"};
   let linhas="",tot=0,n=0;
   if(t==="o"){
-    const ORC=(typeof loadOrc==="function"?loadOrc():{})||{};
-    const mb=ORC[k]||{};
     // mesmas categorias que o viewFluxo somou: as que NAO tem conta a pagar prevista no mes
     const jaPrevisto=new Set();
     DB.contasPagar.filter(c=>(c.status||"").toLowerCase()==="aberto"&&!isPrevFatura(c)).forEach(c=>{
       const vk=monthKey(c.vencimento); if(!vk)return;
       if(vk===k||(c.recorrencia==="mensal"&&k>=vk)||(k===tk&&vk<tk)){ if(c.categoria)jaPrevisto.add(c.categoria); }
     });
-    const items=Object.keys(mb).filter(cat=>!jaPrevisto.has(cat)&&Number(mb[cat]||0)>0)
-      .map(cat=>({cat,valor:Number(mb[cat])})).sort((a,b)=>b.valor-a.valor);
-    n=items.length; tot=items.reduce((acc,x)=>acc+x.valor,0);
-    linhas=items.map(x=>_drillRow("teto",esc(x.cat),"teto do orçamento · sem conta cadastrada",fmtBRL(x.valor),"out")).join("");
+    const items=fxOrcItens(k,jaPrevisto);
+    n=items.length; tot=items.reduce((acc,x)=>acc+x.resta,0);
+    linhas=items.map(x=>_drillRow("resta",esc(x.cat),k===tk?`teto ${fmtBRL(x.teto)} · já gasto ${fmtBRL(x.gasto)} (foi pro realizado)`:"teto do orçamento · gasto variável",fmtBRL(x.resta),"out")).join("");
   }else if(t==="e"||t==="s"){
     const items=DB.movimentos.filter(m=>monthKey(m.data)===k&&!isForaAgregado(m)&&(t==="e"?m.sentido==="Entrada":m.sentido==="Saída")).sort((a,b)=>a.data<b.data?1:-1);
     n=items.length;tot=items.reduce((s,m)=>s+Number(m.valor||0),0);
@@ -2834,7 +2909,7 @@ async function fpAfterWrite(visao){
   viewFinanceiro();
 }
 
-const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
@@ -3055,6 +3130,9 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    DOBR.__t=false;if(dobrClosed("__t",true)!==false)f.push("dobrClosed ignora a escolha salva");delete DOBR.__t;}
   if(typeof mvFiltToggle!=="function")f.push("gaveta de filtros do Movimentos ausente");
   if(!/dobr\("ct-"\+key/.test(String(viewContas)))f.push("Contas do mês sem grupos dobráveis");
+  if(!/fxOrcItens\(/.test(String(viewFluxo))||!/fxOrcItens\(/.test(String(fluxoDrill)))f.push("Fluxo e drill do Orçamento com contas diferentes (teto sem abater o gasto do mês)");
+  if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
+  if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
   if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");

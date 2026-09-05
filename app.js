@@ -125,8 +125,9 @@ const NAV_CAT={
   config:    {ico:"⚙",  label:"Configurações"},
 };
 const NAV_KEY="cfin_nav_v1";
+const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no menu (04/09: Central = seletor de visão) */
 const navDefault=()=>[
-  {titulo:"",             itens:["central","financeiro","dashboard","fluxo","dre","orcamento"]},
+  {titulo:"",             itens:["financeiro","dashboard","fluxo","orcamento","dre"]},   /* 04/09: "Central" saiu do menu — o seletor de visão no topo já leva a Todas */
   {titulo:"Lançamentos",  itens:["movimentos","contas","pagar","receber","comissoes","cartoes","importar"]},
   {titulo:"Sistema",      itens:["config"]},
 ];
@@ -136,14 +137,14 @@ function navLoad(){
   try{
     const raw=JSON.parse(localStorage.getItem(NAV_KEY)||"null");
     if(raw&&Array.isArray(raw.grupos)){
-      NAVLAY=raw.grupos.map(g=>({titulo:String(g.titulo||""),itens:(g.itens||[]).filter(r=>NAV_CAT[r])}));
+      NAVLAY=raw.grupos.map(g=>({titulo:String(g.titulo||""),itens:(g.itens||[]).filter(r=>NAV_CAT[r]&&!NAV_FORA.has(r))}));
       NAV_HIDE=new Set((raw.ocultos||[]).filter(r=>NAV_CAT[r]));
     }
   }catch(e){}
   if(!NAVLAY||!NAVLAY.length)NAVLAY=navDefault();
   /* rota nova no catálogo (deploy futuro) entra no fim, sem sumir do menu */
   const vistos=new Set(NAVLAY.flatMap(g=>g.itens));
-  const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r));
+  const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r)&&!NAV_FORA.has(r));
   if(faltando.length)NAVLAY[NAVLAY.length-1].itens.push(...faltando);
 }
 function navSave(){try{localStorage.setItem(NAV_KEY,JSON.stringify({grupos:NAVLAY,ocultos:[...NAV_HIDE]}));}catch(e){}}
@@ -2559,7 +2560,7 @@ function viewFinanceiro(){
 
   $("#view").innerHTML=`
   <div class="row fp-head">
-    <div><h1>${consolidado?"Modo Financeiro · Contas a Pagar":"Contas a Pagar · "+esc(VISAO_LABEL)}</h1><div class="sub">${mkLabel(c.mk)} — ${consolidado?codesComLinha.length+" frente(s) que você enxerga, separadas e consolidadas":"só o que é de "+esc(VISAO_LABEL)+(codesComLinha.indexOf("AMBOS")>=0?" (e o compartilhado)":"")}${podeAlgo?" · toque no ✓ pra dar baixa":""}</div></div>
+    <div><h1>${consolidado?"Modo Financeiro · Contas a Pagar":"Contas a Pagar · "+esc(VISAO_LABEL)}</h1></div>
     <div class="fp-top">
       <div class="fp-per">
         <button class="btn ghost sm" onclick="fpMes(-1)" aria-label="Mês anterior">‹</button>
@@ -2598,7 +2599,7 @@ function viewFinanceiro(){
       ${tabela(c.prox,false,c.hor===0?"O recorte Tudo já cobre o futuro.":"Nada além do recorte.")}
     </div>
   </div>
-  <div class="sub" style="margin:10px 2px 30px">Lê a tabela <code>previstos</code> (tipo “pagar”) ao vivo. Mostra as contas <b>já cadastradas</b> — recorrentes não são projetados aqui (quem projeta é a Visão Geral / Contas do mês). Itens com “PERSPECTIVA/ESTIMATIVA” na descrição vêm marcados como estimativa.</div>`;
+  <div style="height:24px"></div>`;
 }
 
 /* detalhe da linha: no mesmo escopo abre o editor de sempre; fora dele, leitura + atalho */

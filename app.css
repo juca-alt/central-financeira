@@ -459,6 +459,19 @@ tbody tr{transition:background .1s}
 @media(prefers-reduced-motion:reduce){.dobr h2>.dobr-caret{transition:none}}
 /* texto só de desktop: no celular empurra o conteúdo pra fora da tela */
 @media(max-width:920px){.so-desktop{display:none}}
+/* ===== Celular redondo (04/09, pra Camila): sem zoom do iOS no foco, alvos de 44px, modal em folha ===== */
+@media(max-width:920px){
+  input,select,textarea{font-size:16px}                       /* <16px = o Safari dá zoom ao focar e não volta */
+  .btn{min-height:40px}.btn.sm{min-width:40px}
+  .ck{width:36px;height:36px}
+  #nav a{min-height:44px}
+  .tabs button{min-height:40px}
+  .modal-bg{place-items:end center;padding:0}
+  .modal{width:100%;max-width:100%;border-radius:18px 18px 0 0;max-height:88vh;padding-bottom:env(safe-area-inset-bottom)}
+  .modal h3{padding:14px 18px}
+  .modal button{min-height:44px}
+  .modal input,.modal select{min-height:44px}
+}
 /* seletor de modo do período no celular (Mês/Ano/Período vira um select — uma linha só) */
 .ov-mode{font-size:13px;padding:6px 8px;border-radius:9px;border:1px solid var(--border);background:var(--card)}
 /* Movimentos no celular: filtros ficam numa gaveta */

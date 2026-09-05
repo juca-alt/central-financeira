@@ -405,9 +405,11 @@ const DEMO=(()=>{
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,mv,ct,pv,rg,gl,orc,tg,mt,px]=await Promise.all([
+  const [contas,cats,ln,mv,ct,pv,rg,gl,orc,tg,mt,px]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
+    /* Módulos & Links (v8.1): links por visão; tabela pode não existir num clone antigo → lista vazia */
+    sb.from("links").select("id,visao,nome,url,descricao,icone,ordem").in("visao",VFILTER).order("ordem").then(r=>r,()=>({data:[]})),
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id,observacao").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
     sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao,visao").in("visao",VFILTER).order("vencimento").limit(20000),
@@ -425,12 +427,12 @@ async function loadData(){
   const mtMap=new Map();((mt&&mt.data)||[]).forEach(r=>{const a=mtMap.get(r.movimento_id)||[];a.push(r.tag_id);mtMap.set(r.movimento_id,a);});
   const movimentos=mv.data.map(r=>({_row:r.id,data:(r.data||"").slice(0,10),descricao:r.descricao_limpa||r.descricao_original||"",banco:cb.get(r.conta_id)?.nome||"",valor:Number(r.valor||0),sentido:r.sinal===1?"Entrada":"Saída",categoria:nameOf(r.categoria_id),observacao:r.observacao||"",mes:r.data?+r.data.slice(5,7):null,ano:r.data?+r.data.slice(0,4):null,tags:(mtMap.get(r.id)||[])}));
   const cartoes=ct.data.map(r=>({_row:r.id,data:(r.data_compra||"").slice(0,10),descricao:r.descricao||"",cartao:cb.get(r.cartao_id)?.nome||"",valor:Number(r.valor||0),subcategoria:nameOf(r.categoria_id),mesFatura:(r.data_fatura||"").slice(5,7)+"/"+(r.data_fatura||"").slice(0,4)}));
-  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||"",visao:p.visao}));
-  const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||"",visao:p.visao}));
+  const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||"",visao:p.visao,movId:p.movimento_id_realizado||null}));
+  const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||"",visao:p.visao,movId:p.movimento_id_realizado||null}));
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
-  return{movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
+  return{links:((ln&&ln.data)||[]),movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1188,7 +1190,7 @@ function viewContas(){
     return`<div class="ct-row ${r.paid?"paid":""} ${(!r.paid&&(r.late||d<hoje))?"late":""}" onclick="ctEdit(${r._i})" role="button" tabindex="0">
     <button class="ck" onclick="event.stopPropagation();ctPay(${r._i})" aria-label="${r.paid?"Desfazer":"Marcar como "+(isPg?"paga":"recebida")}">✓</button>
     <div class="dot-day"><b>${d.slice(8,10)}</b><span>${ML[+d.slice(5,7)-1]}</span></div>
-    <div class="ct-main"><b>${esc(r.desc)}</b><small>${rec?`<span class="chip rec">${esc(r.p.recorrencia)}</span> · `:""}${esc(banco||"—")}${(!r.paid&&(r.late||d<hoje)&&mk===tk)?` · <span class="ct-latebdg">em atraso</span>`:""}</small></div>
+    <div class="ct-main"><b>${esc(r.desc)}</b><small>${rec?`<span class="chip rec">${esc(r.p.recorrencia)}</span> · `:""}${esc(banco||"—")}${(!r.paid&&(r.late||d<hoje)&&mk===tk)?` · <span class="ct-latebdg">em atraso</span>`:""}${r.paid&&r.p.movId?` · <span class="chip" title="Quitada por um movimento do extrato">extrato ✓</span>`:""}</small></div>
     <div class="ct-val num ${isPg?"":"in"}" onclick="event.stopPropagation();ctValEdit(${r._i},this)" title="Tocar pra editar o valor">${fmtBRL(r.valor)}</div></div>`;};
   /* UX 2.0 (04/09): cada grupo é um tópico dobrável com o total no cabeçalho; "Pagas/Recebidos"
      é histórico e nasce fechado no celular (a escolha fica salva por aparelho) */
@@ -1240,9 +1242,9 @@ async function ctBaixa(r,isPg,match){
     if(kind){
       /* instância PAGA do mês + template rola pra próxima ocorrência (projeção continua viva) */
       let instId="p"+Date.now();
-      if(MODE==="live")instId=await sbIns("previstos",{descricao:r.desc,valor:r.valor,vencimento:r.data,tipo:isPg?"pagar":"receber",status:paidSt,visao:VISAO,recorrencia:null,conta_id:contaId(banco),categoria_id:catId(p.categoria||"")});
-      const inst=isPg?{_row:instId,descricao:r.desc,vencimento:r.data,valor:r.valor,categoria:p.categoria||"",banco,status:paidSt,recorrencia:""}
-                     :{_row:instId,linha:r.desc,dataPrevista:r.data,previstoLiquido:r.valor,conta:banco,status:paidSt,recorrencia:""};
+      if(MODE==="live")instId=await sbIns("previstos",{descricao:r.desc,valor:r.valor,vencimento:r.data,tipo:isPg?"pagar":"receber",status:paidSt,visao:VISAO,recorrencia:null,conta_id:contaId(banco),categoria_id:catId(p.categoria||""),movimento_id_realizado:match?match._row:null});
+      const inst=isPg?{_row:instId,descricao:r.desc,vencimento:r.data,valor:r.valor,categoria:p.categoria||"",banco,status:paidSt,recorrencia:"",movId:match?match._row:null}
+                     :{_row:instId,linha:r.desc,dataPrevista:r.data,previstoLiquido:r.valor,conta:banco,status:paidSt,recorrencia:"",movId:match?match._row:null};
       DB[und.coll].push(inst);und.inst=instId;
       const anchor=((isPg?p.vencimento:p.dataPrevista)||"").slice(0,10);
       /* rola a âncora pra depois da ocorrência paga; ocorrências PULADAS (mais antigas,
@@ -1260,12 +1262,14 @@ async function ctBaixa(r,isPg,match){
       if(MODE==="live")await sbUpd("previstos",p._row,{vencimento:nx});
       if(isPg)p.vencimento=nx;else p.dataPrevista=nx;
     }else{
-      if(MODE==="live")await sbUpd("previstos",p._row,{status:paidSt});
-      p.status=paidSt;und.inst=p._row;
+      if(MODE==="live")await sbUpd("previstos",p._row,{status:paidSt,movimento_id_realizado:match?match._row:null});
+      p.status=paidSt;p.movId=match?match._row:null;und.inst=p._row;
     }
     if(match){toast((isPg?"Pago":"Recebido")+" ✓ · conciliado com o extrato");}
     else{await lancarMov({data:hoje,descricao:r.desc,valor:r.valor,sentido,banco:banco||bancoOpts()[0]||"",categoria:p.categoria||""});
       und.mov=DB.movimentos[0]&&DB.movimentos[0]._row;
+      /* v8.1: o previsto aponta pro movimento que o quitou (lançado ou conciliado) — a Conciliação não o oferece de novo */
+      if(MODE==="live"&&und.mov&&und.inst){try{await sbUpd("previstos",und.inst,{movimento_id_realizado:und.mov});}catch(e){}}
       toast((isPg?"Pago":"Recebido")+" ✓ · lançado em "+(banco||"conta"));}
     CT_UNDO[und.inst]=und;
   }catch(e){toast("Erro: "+e.message);}
@@ -1307,19 +1311,28 @@ const LINKS_SEED=[
   {n:"Supabase · Central",d:"Banco e Edge Functions do app.",u:"https://supabase.com/dashboard/project/mieqsiojvfiqrhectquc",i:"ti-database"},
   {n:"Meu Pluggy",d:"Conexões bancárias (Inter PF, C6, Nubank).",u:"https://meu.pluggy.ai",i:"ti-plug"},
 ];
-function linksLoad(){try{const v=JSON.parse(localStorage.getItem(LINKS_KEY)||"null");if(Array.isArray(v))return v;}catch(e){}return LINKS_SEED.slice();}
+function linksLoad(){
+  if(MODE==="live")return (DB.links||[]).map(l=>({id:l.id,n:l.nome,u:l.url,d:l.descricao||"",i:l.icone||"ti-external-link",visao:l.visao}));
+  try{const v=JSON.parse(localStorage.getItem(LINKS_KEY)||"null");if(Array.isArray(v))return v;}catch(e){}return LINKS_SEED.slice();}
 function linksSave(v){try{localStorage.setItem(LINKS_KEY,JSON.stringify(v));}catch(e){}}
 function viewAtalhos(){
   const mods=Object.keys(NAV_CAT).filter(r=>r!=="atalhos"&&r!=="central"&&(NAV_CAT[r].vis?NAV_CAT[r].vis():true));
-  const links=linksLoad();
+  const links=linksLoad(),pode=MODE!=="live"||(!isAll()&&podeEditar(VISAO));
   const tile=(ico,n,d,k,on,x)=>`<div class="tile" onclick="${on}"><div class="t-i">${navIco(ico)}</div><div class="t-n">${esc(n)}</div><div class="t-d">${esc(d||"")}</div><div class="t-k${k==="live"?" live":""}">${k==="live"?"● Módulo":"↗ Link"}</div>${x!=null?`<button class="t-x" onclick="event.stopPropagation();linkDel(${x})" title="Remover">✕</button>`:""}</div>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Módulos & Links</h1><div class="sub">${esc(VISAO_LABEL)} · o que você usa, num lugar só</div></div></div>
   <div class="t-sec">Módulos do app</div><div class="tiles">${mods.map(r=>tile(NAV_CAT[r].ico,NAV_CAT[r].label,NAV_CAT[r].desc,"live",`route('${r}')`)).join("")}</div>
   <div class="t-sec">Pastas, documentos e apps</div><div class="tiles">${links.map((l,i)=>tile(l.i||"ti-external-link",l.n,l.d,"link",`window.open('${esc(l.u)}','_blank')`,i)).join("")}
-    <div class="tile add" onclick="linkAdd()"><i class="ti ti-plus"></i> Adicionar link</div></div>`;
+    ${pode?`<div class="tile add" onclick="linkAdd()"><i class="ti ti-plus"></i> Adicionar link</div>`:""}</div>`;
 }
-function linkAdd(){modal({title:"Novo link",fields:[{name:"n",label:"Nome"},{name:"u",label:"Endereço (URL)",placeholder:"https://…"},{name:"d",label:"Descrição (opcional)"},{name:"i",label:"Ícone",type:"select",options:[{v:"ti-folder",l:"Pasta"},{v:"ti-notebook",l:"Notion / documento"},{v:"ti-building-bank",l:"Banco"},{v:"ti-database",l:"Sistema"},{v:"ti-external-link",l:"Link"}],default:"ti-external-link"}],onSave:async v=>{if(!v.n||!/^https?:\/\//.test(v.u||"")){toast("Nome e endereço começando com https://");return false;}const L=linksLoad();L.push({n:v.n,u:v.u,d:v.d||"",i:v.i});linksSave(L);toast("Link adicionado");viewAtalhos();}});}
-function linkDel(i){const L=linksLoad();const l=L[i];if(!l)return;confirmDel(`Remover "${l.n}" dos links?`,async()=>{L.splice(i,1);linksSave(L);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());viewAtalhos();});}
+function linkAdd(){modal({title:"Novo link",fields:[{name:"n",label:"Nome"},{name:"u",label:"Endereço (URL)",placeholder:"https://…"},{name:"d",label:"Descrição (opcional)"},{name:"i",label:"Ícone",type:"select",options:[{v:"ti-folder",l:"Pasta"},{v:"ti-notebook",l:"Notion / documento"},{v:"ti-building-bank",l:"Banco"},{v:"ti-database",l:"Sistema"},{v:"ti-external-link",l:"Link"}],default:"ti-external-link"}],onSave:async v=>{if(!v.n||!/^https?:\/\//.test(v.u||"")){toast("Nome e endereço começando com https://");return false;}
+    if(MODE==="live"){if(isAll()){toast("Escolha uma visão no topo pra guardar o link nela");return false;}
+      try{await sbIns("links",{visao:VISAO,nome:v.n,url:v.u,descricao:v.d||null,icone:v.i,ordem:linksLoad().length+1});}catch(e){toast("Erro: "+e.message);return false;}
+      toast("Link adicionado");await afterWrite();return;}
+    const L=linksLoad();L.push({n:v.n,u:v.u,d:v.d||"",i:v.i});linksSave(L);toast("Link adicionado");viewAtalhos();}});}
+function linkDel(i){const L=linksLoad();const l=L[i];if(!l)return;confirmDel(`Remover "${l.n}" dos links?`,async()=>{
+  document.querySelectorAll(".modal-bg").forEach(b=>b.remove());
+  if(MODE==="live"){try{await sbDel("links",l.id);}catch(e){toast("Erro: "+e.message);return;}await afterWrite();return;}
+  L.splice(i,1);linksSave(L);viewAtalhos();});}
 
 /* ===== CONCILIAÇÃO (04/09, pedido dele): encontro de contas =====
    O que está a pagar/receber × o que o extrato trouxe. Cada ocorrência aberta vencida (ou
@@ -1336,6 +1349,7 @@ function concPares(){
     abertos.push({...o,tab,key:k});});
   abertos.sort((a,b)=>a.data<b.data?-1:1);
   const _dd=(a,b)=>Math.abs((new Date(a)-new Date(b))/864e5),usados=new Set();
+  [...(DB.contasPagar||[]),...(DB.aReceber||[])].forEach(p=>{if(p.movId)usados.add(p.movId);});
   const cand=o=>{const sent=o.tab==="pagar"?"Saída":"Entrada";
     return DB.movimentos.filter(m=>m.sentido===sent&&!usados.has(m._row)&&!isForaAgregado(m)&&m.data<=hoje&&Math.min(_dd(m.data,o.data),_dd(m.data,hoje))<=10&&Math.abs(m.valor-o.valor)<=Math.max(0.5,o.valor*0.05))
       .map(m=>({m,dv:Math.abs(m.valor-o.valor),dd:_dd(m.data,o.data)})).sort((a,b)=>a.dv-b.dv||a.dd-b.dd).slice(0,3);};
@@ -3195,6 +3209,8 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
   if(typeof temaPanel!=="function"||!/data-tema/.test(String(temaAplicar))||!/app_set_tema/.test(String(temaSet)))f.push("Configurações › Tema ausente ou sem gravar por pessoa");
+  if(!/movimento_id_realizado/.test(String(ctBaixa))||!/p\.movId/.test(String(concPares)))f.push("Conciliação sem gravar/ler o vínculo previsto↔movimento (par repetido)");
+  if(!/from\("links"\)/.test(String(loadData))||!/DB\.links/.test(String(linksLoad)))f.push("Módulos & Links sem ler a tabela links");
   if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");

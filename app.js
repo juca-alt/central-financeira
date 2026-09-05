@@ -65,7 +65,7 @@ const MODE=(HAS_KEY&&!FORCE_DEMO)?"live":"demo";
 /* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (legado, migrando p/ app único). */
 /* `cor` = identidade visual da frente (Modo Financeiro: barras, badges e chips) */
 const PROFILES=[
-  {code:"PJ",      label:"Outliers MFB", grupo:"Negócios", path:"",       icon:"🏢", cor:"#2a78d6", corBg:"#e5effb"},
+  {code:"PJ",      label:"Prudential Franquia", grupo:"Negócios", path:"",       icon:"🏢", cor:"#2a78d6", corBg:"#e5effb"},
   {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢", cor:"#7c3aed", corBg:"#eee9fd"},
   {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢", cor:"#0891b2", corBg:"#e0f3f8"},
   {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠", cor:"#eb6834", corBg:"#fdeade"},
@@ -743,10 +743,10 @@ function viewDashboard(){
   ${ovPeriodBar()}
   ${primeirosPassos()}
   <div class="kpis">
-    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div><div class="hint">${isAll()?"contas correntes de todas as visões":"contas da visão"}</div></div>
-    <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div><div class="hint">realizado ${fmtK(o.entReal)} · a realizar ${fmtK(o.entAReal)} · toque p/ ver ›</div></div>
-    <div class="kpi" onclick="ovDrill('sai')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div><div class="hint">realizado ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)} · toque p/ ver ›</div></div>
-    <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div><div class="hint">saldo + receber − pagar</div></div>
+    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div></div>
+    <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div></div>
+    <div class="kpi" onclick="ovDrill('sai')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div></div>
+    <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div></div>
   </div>
   ${visoesPanel()}
   ${dobrBar()}

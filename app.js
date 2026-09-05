@@ -31,9 +31,7 @@ const SHELL_HTML = `
     <nav class="nav" id="nav"></nav>
     <div class="navedit-bar" id="navEditBar"></div>
     <div class="spacer"></div>
-    <div class="env" id="envBox"></div>
     <div class="logout" id="forceUpd" title="Buscar a versão mais nova">🔄 Atualizar app</div>
-    <div class="profile" id="profileBox" style="display:none"></div>
     <div class="logout" id="pwBtn" style="display:none">🔑 Alterar senha</div>
     <div class="logout" id="logoutBtn" style="display:none">Sair</div>
   </aside>
@@ -2967,7 +2965,7 @@ function renderTopSwitch(){
   menu.querySelectorAll("a").forEach(a=>a.onclick=()=>{menu.classList.remove("open");visaoPick(a.dataset.code);});
   const mt=document.querySelector(".mtop-brand");if(mt)mt.textContent=label;
 }
-/* chip de conta no rodapé (identidade + acesso a senha/sair); a troca de visão vive no topo */
+/* chip de conta no rodapé — REMOVIDO da sidebar em 05/09 (pedido dele): Minha conta fica em Configurações; a função segue inerte (sem #profileBox) */
 function renderProfile(email){const pb=document.getElementById("profileBox");if(!pb)return;pb.style.display="block";pb.dataset.email=email||"";
   const quem=(typeof PERM!=="undefined"&&PERM.nome)||"";
   const ini=((quem||email||VISAO_LABEL||"?").trim()[0]||"?").toUpperCase();

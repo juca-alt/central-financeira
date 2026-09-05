@@ -433,6 +433,16 @@ const el=h=>{const d=document.createElement("div");d.innerHTML=h.trim();return d
 const bancoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>c.ativo!==false).map(c=>c.nome),...DB.movimentos.map(m=>m.banco)].filter(Boolean))];
 const cartaoOpts=()=>[...new Set([...(DB.contas||[]).filter(c=>/cart/i.test(c.nome)||c.tipo==="cartao").map(c=>c.nome),...DB.cartoes.map(c=>c.cartao)].filter(Boolean))];
 /* tops ORDENADOS (pt) e sem duplicata de nome dentro do mesmo tipo — a lista crua era caótica */
+/* COR DA CATEGORIA (04/09, pedido dele): a mesma cor e o mesmo nome em todo lugar — chip nas
+   listas, rosca, legenda. Vale a cor gravada em Configurações › Categorias (coluna `cor`); sem
+   cor gravada, uma cor estável derivada do nome (a sub herda a do pai). */
+const CAT_PAL=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d","#ea580c","#0d9488","#9333ea","#475569"];
+function catCor(nome){if(!nome||nome==="sem cat.")return"#b45309";const n=String(nome).split(" › ").pop().trim().toLowerCase();
+  const cats=((typeof DB!=="undefined"&&DB)||{}).categorias||[];   /* no boot (self-check) o DB ainda é null */
+  const c=cats.find(x=>String(x.nome||"").trim().toLowerCase()===n);
+  if(c&&c.cor)return c.cor;const par=c&&c.parent_id?cats.find(x=>x.id===c.parent_id):null;if(par&&par.cor)return par.cor;
+  let h=0;for(const ch of n)h=(h*31+ch.charCodeAt(0))>>>0;return CAT_PAL[h%CAT_PAL.length];}
+function catChip(nome){if(!nome)return`<span class="chip none">sem cat.</span>`;const c=catCor(nome);return`<span class="chip cat" style="background:${c}1f;color:${c}">${esc(nome)}</span>`;}
 function catTopsSorted(tipo){const seen=new Set();return DB.categorias.filter(c=>!c.parent_id&&(!tipo||c.tipo===tipo)).filter(c=>{const k=(c.tipo||"")+"|"+String(c.nome||"").trim().toLowerCase();if(seen.has(k))return false;seen.add(k);return true;}).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));}
 const catSubsSorted=p=>DB.categorias.filter(s=>s.parent_id===p.id).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt"));
 function catOptsByTipo(tipo){const out=[""];catTopsSorted(tipo).forEach(p=>{out.push(p.nome);catSubsSorted(p).forEach(s=>out.push(p.nome+" › "+s.nome));});out.push("__new");return out;}
@@ -708,7 +718,7 @@ function visoesPanel(){if(!isAll())return"";
   const card=r=>`<div onclick="setVisao('${r.p.code}')" role="button" tabindex="0" style="cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:11px 14px">
     <div style="font-size:19px;width:24px;text-align:center">${r.p.icon}</div>
     <div style="flex:1;min-width:0"><div style="font-weight:660">${esc(r.p.label)}</div><div class="sub" style="font-size:11px;margin:0">${esc(r.p.grupo==="Pessoal"?"Vida":r.p.grupo)}</div>
-      ${(r.atrasN||r.feedN)?`<div style="font-size:10.5px;font-weight:700;margin-top:2px">${r.atrasN?`<span style="color:#dc2626">⚠️ ${r.atrasN} atrasada(s) · ${fmtK(r.atrasTot)}</span>`:""}${r.atrasN&&r.feedN?" · ":""}${r.feedN?`<span style="color:#d97706">🔌 feed parado (${r.feedN})</span>`:""}</div>`:""}</div>
+      </div>
     <div style="text-align:right"><div class="${r.saldo>=0?'in':'out'}" style="font-weight:700;font-variant-numeric:tabular-nums">${fmtBRL(r.saldo)}</div><div class="sub" style="font-size:10px;margin:0">abrir ›</div></div>
   </div>`;
   const g=(nome,arr)=>arr.length?`<div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:12px 2px 6px">${nome}</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px">${arr.map(card).join("")}</div>`:"";
@@ -738,7 +748,7 @@ function viewDashboard(){
   <div class="row">
     <div style="display:flex;align-items:center;gap:12px">
       ${isAll()?"":`<button class="btn ghost sm so-desktop" onclick="route('central')" title="Ver todas as visões">‹ Todas</button>`}
-      <div><h1>${isAll()?"Central financeira":esc(VISAO_LABEL)}</h1><div class="sub">${isAll()?"Consolidado de todas as visões · transferências entre suas visões não contam 2×":"Visão geral · "+esc(CUR_PROFILE.grupo)}</div></div>
+      <div><h1>${isAll()?"Central financeira":esc(VISAO_LABEL)}</h1>${isAll()?"":`<div class="sub">Visão geral · ${esc(CUR_PROFILE.grupo)}</div>`}</div>
     </div>
     ${isAll()?"":`<button class="btn" onclick="addMovimento()">+ Lançar</button>`}
   </div>
@@ -820,7 +830,7 @@ function viewDashFamilia(){
   ${dobr("ov-mov",`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Movimentos do período <span class="link" onclick="route('movimentos')" style="font-weight:600">ver todos ›</span></span>${recentes.length?selBtn():""}</h2>${miniMov(recentes)}</div>`,`${recentes.length} lançamento${recentes.length===1?"":"s"}`,isMobile())}`;
 }
 function miniMov(rows){if(!rows.length)return`<div class="empty">Sem movimentos.</div>`;
-  return bulkBar()+`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
+  return bulkBar()+`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th></tr></thead><tbody>${rows.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${SELMODE?`selRow('${m._row}')`:`editMovimento('${m._row}')`}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td>${catChip(m.categoria)}</td><td>${esc(m.banco)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")}</tbody></table>`;}
 
 /* ===== Movimentos (multi-seleção + edição inline) ===== */
 function toggleSel(id){if(SEL.has(id))SEL.delete(id);else SEL.add(id);renderMovTable(true);}
@@ -858,17 +868,17 @@ function mvFiltToggle(){MV_FILT_OPEN=!MV_FILT_OPEN;const g=$("#mvFilt");if(g)g.c
 function viewMovimentos(){
   if(MV_MES===undefined)MV_MES=IS_PESSOAL?todayISO().slice(0,7):null;   // Família abre no mês atual; Negócios mantém "Tudo"
   const isMob=window.matchMedia&&window.matchMedia("(max-width:920px)").matches;
+  /* UX 2.0 (04/09): o gráfico é um tópico dobrável (resumo "N categorias" no cabeçalho; fechado por padrão no celular) */
   const vizPanel=IS_PESSOAL
-    ?`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro <span class="sub" id="barsHint" style="font-weight:400"></span></h2><div id="movBars"></div></div>`
-    :`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria <span class="sub" id="pieHint" style="font-weight:400"></span></h2><div style="position:relative;height:${isMob?240:230}px"><canvas id="chMovCat"></canvas></div></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1><div class="sub">toque em categoria/valor pra editar na própria linha</div></div>
+    ?dobr("mv-bars",`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Pra onde foi o dinheiro</h2><div id="movBars"></div></div>`,"",isMob)
+    :dobr("mv-pie",`<div class="panel" style="${isMob?"margin-top:12px":"margin-bottom:12px"}"><h2>Despesas por categoria</h2><div style="position:relative;height:${isMob?240:230}px"><canvas id="chMovCat"></canvas></div></div>`,"",isMob);
+  $("#view").innerHTML=`<div class="row"><div><h1>Movimentos</h1></div>
    <div style="display:flex;gap:8px;flex-wrap:wrap">${isMob?"":`<button class="btn soft" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft" onclick="autoCategorizar()">✨ Auto-categorizar</button>`}<button class="btn" onclick="addMovimento()">+ Lançar</button></div></div>
   <div class="controls" style="align-items:center">
     <button class="btn ghost sm" onclick="mvMes(-1)" aria-label="Mês anterior">‹</button>
     <div style="font-weight:660;min-width:88px;text-align:center">${MV_MES?mkLabel(MV_MES):"Tudo"}</div>
     <button class="btn ghost sm" onclick="mvMes(1)" aria-label="Próximo mês">›</button>
     <button class="btn ${MV_MES?"ghost":""} sm" onclick="mvMesTudo()">${MV_MES?"Ver tudo":"Mês atual"}</button>
-    <span class="sub" id="movSum" style="margin-left:auto"></span>
   </div>
   ${isMob?`<div class="controls" style="align-items:center"><button class="btn ${MV_FILT_OPEN?"":"ghost"} sm" onclick="mvFiltToggle()">🔍 Filtrar ${MV_FILT_OPEN?"▴":"▾"}</button>${selBtn()}<button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button></div>`:""}
   <div class="controls mv-filt${isMob&&!MV_FILT_OPEN?" hide":""}" id="mvFilt"><input id="fq" placeholder="Buscar..." style="min-width:180px"><select id="fs"><option value="">Sentido: todos</option><option>Entrada</option><option>Saída</option></select><select id="ft"><option value="">Conta/Cartão: tudo</option><option value="conta">🏦 Só contas</option><option value="cartao">💳 Só cartões</option></select><select id="fb"><option value="">Banco: todos</option>${bancoOpts().map(b=>`<option>${esc(b)}</option>`).join("")}</select><select id="fg"><option value="">🏷️ Tag: todas</option>${(DB.tags||[]).slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),"pt")).map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join("")}</select><select id="fc"><option value="">Categoria: todas</option><option value="__none">⚠ Sem categoria</option>${[...new Set(DB.movimentos.map(m=>m.categoria).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"pt")).map(c=>`<option>${esc(c)}</option>`).join("")}</select>${isMob?`<button class="btn soft sm" onclick="resumoPorTag()">🏷️ Por tag</button><button class="btn soft sm" onclick="autoCategorizar()">✨ Auto-categorizar</button>`:`<button id="fnone" class="btn ghost sm" onclick="mvSemCat()" style="white-space:nowrap">⚠ sem categoria</button>`}</div>
@@ -891,7 +901,7 @@ const MV_PAL=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db27
 function renderMovBars(){const box=$("#movBars");if(!box)return;
   const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isForaAgregado(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
   const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
-  const hint=$("#barsHint");if(hint)hint.textContent=cats.length?`— ${cats.length} categorias · toque numa barra p/ filtrar`:"";
+  {const ds=document.querySelector('[data-dobr="mv-bars"] .dobr-sum');if(ds)ds.textContent=cats.length?`${cats.length} categorias`:"sem despesas";}
   if(!cats.length){box.innerHTML=`<div class="empty">Sem despesas no filtro.</div>`;return;}
   const tot=cats.reduce((s,c)=>s+c[1],0),top=cats.slice(0,8),rest=cats.slice(8),restTot=rest.reduce((s,c)=>s+c[1],0);
   const fcSel=$("#fc"),cur=fcSel?fcSel.value:"";
@@ -912,10 +922,9 @@ function renderMovViz(){if(IS_PESSOAL)renderMovBars();else renderMovPie();}
 function renderMovPie(){const cv=$("#chMovCat");if(!cv)return;if(_movChart){_movChart.destroy();_movChart=null;}
   const cm=new Map();_movPieRows.filter(m=>m.sentido==="Saída"&&!isForaAgregado(m)).forEach(m=>cm.set(m.categoria||"sem cat.",(cm.get(m.categoria||"sem cat.")||0)+m.valor));
   const cats=[...cm.entries()].sort((a,b)=>b[1]-a[1]);
-  if($("#pieHint"))$("#pieHint").textContent=cats.length?`— ${cats.length} categorias · clique p/ abrir`:"— sem despesas no filtro";
+  {const ds=document.querySelector('[data-dobr="mv-pie"] .dobr-sum');if(ds)ds.textContent=cats.length?`${cats.length} categorias`:"sem despesas";}
   if(!cats.length)return;
-  const pal=["#3b5bdb","#16a34a","#d97706","#dc2626","#7c3aed","#0891b2","#db2777","#65a30d","#ea580c","#0d9488","#9333ea","#475569"];
-  _movChart=new Chart(cv,{type:"doughnut",data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:cats.map((c,i)=>pal[i%pal.length])}]},
+  _movChart=new Chart(cv,{type:"doughnut",data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:cats.map(c=>catCor(c[0]))}]},
     options:{responsive:true,maintainAspectRatio:false,onClick:(e,el)=>{if(el&&el.length){const cat=cats[el[0].index][0];const sel=$("#fc");if(sel){sel.value=(cat==="sem cat.")?"__none":cat;window._movFilter();}}},
     plugins:{legend:{position:"right",labels:{font:{size:10},boxWidth:12}},tooltip:{callbacks:{label:c=>c.label+": "+fmtBRL(c.parsed)}}}}});
 }
@@ -940,7 +949,7 @@ function renderMovTable(skipPie){const wrap=$("#movWrap");if(!wrap)return;
      <td onclick="toggleSel('${m._row}')"><input type="checkbox" class="cb" ${SEL.has(m._row)?'checked':''}></td>
      <td class="editable" onclick="inlineEdit(this,'${m._row}','data')">${fmtDate(m.data)}</td>
      <td style="cursor:pointer" onclick="editMovimento('${m._row}')"><b style="font-weight:500">${esc(m.descricao)}</b>${movTagsHtml(m)?`<div style="margin-top:3px">${movTagsHtml(m)}</div>`:""}</td>
-     <td class="editable" onclick="inlineEdit(this,'${m._row}','categoria')">${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td>
+     <td class="editable" onclick="inlineEdit(this,'${m._row}','categoria')">${catChip(m.categoria)}</td>
      <td class="editable" onclick="inlineEdit(this,'${m._row}','banco')">${esc(m.banco)}</td>
      <td class="num editable ${m.sentido==='Entrada'?'in':'out'}" onclick="inlineEdit(this,'${m._row}','valor')">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}
    </tbody></table></div><div class="sub">${_movRows.length} resultado(s)</div>`;
@@ -1724,9 +1733,9 @@ function viewCartoes(){const cards=cardContas();
     ?txs.map(m=>{const on=SEL.has(m._row);return`<div class="ct-row" onclick="${rowClick(m)}" role="button" tabindex="0" style="cursor:pointer;${on?"box-shadow:0 0 0 2px var(--primary) inset;border-radius:10px":""}">
         ${SELMODE?`<input type="checkbox" class="cb" ${on?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')" style="margin-right:4px">`:""}
         <div class="dot-day"><b>${m.data.slice(8,10)}</b><span>${ML[+m.data.slice(5,7)-1]}</span></div>
-        <div class="ct-main"><b>${esc(m.descricao)}</b><small>${m.categoria?esc(m.categoria):'<span class="chip none">sem cat.</span>'}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
+        <div class="ct-main"><b>${esc(m.descricao)}</b><small>${catChip(m.categoria)}${movTagsHtml(m)?" · "+movTagsHtml(m):""}</small></div>
         <div class="ct-val num ${m.sentido==='Entrada'?'in':''}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</div></div>`;}).join("")||`<div class="empty">Sem lançamentos nesta fatura.</div>`
-    :`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${txs.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${rowClick(m)}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${m.categoria?`<span class="chip">${esc(m.categoria)}</span>`:`<span class="chip none">sem cat.</span>`}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="5"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table>`);
+    :`<table><thead><tr>${SELMODE?"<th></th>":""}<th>Data</th><th>Descrição</th><th>Categoria</th><th class="num">Valor</th></tr></thead><tbody>${txs.map(m=>`<tr style="cursor:pointer${SEL.has(m._row)?";background:var(--chip,#eef2ff)":""}" onclick="${rowClick(m)}">${SELMODE?`<td><input type="checkbox" class="cb" ${SEL.has(m._row)?"checked":""} onclick="event.stopPropagation();selRow('${m._row}')"></td>`:""}<td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}${movTagsHtml(m)?`<div style="margin-top:2px">${movTagsHtml(m)}</div>`:""}</td><td>${catChip(m.categoria)}</td><td class="num ${m.sentido==='Entrada'?'in':'out'}">${m.sentido==='Entrada'?'+':'−'} ${fmtBRL(m.valor)}</td></tr>`).join("")||`<tr><td colspan="5"><div class="empty">Sem lançamentos nesta fatura.</div></td></tr>`}</tbody></table>`);
   /* UX 2.0 (04/09): no CELULAR "Todos os cartões" vira tópico dobrável (total da dívida no
      cabeçalho) e nasce fechado — o hero do cartão aberto já responde "quanto pago e quando".
      No desktop o grid fica à vista como antes (cabe numa linha). */
@@ -2277,7 +2286,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
     body=`<div class="sub" style="margin-bottom:10px">Defina em qual linha do DRE cada categoria entra. <b>Em branco = automático</b> (heurística pelo nome). Receitas costumam ficar em "Receitas"; despesas em Custos / Operacionais / Impostos / Outras.</div>`+secD("saida","Saídas")+secD("entrada","Entradas");
   }
   else{const amb=c=>(c.visao||"AMBOS")==="AMBOS"?` <span class="chip" title="Compartilhada: aparece em TODOS os módulos">🌐 compartilhada</span>`:"";
-    const sec=(tipo,t)=>{const arr=catTopsSorted(tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=catSubsSorted(p);return`<tr><td><b>${esc(p.nome)}</b>${amb(p)}</td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span>${amb(s)}</td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
+    const sec=(tipo,t)=>{const arr=catTopsSorted(tipo);return`<div class="panel"><h2>${t} (${arr.length}) <button class="btn sm" onclick="addCat('${tipo}')">+ Categoria</button></h2><table><tbody>${arr.map(p=>{const subs=catSubsSorted(p);return`<tr><td><span class="cat-dot" style="background:${catCor(p.nome)}"></span><b>${esc(p.nome)}</b>${amb(p)}</td><td class="num"><button class="btn ghost sm" onclick="addSub('${p.id}')">+ Sub</button><button class="btn ghost sm" onclick="editCat('${p.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${p.id}')">Excluir</button></td></tr>${subs.map(s=>`<tr class="subrow"><td>↳ <span class="chip">${esc(s.nome)}</span>${amb(s)}</td><td class="num"><button class="btn ghost sm" onclick="editCat('${s.id}')">Editar</button><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></td></tr>`).join("")}`;}).join("")||`<tr><td><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;};
     const nAmb=DB.categorias.filter(c=>(c.visao||"AMBOS")==="AMBOS").length;
     body=`<div class="panel" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn soft" onclick="catOrganizar()">🧹 Organizar por módulo</button><span class="sub" style="margin:0;flex:1;min-width:220px">Cada visão é um módulo com as SUAS categorias. ${nAmb?`<b>${nAmb}</b> ainda estão marcadas 🌐 compartilhada (aparecem em todos os módulos) — o organizador analisa onde cada uma é usada e sugere o destino; nada muda sem você confirmar.`:"Tudo organizado 🎉"}</span></div>`+sec("entrada","Entradas")+sec("saida","Saídas");}
   if(CFG_TAB==="tags")body=tagsPanel();
@@ -2305,7 +2314,7 @@ function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
 function editConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;modal({title:"Editar conta",fields:contaFields(c.tipo),values:{...c},onSave:async v=>{if(MODE==="live")await sbUpd("contas",id,{nome:v.nome,banco:v.banco||null,tipo:v.tipo});Object.assign(c,{nome:v.nome,banco:v.banco,tipo:v.tipo});toast("Atualizada");await afterWrite();}});}
 function delConta(id){const c=DB.contas.find(x=>x.id===id);if(!c)return;confirmDel(`Excluir "${c.nome}"? (lançamentos vinculados podem bloquear)`,async()=>{if(MODE==="live"){try{await sbDel("contas",id);}catch(e){toast("Não dá: há lançamentos nessa conta. Edite-os antes.");return;}}DB.contas=DB.contas.filter(x=>x.id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
-function addCat(tipo){modal({title:"Nova categoria",fields:[{name:"nome",label:"Nome"},{name:"tipo",label:"Tipo",type:"select",options:[{v:"entrada",l:"Entrada"},{v:"saida",l:"Saída"}],default:tipo}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:v.tipo,parent_id:null};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:v.tipo,visao:VISAO});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
+function addCat(tipo){modal({title:"Nova categoria",fields:[{name:"nome",label:"Nome"},{name:"tipo",label:"Tipo",type:"select",options:[{v:"entrada",l:"Entrada"},{v:"saida",l:"Saída"}],default:tipo},{name:"cor",label:"Cor (chips, rosca e legenda)",type:"color",default:CAT_PAL[Math.floor(Math.random()*CAT_PAL.length)]}],onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"cat"+Date.now(),nome:v.nome,tipo:v.tipo,parent_id:null,cor:v.cor||null};if(MODE==="live")o.id=await sbIns("categorias",{nome:v.nome,tipo:v.tipo,visao:VISAO,cor:v.cor||null});DB.categorias.push(o);toast("Criada");await afterWrite();}});}
 /* Gerenciador de subcategorias: ADICIONA QUANTAS QUISER sem fechar o modal
    (Enter ou botão; aceita várias separadas por vírgula), lista as existentes
    e mostra erro por item se o servidor recusar. */
@@ -2316,7 +2325,7 @@ function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;
     <div id="subList" style="max-height:40vh;overflow:auto"></div>
   </div><div class="foot"><button class="btn ghost" id="subClose">Fechar</button></div></div></div>`);
   document.body.appendChild(bg);
-  const render=()=>{const subs=catSubsSorted(p);bg.querySelector('#subList').innerHTML=subs.length?subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--border)"><span class="chip">${esc(s.nome)}</span><span style="flex:1"></span><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></div>`).join(""):`<div class="empty" style="padding:12px">Nenhuma ainda.</div>`;};
+  const render=()=>{const subs=catSubsSorted(p);bg.querySelector('#subList').innerHTML=subs.length?subs.map(s=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 2px;border-bottom:1px solid var(--border)">${catChip(s.nome)}<span style="flex:1"></span><button class="btn danger sm" onclick="delCat('${s.id}')">Excluir</button></div>`).join(""):`<div class="empty" style="padding:12px">Nenhuma ainda.</div>`;};
   const close=()=>{bg.remove();viewConfig();};
   bg.querySelector('#subClose').onclick=close;bg.addEventListener('click',e=>{if(e.target===bg)close();});
   const add=async()=>{const inp=bg.querySelector('#subNew');const nomes=inp.value.split(",").map(s=>s.trim()).filter(Boolean);
@@ -2334,7 +2343,7 @@ function addSub(pid){const p=DB.categorias.find(c=>c.id===pid);if(!p)return;
   bg.querySelector('#subNew').addEventListener('keydown',e=>{if(e.key==="Enter"){e.preventDefault();add();}});
   render();bg.querySelector('#subNew').focus();
 }
-function editCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;modal({title:"Editar categoria",fields:[{name:"nome",label:"Nome"}],values:{nome:c.nome},onSave:async v=>{if(!v.nome){toast("Nome");return false;}if(MODE==="live")await sbUpd("categorias",id,{nome:v.nome});c.nome=v.nome;toast("Atualizada");await afterWrite();}});}
+function editCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;modal({title:"Editar categoria",fields:[{name:"nome",label:"Nome"},{name:"cor",label:"Cor (chips, rosca e legenda)",type:"color"}],values:{nome:c.nome,cor:c.cor||catCor(c.nome)},onSave:async v=>{if(!v.nome){toast("Nome");return false;}if(MODE==="live")await sbUpd("categorias",id,{nome:v.nome,cor:v.cor||null});c.nome=v.nome;c.cor=v.cor||null;toast("Atualizada");await afterWrite();}});}
 function delCat(id){const c=DB.categorias.find(x=>x.id===id);if(!c)return;const subs=DB.categorias.filter(s=>s.parent_id===id).length;confirmDel(`Excluir "${c.nome}"${subs?` e ${subs} subcategorias`:""}?`,async()=>{if(MODE==="live"){try{await sbDel("categorias",id);}catch(e){toast("Erro: "+e.message);return;}}DB.categorias=DB.categorias.filter(x=>x.id!==id&&x.parent_id!==id);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());toast("Excluída");await afterWrite();});}
 
 /* ===== Organizar categorias por módulo (visão) =====
@@ -3130,6 +3139,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    DOBR.__t=false;if(dobrClosed("__t",true)!==false)f.push("dobrClosed ignora a escolha salva");delete DOBR.__t;}
   if(typeof mvFiltToggle!=="function")f.push("gaveta de filtros do Movimentos ausente");
   if(!/dobr\("ct-"\+key/.test(String(viewContas)))f.push("Contas do mês sem grupos dobráveis");
+  if(catCor("Mercado")!==catCor("mercado")||!/catCor\(/.test(String(renderMovPie))||!/catChip\(/.test(String(renderMovTable)))f.push("cor da categoria não é única (chip × rosca divergem)");
   if(!/fxOrcItens\(/.test(String(viewFluxo))||!/fxOrcItens\(/.test(String(fluxoDrill)))f.push("Fluxo e drill do Orçamento com contas diferentes (teto sem abater o gasto do mês)");
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");

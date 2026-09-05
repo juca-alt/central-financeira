@@ -28,7 +28,7 @@ const SRK = (Deno.env.toObject()["SUPABASE_SERVICE_ROLE_KEY"] || "").trim();
 const MCP_TOKEN = (Deno.env.toObject()["MCP_TOKEN"] || "").trim();
 
 const VISOES = ["PJ", "PIPEX", "RC", "FAMILIA", "JUCA"];
-const VISAO_LABEL: Record<string, string> = { PJ: "Outliers MFB", PIPEX: "Pipe X", RC: "R.C", FAMILIA: "Familia", JUCA: "Juca" };
+const VISAO_LABEL: Record<string, string> = { PJ: "Prudential Franquia", PIPEX: "Pipe X", RC: "R.C", FAMILIA: "Familia", JUCA: "Juca" };
 const RECORR = ["mensal", "semanal", "quinzenal", "bimestral", "trimestral", "semestral", "anual"];
 const SERVER = { name: "central-financeira", version: "2.0.0" };
 
@@ -482,7 +482,7 @@ async function atualizar_saldo_conta(a: any, sc: Scope): Promise<string> {
 
 // ------------------------- catalogo MCP ------------------------------
 const S = (t: string, d?: string) => (d ? { type: t, description: d } : { type: t });
-const VIS = { type: "string", enum: VISOES, description: "PJ=Outliers MFB, PIPEX=Pipe X, RC=R.C, FAMILIA=Familia, JUCA=Juca. Se voce so tem uma visao, pode omitir." };
+const VIS = { type: "string", enum: VISOES, description: "PJ=Prudential Franquia, PIPEX=Pipe X, RC=R.C, FAMILIA=Familia, JUCA=Juca. Se voce so tem uma visao, pode omitir." };
 const TOOLS = [
   { name: "quem_sou_eu", description: "Mostra quem esta conectado, quais visoes pode consultar e em quais pode lancar, e as contas de cada uma. Comece por aqui.", inputSchema: { type: "object", properties: {} } },
   { name: "saldos", description: "Saldo atual de cada conta (com a data em que foi conferido), por visao. Sem visao = todas as suas.", inputSchema: { type: "object", properties: { visao: VIS } } },

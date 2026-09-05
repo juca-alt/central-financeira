@@ -459,6 +459,9 @@ tbody tr{transition:background .1s}
 @media(prefers-reduced-motion:reduce){.dobr h2>.dobr-caret{transition:none}}
 /* texto só de desktop: no celular empurra o conteúdo pra fora da tela */
 @media(max-width:920px){.so-desktop{display:none}}
+.conc-row{flex-wrap:wrap}.conc-row .btn{flex:none;margin-left:auto}
+.conc-par{display:block;margin-top:3px;font-size:12px}.conc-alt{margin-top:5px;max-width:100%;font-size:12px;padding:4px 8px}
+@media(max-width:920px){.conc-row .ct-main{flex:1 1 60%}.conc-row .btn{margin-left:52px}}
 /* ===== Celular redondo (04/09, pra Camila): sem zoom do iOS no foco, alvos de 44px, modal em folha ===== */
 @media(max-width:920px){
   input,select,textarea{font-size:16px}                       /* <16px = o Safari dá zoom ao focar e não volta */

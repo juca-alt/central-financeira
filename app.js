@@ -126,6 +126,24 @@ const NAV_CAT={
   config:    {ico:"ti-settings",     label:"Configurações", desc:"Contas, cartões, categorias, tags, pessoas e acessos."},
 };
 const navIco=ico=>/^ti-/.test(ico)?`<i class="ti ${ico}"></i>`:ico;
+/* ===== TEMA (05/09, pedido dele): "claro" (padrão do Painel Central) ou "original" (azul-escuro de antes),
+   + cor de destaque. Escolha por aparelho em localStorage; aplicada antes do 1º render. ===== */
+const TEMA_KEY="cfin_tema_v1";
+const TEMAS={claro:{nome:"Claro · padrão da casa",desc:"Menu branco, verde de ação, ícones de linha (Painel Central)."},original:{nome:"Original · azul-escuro",desc:"Menu escuro e azul de ação, como a Central era."}};
+const CORES=[{c:"#639922",n:"Verde (Painel)"},{c:"#3b5bdb",n:"Azul (original)"},{c:"#4f5ed1",n:"Índigo"},{c:"#0e8a8a",n:"Teal"},{c:"#b97b12",n:"Âmbar"},{c:"#d4567f",n:"Rosa"},{c:"#a35cc4",n:"Roxo"},{c:"#1c2430",n:"Grafite"}];
+function temaLoad(){try{const v=JSON.parse(localStorage.getItem(TEMA_KEY)||"{}");return{tema:TEMAS[v.tema]?v.tema:"claro",cor:/^#[0-9a-f]{6}$/i.test(v.cor||"")?v.cor:null};}catch(e){return{tema:"claro",cor:null};}}
+function temaAplicar(t){t=t||temaLoad();const h=document.documentElement;
+  if(t.tema==="original")h.setAttribute("data-tema","original");else h.removeAttribute("data-tema");
+  if(t.cor){h.setAttribute("data-cor",t.cor);h.style.setProperty("--primary",t.cor);}else{h.removeAttribute("data-cor");h.style.removeProperty("--primary");}
+  const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t.cor||(t.tema==="original"?"#3b5bdb":"#639922"));}
+function temaSet(patch){const t={...temaLoad(),...patch};try{localStorage.setItem(TEMA_KEY,JSON.stringify(t));}catch(e){}temaAplicar(t);if(typeof CURRENT!=="undefined"&&CURRENT==="config")viewConfig();}
+temaAplicar();
+function temaPanel(){const t=temaLoad();
+  const prev=k=>k==="original"?`<div class="tema-prev"><div class="pv-side" style="background:#0b1220"><i style="background:#3b5bdb"></i><i style="background:#334155"></i><i style="background:#334155"></i></div><div class="pv-main" style="background:#f5f6f8"><i style="background:#fff;border:1px solid #e7e9ee"></i><i style="background:#fff;border:1px solid #e7e9ee;width:60%"></i></div></div>`
+    :`<div class="tema-prev"><div class="pv-side" style="background:#fff;border-right:1px solid #e4e7ec"><i style="background:#eaf3de"></i><i style="background:#e4e7ec"></i><i style="background:#e4e7ec"></i></div><div class="pv-main" style="background:#f5f6f8"><i style="background:#fff;border:1px solid #e4e7ec"></i><i style="background:#fff;border:1px solid #e4e7ec;width:60%"></i></div></div>`;
+  return`<div class="panel"><h2>🎨 Tema</h2><div class="sub">Vale neste aparelho. A cor de destaque muda botões, item ativo do menu e o ✓ das contas.</div>
+    <div class="tema-grid" style="margin-top:10px">${Object.keys(TEMAS).map(k=>`<div class="tema-card${t.tema===k?" on":""}" onclick="temaSet({tema:'${k}'})" role="button" tabindex="0">${prev(k)}<b>${esc(TEMAS[k].nome)}</b><div class="sub" style="margin:2px 0 0;font-size:12px">${esc(TEMAS[k].desc)}</div></div>`).join("")}</div></div>
+  <div class="panel"><h2>Cor de destaque</h2><div class="cores">${CORES.map(x=>`<div class="cor${t.cor===x.c?" on":""}" style="background:${x.c}" title="${esc(x.n)}" onclick="temaSet({cor:'${x.c}'})" role="button" tabindex="0" aria-label="${esc(x.n)}"></div>`).join("")}<button class="btn ghost sm" onclick="temaSet({cor:null})" style="align-self:center">Padrão do tema</button></div></div>`;}
 const NAV_KEY="cfin_nav_v1";
 const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no menu (04/09: Central = seletor de visão) */
 const navDefault=()=>[
@@ -2319,6 +2337,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
   if(CFG_TAB==="tags")body=tagsPanel();
   if(CFG_TAB==="acessos")body=PERM.admin?acessosPanel():`<div class="panel"><div class="empty">Só o administrador vê esta aba.</div></div>`;
   if(CFG_TAB==="conta")body=minhaContaPanel();
+  if(CFG_TAB==="tema")body=temaPanel();
   if(CFG_TAB==="contatos"){
     body=`<div class="panel"><h2>Contatos & Clientes <button class="btn sm" onclick="entNova().then(n=>{if(n)entLoad(true).then(()=>viewConfig());})">+ Novo</button></h2>
       <div class="sub">Cadastro único de quem você paga/recebe (Débora, Pedro França, MJM…). Movimentos e contas apontam pra cá — é o ID de cliente do sistema; os apelidos alimentam a detecção automática.</div>
@@ -2335,7 +2354,7 @@ function viewConfig(){const tab=(id,lbl)=>`<button class="${CFG_TAB===id?'on':''
       <button class="btn ghost" onclick="audVer('movimentos')">Só movimentos</button>
       <button class="btn ghost" onclick="audVer('previstos')">Só contas a pagar/receber</button>
     </div></div>`;
-  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("tags","🏷️ Tags")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${tab("conta","👤 Minha conta")}${PERM.admin?tab("acessos","🔐 Pessoas & acessos"):""}</div>${body}`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Configurações</h1><div class="sub">Fonte de verdade que alimenta os selects de lançamento</div></div></div><div class="tabs">${tab("contas","Contas")}${tab("cartoes","Cartões")}${tab("categorias","Categorias")}${tab("tags","🏷️ Tags")}${tab("dre","Linhas do DRE")}${tab("contatos","👥 Contatos")}${tab("trilha","🧾 Trilha")}${tab("conta","👤 Minha conta")}${tab("tema","🎨 Tema")}${PERM.admin?tab("acessos","🔐 Pessoas & acessos"):""}</div>${body}`;
 }
 function contaFields(tipo){return[{name:"nome",label:"Nome"},{name:"banco",label:"Banco"},{name:"tipo",label:"Tipo",type:"select",options:["corrente","cartao","investimento","caixa"],default:tipo}];}
 function addConta(tipo){modal({title:"Nova "+(tipo==="cartao"?"cartão":"conta"),fields:contaFields(tipo),onSave:async v=>{if(!v.nome){toast("Nome");return false;}const o={id:"co"+Date.now(),nome:v.nome,banco:v.banco,tipo:v.tipo,ativo:true};if(MODE==="live")o.id=await sbIns("contas",{nome:v.nome,banco:v.banco||null,tipo:v.tipo,ativo:true});DB.contas.push(o);toast("Criada");await afterWrite();}});}
@@ -3170,6 +3189,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/fxOrcItens\(/.test(String(viewFluxo))||!/fxOrcItens\(/.test(String(fluxoDrill)))f.push("Fluxo e drill do Orçamento com contas diferentes (teto sem abater o gasto do mês)");
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
+  if(typeof temaPanel!=="function"||!/data-tema/.test(String(temaAplicar)))f.push("Configurações › Tema ausente");
   if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");

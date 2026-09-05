@@ -38,11 +38,11 @@ const SHELL_HTML = `
   <main class="main" id="view"></main>
 </div>
 <nav class="bnav" id="bnav" aria-label="Navegação rápida">
-  <a data-route="central"><span class="bico">◎</span><span class="blbl">Central</span></a>
-  <a data-route="financeiro"><span class="bico">💳</span><span class="blbl">Contas</span></a>
+  <a data-route="central"><span class="bico"><i class="ti ti-layout-grid"></i></span><span class="blbl">Central</span></a>
+  <a data-route="financeiro"><span class="bico"><i class="ti ti-wallet"></i></span><span class="blbl">Contas</span></a>
   <button class="bnav-fab" id="bnavFab" aria-label="Novo lançamento">＋</button>
-  <a data-route="movimentos"><span class="bico">↕</span><span class="blbl">Movim.</span></a>
-  <a data-bnav="menu"><span class="bico">☰</span><span class="blbl">Menu</span></a>
+  <a data-route="movimentos"><span class="bico"><i class="ti ti-arrows-exchange"></i></span><span class="blbl">Movim.</span></a>
+  <a data-bnav="menu"><span class="bico"><i class="ti ti-menu-2"></i></span><span class="blbl">Menu</span></a>
 </nav>
 <div class="toast" id="toast"></div>
 <div class="upd" id="updBanner">
@@ -63,11 +63,11 @@ const MODE=(HAS_KEY&&!FORCE_DEMO)?"live":"demo";
 /* PERFIS — fonte única. code = valor do enum `visao` no Supabase; path = pasta (legado, migrando p/ app único). */
 /* `cor` = identidade visual da frente (Modo Financeiro: barras, badges e chips) */
 const PROFILES=[
-  {code:"PJ",      label:"Prudential Franquia", grupo:"Negócios", path:"",       icon:"🏢", cor:"#2a78d6", corBg:"#e5effb"},
-  {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢", cor:"#7c3aed", corBg:"#eee9fd"},
-  {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢", cor:"#0891b2", corBg:"#e0f3f8"},
-  {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠", cor:"#eb6834", corBg:"#fdeade"},
-  {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑", cor:"#16a34a", corBg:"#dff5e6"},
+  {code:"PJ",      label:"Prudential Franquia", grupo:"Negócios", path:"",       icon:"🏢", cor:"#4f5ed1", corBg:"#eceefb"},
+  {code:"PIPEX",   label:"Pipe X",       grupo:"Negócios", path:"pipex/", icon:"🏢", cor:"#0e8a8a", corBg:"#e0f4f4"},
+  {code:"RC",      label:"R.C",          grupo:"Negócios", path:"rc/",    icon:"🏢", cor:"#a35cc4", corBg:"#f3e8f8"},
+  {code:"FAMILIA", label:"Família",      grupo:"Pessoal",  path:"pf/",    icon:"🏠", cor:"#639922", corBg:"#eef5e3"},
+  {code:"JUCA",    label:"Jucá",         grupo:"Pessoal",  path:"juca/",  icon:"🧑", cor:"#b97b12", corBg:"#fdf3e2"},
 ];
 /* Visão ativa — MUTÁVEL. App único: a Central troca a visão em runtime (setVisao). */
 const VISAO_KEY="cfin_visao";
@@ -105,30 +105,33 @@ async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){tr
    depois de cada solta (varre e remonta os grupos).
    `vis` = regra de visibilidade por visão (o que o syncChrome fazia na mão).
    ===================================================================== */
+/* DESIGN 2.0 (05/09): ícones de linha (Tabler), como no Painel Central; `desc` alimenta a tela Módulos & Links */
 const NAV_CAT={
-  central:   {ico:"◎",  label:"Central", vis:()=>!isAll()},   /* em ALL, a Visão Geral JÁ é a central */
-  financeiro:{ico:"💳", label:"Modo Financeiro"},
-  dashboard: {ico:"▦",  label:"Visão Geral"},
-  fluxo:     {ico:"📈", label:"Fluxo de Caixa"},
-  dre:       {ico:"📊", label:"DRE",            vis:()=>IS_NEGOCIOS},
-  orcamento: {ico:"🎯", label:"Orçamento", vis:()=>!isAll()},
-  movimentos:{ico:"↕",  label:"Movimentos"},
-  conciliacao:{ico:"⇄", label:"Conciliação", vis:()=>!isAll()},
-  contas:    {ico:"🗓", label:"Contas do mês",  vis:()=>IS_PESSOAL},
-  pagar:     {ico:"▣",  label:"Contas a Pagar", vis:()=>!IS_PESSOAL},
-  receber:   {ico:"◳",  label:"A Receber",      vis:()=>!IS_PESSOAL},
-  pipex:     {ico:"◈",  label:"Pipe X",         vis:()=>VISAO==="PIPEX"},
-  comissoes: {ico:"🤝", label:"Comissões LP",   vis:()=>VISAO==="PIPEX"},
-  cartoes:   {ico:"▭",  label:"Cartões"},
-  importar:  {ico:"⭱",  label:"Importar", vis:()=>!isAll()},
-  config:    {ico:"⚙",  label:"Configurações"},
+  central:   {ico:"ti-layout-grid",  label:"Central", vis:()=>!isAll()},   /* em ALL, a Visão Geral JÁ é a central */
+  financeiro:{ico:"ti-wallet",       label:"Modo Financeiro", desc:"Contas a pagar por dia de vencimento: atrasadas, hoje, a vencer."},
+  dashboard: {ico:"ti-layout-dashboard", label:"Visão Geral", desc:"Sobra do mês, o que precisa de você, saldos e cartões."},
+  fluxo:     {ico:"ti-chart-line",   label:"Fluxo de Caixa", desc:"Realizado + projeção: compromissos cadastrados e orçamento dos variáveis."},
+  dre:       {ico:"ti-report-analytics", label:"DRE", vis:()=>IS_NEGOCIOS, desc:"Resultado por linha, mês a mês."},
+  orcamento: {ico:"ti-target",       label:"Orçamento", vis:()=>!isAll(), desc:"Tetos por categoria e o realizado contra cada um."},
+  movimentos:{ico:"ti-arrows-exchange", label:"Movimentos", desc:"Todos os lançamentos, filtros, categorias e edição em massa."},
+  conciliacao:{ico:"ti-checks",      label:"Conciliação", vis:()=>!isAll(), desc:"Casa o que está pra pagar com o que o extrato trouxe."},
+  contas:    {ico:"ti-calendar-check", label:"Contas do mês", vis:()=>IS_PESSOAL, desc:"Compromissos da casa: toque no ✓ pra dar baixa."},
+  pagar:     {ico:"ti-receipt",      label:"Contas a Pagar", vis:()=>!IS_PESSOAL, desc:"Cadastro de contas a pagar da visão."},
+  receber:   {ico:"ti-cash",         label:"A Receber", vis:()=>!IS_PESSOAL, desc:"Recebimentos previstos e baixa."},
+  pipex:     {ico:"ti-users",        label:"Pipe X", vis:()=>VISAO==="PIPEX", desc:"Parceria com o Daniel: devido × previsto, mês a mês."},
+  comissoes: {ico:"ti-heart-handshake", label:"Comissões LP", vis:()=>VISAO==="PIPEX", desc:"Fechamento mensal do extrato de comissões."},
+  cartoes:   {ico:"ti-credit-card",  label:"Cartões", desc:"Faturas, dívida real e lançamentos por cartão."},
+  importar:  {ico:"ti-upload",       label:"Importar", vis:()=>!isAll(), desc:"OFX, CSV ou PDF do banco — com leitura por IA."},
+  atalhos:   {ico:"ti-link",         label:"Módulos & Links", desc:"Tudo num lugar: módulos do app e links do Drive, Notion e bancos."},
+  config:    {ico:"ti-settings",     label:"Configurações", desc:"Contas, cartões, categorias, tags, pessoas e acessos."},
 };
+const navIco=ico=>/^ti-/.test(ico)?`<i class="ti ${ico}"></i>`:ico;
 const NAV_KEY="cfin_nav_v1";
 const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no menu (04/09: Central = seletor de visão) */
 const navDefault=()=>[
   {titulo:"",             itens:["financeiro","dashboard","fluxo","orcamento","dre"]},   /* 04/09: "Central" saiu do menu — o seletor de visão no topo já leva a Todas */
   {titulo:"Lançamentos",  itens:["movimentos","conciliacao","contas","pagar","receber","comissoes","cartoes","importar"]},
-  {titulo:"Sistema",      itens:["config"]},
+  {titulo:"Sistema",      itens:["atalhos","config"]},
 ];
 let NAVLAY=null, NAV_HIDE=new Set(), NAV_EDIT=false;
 
@@ -145,7 +148,8 @@ function navLoad(){
   const vistos=new Set(NAVLAY.flatMap(g=>g.itens));
   const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r)&&!NAV_FORA.has(r));
   /* rota nova entra logo depois de "movimentos" quando existe (Conciliação ao lado dos lançamentos), senão no fim */
-  faltando.forEach(r=>{const g=NAVLAY.find(g=>g.itens.includes("movimentos"));if(g)g.itens.splice(g.itens.indexOf("movimentos")+1,0,r);else NAVLAY[NAVLAY.length-1].itens.push(r);});
+  faltando.forEach(r=>{if(r==="atalhos"){const g=NAVLAY.find(g=>g.itens.includes("config"));if(g){g.itens.splice(g.itens.indexOf("config"),0,r);return;}}
+    const g=NAVLAY.find(g=>g.itens.includes("movimentos"));if(g)g.itens.splice(g.itens.indexOf("movimentos")+1,0,r);else NAVLAY[NAVLAY.length-1].itens.push(r);});
 }
 function navSave(){try{localStorage.setItem(NAV_KEY,JSON.stringify({grupos:NAVLAY,ocultos:[...NAV_HIDE]}));}catch(e){}}
 function navReset(){NAVLAY=navDefault();NAV_HIDE=new Set();navSave();renderNav();toast("Menu voltou ao padrão");}
@@ -178,7 +182,7 @@ function renderNav(){
       const dim=(!okVisao||oculto)?" dim":"";
       html+=`<a data-route="${r}"${CURRENT===r?' class="active'+dim+'"':(dim?' class="'+dim.trim()+'"':"")}${!okVisao&&NAV_EDIT?' title="Não aparece na visão atual"':""}>`+
         (NAV_EDIT?`<span class="drag">⠿</span>`:"")+
-        `<span class="ico">${it.ico}</span> ${esc(it.label)}`+
+        `<span class="ico">${navIco(it.ico)}</span> ${esc(it.label)}`+
         (NAV_EDIT?`<span class="eye${oculto?" off":""}" onclick="event.stopPropagation();navOcultar('${r}')" title="${oculto?"Mostrar no menu":"Esconder do menu"}">${oculto?"⊘":"◉"}</span>`:"")+
         `</a>`;
     });
@@ -1270,6 +1274,31 @@ async function ctUndo(r){
   }catch(e){toast("Erro: "+e.message);}
   await afterWrite();
 }
+
+/* ===== MÓDULOS & LINKS (05/09, pedido dele: "como no Painel e no CRM") =====
+   Tudo que a pessoa usa num lugar só: os módulos do app (os que a visão enxerga) e links de
+   fora — pastas do Drive, Notion, bancos. Os links ficam em localStorage por aparelho
+   (cfin_links_v1); quando ele aprovar o design, vão pro banco por visão. */
+const LINKS_KEY="cfin_links_v1";
+const LINKS_SEED=[
+  {n:"Pasta Central Financeira (Drive)",d:"Canônico, snapshots e extratos.",u:"https://drive.google.com/drive/folders/177ft9fjF7onKwIII-irrD4c6czy9s8rw",i:"ti-folder"},
+  {n:"Assistente Financeira (Notion)",d:"Protocolo, memória e retomada da assistente.",u:"https://www.notion.so",i:"ti-notebook"},
+  {n:"Supabase · Central",d:"Banco e Edge Functions do app.",u:"https://supabase.com/dashboard/project/mieqsiojvfiqrhectquc",i:"ti-database"},
+  {n:"Meu Pluggy",d:"Conexões bancárias (Inter PF, C6, Nubank).",u:"https://meu.pluggy.ai",i:"ti-plug"},
+];
+function linksLoad(){try{const v=JSON.parse(localStorage.getItem(LINKS_KEY)||"null");if(Array.isArray(v))return v;}catch(e){}return LINKS_SEED.slice();}
+function linksSave(v){try{localStorage.setItem(LINKS_KEY,JSON.stringify(v));}catch(e){}}
+function viewAtalhos(){
+  const mods=Object.keys(NAV_CAT).filter(r=>r!=="atalhos"&&r!=="central"&&(NAV_CAT[r].vis?NAV_CAT[r].vis():true));
+  const links=linksLoad();
+  const tile=(ico,n,d,k,on,x)=>`<div class="tile" onclick="${on}"><div class="t-i">${navIco(ico)}</div><div class="t-n">${esc(n)}</div><div class="t-d">${esc(d||"")}</div><div class="t-k${k==="live"?" live":""}">${k==="live"?"● Módulo":"↗ Link"}</div>${x!=null?`<button class="t-x" onclick="event.stopPropagation();linkDel(${x})" title="Remover">✕</button>`:""}</div>`;
+  $("#view").innerHTML=`<div class="row"><div><h1>Módulos & Links</h1><div class="sub">${esc(VISAO_LABEL)} · o que você usa, num lugar só</div></div></div>
+  <div class="t-sec">Módulos do app</div><div class="tiles">${mods.map(r=>tile(NAV_CAT[r].ico,NAV_CAT[r].label,NAV_CAT[r].desc,"live",`route('${r}')`)).join("")}</div>
+  <div class="t-sec">Pastas, documentos e apps</div><div class="tiles">${links.map((l,i)=>tile(l.i||"ti-external-link",l.n,l.d,"link",`window.open('${esc(l.u)}','_blank')`,i)).join("")}
+    <div class="tile add" onclick="linkAdd()"><i class="ti ti-plus"></i> Adicionar link</div></div>`;
+}
+function linkAdd(){modal({title:"Novo link",fields:[{name:"n",label:"Nome"},{name:"u",label:"Endereço (URL)",placeholder:"https://…"},{name:"d",label:"Descrição (opcional)"},{name:"i",label:"Ícone",type:"select",options:[{v:"ti-folder",l:"Pasta"},{v:"ti-notebook",l:"Notion / documento"},{v:"ti-building-bank",l:"Banco"},{v:"ti-database",l:"Sistema"},{v:"ti-external-link",l:"Link"}],default:"ti-external-link"}],onSave:async v=>{if(!v.n||!/^https?:\/\//.test(v.u||"")){toast("Nome e endereço começando com https://");return false;}const L=linksLoad();L.push({n:v.n,u:v.u,d:v.d||"",i:v.i});linksSave(L);toast("Link adicionado");viewAtalhos();}});}
+function linkDel(i){const L=linksLoad();const l=L[i];if(!l)return;confirmDel(`Remover "${l.n}" dos links?`,async()=>{L.splice(i,1);linksSave(L);document.querySelectorAll(".modal-bg").forEach(b=>b.remove());viewAtalhos();});}
 
 /* ===== CONCILIAÇÃO (04/09, pedido dele): encontro de contas =====
    O que está a pagar/receber × o que o extrato trouxe. Cada ocorrência aberta vencida (ou
@@ -2916,7 +2945,7 @@ async function fpAfterWrite(visao){
   viewFinanceiro();
 }
 
-const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,atalhos:viewAtalhos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
@@ -3141,6 +3170,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/fxOrcItens\(/.test(String(viewFluxo))||!/fxOrcItens\(/.test(String(fluxoDrill)))f.push("Fluxo e drill do Orçamento com contas diferentes (teto sem abater o gasto do mês)");
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
+  if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
   if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");

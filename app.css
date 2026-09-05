@@ -1,34 +1,37 @@
-  :root{color-scheme:light;--bg:#f5f6f8;--card:#fff;--border:#e7e9ee;--muted:#6b7280;--fg:#0f172a;--primary:#3b5bdb;--primary-soft:#eef2ff;
-    --income:#15803d;--expense:#dc2626;--warning:#d97706;--proj:#7c3aed;--transfer:#0891b2;--chip:#f1f3f7;--shadow:0 1px 2px rgba(16,24,40,.04),0 2px 6px rgba(16,24,40,.06);}
+  :root{color-scheme:light;
+    /* DESIGN 2.0 (05/09): mesma paleta do Painel Central — verde de ação, menu branco, cartões de 12px, Inter, ícones Tabler */
+    --bg:#f5f6f8;--card:#fff;--border:#e4e7ec;--muted:#6b7585;--fg:#1c2430;--primary:#639922;--primary-soft:#eef5e3;
+    --income:#1f9d61;--expense:#cf4438;--warning:#b97b12;--proj:#4f5ed1;--transfer:#0e8a8a;--chip:#eef1f5;--shadow:none;
+    --side:#fff;--side-txt:#1c2430;--side-muted:#6b7585;--side-line:#e4e7ec;--side-active:#eaf3de;--side-active-txt:#173404;--ok-soft:#e7f6ee;--danger-soft:#fdecea;--warn-soft:#fdf3e2;}
   *{box-sizing:border-box}html,body{margin:0;padding:0}
-  body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  body{background:var(--bg);color:var(--fg);font:14px/1.5 'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   .app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
-  .side{background:#0b1220;color:#cbd5e1;padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow:auto}
-  .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 2px;font-weight:700;color:#fff;font-size:15px}
-  .brand .dot{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#3b5bdb,#7c3aed);display:grid;place-items:center;font-size:14px}
-  .ver{margin:0 0 10px 47px;font-size:10px;color:#64748b;font-weight:700;letter-spacing:.04em}
+  .side{background:var(--side);color:var(--side-txt);border-right:1px solid var(--side-line);padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow:auto}
+  .brand{display:flex;align-items:center;gap:9px;padding:6px 8px 2px;font-weight:700;color:var(--side-txt);font-size:15px}
+  .brand .dot{width:28px;height:28px;border-radius:8px;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:14px}
+  .ver{margin:0 0 10px 47px;font-size:10px;color:var(--side-muted);font-weight:600;letter-spacing:.04em}
   .vsw{position:relative;margin:0 4px 14px}
-  .vsw-chip{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:11px;background:#16213a;border:1px solid #22304d;cursor:pointer}
-  .vsw-chip:hover{background:#1e2b47}
-  .vsw-ic{width:28px;height:28px;border-radius:8px;background:#0b1220;display:grid;place-items:center;font-size:15px;flex:none}
+  .vsw-chip{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:11px;background:var(--bg);border:1px solid var(--side-line);cursor:pointer}
+  .vsw-chip:hover{background:var(--chip)}
+  .vsw-ic{width:28px;height:28px;border-radius:8px;background:#fff;border:1px solid var(--side-line);display:grid;place-items:center;font-size:15px;flex:none}
   .vsw-tx{flex:1;min-width:0}
-  .vsw-cur{font-size:13px;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .vsw-sub{font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
-  .vsw-caret{color:#94a3b8;font-size:11px;flex:none}
-  .vsw-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:#0f172a;border:1px solid #1e293b;border-radius:11px;padding:5px;box-shadow:0 14px 34px rgba(0,0,0,.55);z-index:95}
+  .vsw-cur{font-size:13px;color:var(--side-txt);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vsw-sub{font-size:10px;color:var(--side-muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+  .vsw-caret{color:var(--side-muted);font-size:11px;flex:none}
+  .vsw-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--side-line);border-radius:11px;padding:5px;box-shadow:0 14px 34px rgba(16,24,40,.14);z-index:95}
   .vsw-menu.open{display:block}
-  .vsw-menu .profile-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:#64748b;font-weight:700;padding:7px 10px 3px}
+  .vsw-menu .profile-grp{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--side-muted);font-weight:700;padding:7px 10px 3px}
   .vsw-menu .profile-grp:first-child{padding-top:3px}
   /* troca de VISAO manda em todas as telas: alvo de 44px e faixa morta entre itens, pra
    mirar em Familia e nao cair em Juca (o app trocaria de escopo em silencio). */
-  .vsw-menu a{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 10px;border-radius:7px;color:#cbd5e1;font-size:12.5px;cursor:pointer;text-decoration:none}
+  .vsw-menu a{display:flex;align-items:center;gap:8px;min-height:44px;padding:8px 10px;border-radius:7px;color:var(--side-txt);font-size:12.5px;cursor:pointer;text-decoration:none}
   .vsw-menu a + a{margin-top:4px}
-  .vsw-menu a:hover{background:#1e293b;color:#fff}
-  .vsw-menu a.cur{color:#fff;font-weight:600;background:#1e3a5f}
-  .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:#cbd5e1;text-decoration:none;font-weight:500;cursor:pointer;font-size:13px}
-  .nav a:hover{background:#1e293b;color:#fff}.nav a.active{background:var(--primary);color:#fff}
-  .nav .ico{width:17px;text-align:center;opacity:.92}
-  .nav .grp{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#475569;margin:12px 10px 4px;font-weight:700}
+  .vsw-menu a:hover{background:var(--bg)}
+  .vsw-menu a.cur{color:var(--side-active-txt);font-weight:600;background:var(--side-active)}
+  .nav a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:var(--side-txt);text-decoration:none;font-weight:500;cursor:pointer;font-size:13.5px}
+  .nav a:hover{background:var(--bg)}.nav a.active{background:var(--side-active);color:var(--side-active-txt);box-shadow:inset 3px 0 0 var(--primary);font-weight:600}
+  .nav .ico{width:20px;text-align:center;color:var(--side-muted);display:inline-flex;justify-content:center}.nav .ico i{font-size:18px}.nav a.active .ico{color:var(--primary)}
+  .nav .grp{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--side-muted);margin:12px 10px 4px;font-weight:700}
   /* --- menu modular: modo editor + arrastar --- */
   .nav a{touch-action:manipulation}
   .nav.editing{touch-action:none}
@@ -44,10 +47,10 @@
   .nav .grp.ed:hover{color:#93c5fd}
   /* na edição a barra gruda no rodapé da barra lateral: no celular o
      "✓ Concluir" caía abaixo da dobra e obrigava a rolar a gaveta */
-  .navedit-bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 2px 0;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(11,18,32,0) 0%,#0b1220 38%);padding:8px 0 4px;z-index:6}
-  .navedit-bar .nb{flex:1;min-width:74px;background:#16213a;color:#cbd5e1;border:1px solid #2b3d5c;border-radius:8px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
-  .navedit-bar .nb:hover{background:#1e293b;color:#fff}
-  .navedit-bar .nb.ghost{background:transparent;color:#64748b;border-style:dashed}
+  .navedit-bar{display:flex;gap:6px;flex-wrap:wrap;margin:8px 2px 0;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(255,255,255,0) 0%,#fff 38%);padding:8px 0 4px;z-index:6}
+  .navedit-bar .nb{flex:1;min-width:74px;background:var(--bg);color:var(--side-txt);border:1px solid var(--side-line);border-radius:8px;padding:6px 8px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit}
+  .navedit-bar .nb:hover{background:var(--chip)}
+  .navedit-bar .nb.ghost{background:transparent;color:var(--side-muted);border-style:dashed}
   .navedit-bar .nb.ghost:hover{color:#93c5fd;border-color:#3b5bdb}
   .navedit-bar .nb.ok{background:var(--primary);color:#fff;border-color:var(--primary)}
   .side .spacer{flex:1}
@@ -56,17 +59,17 @@
   .badge-demo{background:#d97706;color:#fff;border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700}
   .badge-live{background:#16a34a;color:#fff;border-radius:5px;padding:1px 6px;font-size:10px;font-weight:700}
   .main{padding:24px 30px;max-width:1240px}
-  h1{font-size:22px;font-weight:660;letter-spacing:-.01em;margin:0}
+  h1{font-size:21px;font-weight:700;letter-spacing:-.01em;margin:0}
   .sub{color:var(--muted);font-size:13px;margin-top:3px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:20px}
-  .kpi{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow)}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px 16px;box-shadow:var(--shadow)}
   .kpi .lbl{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
   .kpi .val{font-size:21px;font-weight:680;margin-top:7px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
   .kpi .hint{color:var(--muted);font-size:11px;margin-top:3px}
   .grid2{display:grid;grid-template-columns:2fr 1fr;gap:13px;margin-bottom:20px}
   .g2-even{grid-template-columns:1fr 1fr}   /* era style inline, que vencia a media query do mobile */
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:14px}
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:14px}
   .panel h2{font-size:15px;font-weight:640;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   thead th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
@@ -125,11 +128,11 @@
     /* viewport-fit=cover + standalone: o conteudo vai ate o topo FISICO da tela, entao a barra
      precisa reservar a faixa do relogio/ilha dinamica. O rodape ja fazia isso (.bnav, L373);
      o topo tinha ficado de fora e o relogio do iPhone caia por cima do nome da visao. */
-  .mtop{display:flex;align-items:center;gap:12px;position:fixed;top:0;left:0;right:0;height:calc(52px + env(safe-area-inset-top));background:#0b1220;color:#fff;padding:env(safe-area-inset-top) 14px 0;z-index:70;box-shadow:0 1px 10px rgba(0,0,0,.25)}
-    .mtop-btn{background:transparent;border:0;color:#fff;font-size:22px;line-height:1;cursor:pointer;display:grid;place-items:center;min-width:44px;min-height:44px;padding:0;margin-left:-8px}
+  .mtop{display:flex;align-items:center;gap:12px;position:fixed;top:0;left:0;right:0;height:calc(52px + env(safe-area-inset-top));background:var(--side);color:var(--side-txt);border-bottom:1px solid var(--side-line);padding:env(safe-area-inset-top) 14px 0;z-index:70;box-shadow:0 1px 10px rgba(0,0,0,.25)}
+    .mtop-btn{background:transparent;border:0;color:var(--side-txt);font-size:22px;line-height:1;cursor:pointer;display:grid;place-items:center;min-width:44px;min-height:44px;padding:0;margin-left:-8px}
     .mtop-brand{font-weight:700;font-size:15px}
     .app{grid-template-columns:1fr}
-    .side{position:fixed;top:0;left:0;bottom:0;width:250px;height:100vh;transform:translateX(-100%);transition:transform .25s ease;z-index:90;box-shadow:0 0 50px rgba(0,0,0,.55);padding-top:calc(16px + env(safe-area-inset-top));padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+    .side{position:fixed;top:0;left:0;bottom:0;width:250px;height:100vh;transform:translateX(-100%);transition:transform .25s ease;z-index:90;box-shadow:0 0 50px rgba(16,24,40,.25);padding-top:calc(16px + env(safe-area-inset-top));padding-bottom:calc(16px + env(safe-area-inset-bottom))}
     .side.open{transform:none}
     .side-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:85;display:none}
     .side-ov.show{display:block}
@@ -176,7 +179,7 @@
   .gate-toggle span{color:var(--primary);font-weight:600;cursor:pointer}
   /* 3 comandos empilhados a 11px sem padding ficavam a ~22px de centro a centro: mirar em
      Sair e cair em Alterar senha. Alvo de 44px + separacao. */
-  .side .logout{display:flex;align-items:center;justify-content:center;min-height:44px;color:#94a3b8;font-size:12.5px;cursor:pointer;margin-top:2px;padding:0 10px;border-radius:9px;text-align:center}
+  .side .logout{display:flex;align-items:center;justify-content:center;min-height:44px;color:var(--side-muted);font-size:12.5px;cursor:pointer;margin-top:2px;padding:0 10px;border-radius:9px;text-align:center}
   .side .logout:active{background:rgba(148,163,184,.14)}
   .side .logout:hover{color:#cbd5e1}
   /* ===== Banner de atualização ===== */
@@ -392,13 +395,13 @@ tbody tr{transition:background .1s}
   .fp-wrap th:last-child,.fp-wrap td:last-child{position:sticky;right:0;background:var(--card);box-shadow:-9px 0 9px -9px rgba(0,0,0,.28)}.fp-desc{font-size:12.5px}.fp-drow-desc b{white-space:normal}.anx-meta b{white-space:normal}}
 @media(max-width:920px){
   /* celular no formato de celular: barra de navegação inferior + ＋ central */
-  .bnav{position:fixed;left:0;right:0;bottom:0;z-index:70;display:grid;grid-template-columns:1fr 1fr 64px 1fr 1fr;align-items:end;background:rgba(11,18,32,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid #1e293b;padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
-  .bnav a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;color:#94a3b8;text-decoration:none;border-radius:10px;font-weight:600}
+  .bnav{position:fixed;left:0;right:0;bottom:0;z-index:70;display:grid;grid-template-columns:1fr 1fr 64px 1fr 1fr;align-items:end;background:rgba(255,255,255,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--side-line);padding:6px 6px calc(6px + env(safe-area-inset-bottom))}
+  .bnav a{display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;color:var(--side-muted);text-decoration:none;border-radius:10px;font-weight:600}
   .bnav a .bico{font-size:17px;line-height:1}
   .bnav a .blbl{font-size:9.5px;letter-spacing:.02em}
-  .bnav a.active{color:#fff}
+  .bnav a.active{color:var(--primary)}
   .bnav a.active .bico{transform:translateY(-1px)}
-  .bnav-fab{width:52px;height:52px;margin:0 auto -2px;border-radius:16px;border:none;background:var(--primary);color:#fff;font-size:24px;font-weight:700;box-shadow:0 8px 20px rgba(59,91,219,.45);cursor:pointer;transition:transform .1s}
+  .bnav-fab{width:52px;height:52px;margin:0 auto -2px;border-radius:16px;border:none;background:var(--primary);color:#fff;font-size:24px;font-weight:700;box-shadow:0 8px 20px rgba(99,153,34,.35);cursor:pointer;transition:transform .1s}
   .bnav-fab:active{transform:scale(.94)}
   .main{padding-bottom:96px}
   /* a .bulkbar e sticky bottom:0; no celular a barra inferior fixa cobriria ela */
@@ -489,3 +492,18 @@ tbody tr{transition:background .1s}
 /* Fluxo: a coluna fixa "Mês" cola na borda do painel; sem isso os meses anteriores vazam pela gola do padding */
 #fxWrap{padding-left:0;padding-right:0}
 #fxWrap .cf .h{padding-left:18px}
+
+/* ===== Módulos & Links (05/09): mesma tela "Atalhos" do Painel Central e do CRM ===== */
+.t-sec{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:18px 2px 8px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.tile{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px;cursor:pointer;transition:.15s;position:relative;min-height:44px}
+.tile:hover{border-color:var(--primary);box-shadow:0 4px 14px rgba(16,24,40,.06)}
+.tile .t-i{font-size:26px;line-height:1;margin-bottom:10px;color:var(--fg)}.tile .t-i i{font-size:28px}
+.tile .t-n{font-weight:700;font-size:14.5px;margin-bottom:3px}
+.tile .t-d{font-size:12.5px;color:var(--muted);line-height:1.4}
+.tile .t-k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:10px}
+.tile .t-k.live{color:var(--income)}
+.tile .t-x{position:absolute;top:8px;right:8px;background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:14px;padding:6px;border-radius:8px}
+.tile .t-x:hover{background:var(--danger-soft);color:var(--expense)}
+.tile.add{border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:600;gap:6px}
+@media(max-width:920px){.tiles{grid-template-columns:repeat(2,1fr);gap:9px}.tile{padding:12px}.tile .t-d{display:none}}

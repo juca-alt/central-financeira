@@ -136,12 +136,15 @@ function temaAplicar(t){t=t||temaLoad();const h=document.documentElement;
   if(t.tema==="original")h.setAttribute("data-tema","original");else h.removeAttribute("data-tema");
   if(t.cor){h.setAttribute("data-cor",t.cor);h.style.setProperty("--primary",t.cor);}else{h.removeAttribute("data-cor");h.style.removeProperty("--primary");}
   const m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t.cor||(t.tema==="original"?"#3b5bdb":"#639922"));}
-function temaSet(patch){const t={...temaLoad(),...patch};try{localStorage.setItem(TEMA_KEY,JSON.stringify(t));}catch(e){}temaAplicar(t);if(typeof CURRENT!=="undefined"&&CURRENT==="config")viewConfig();}
+function temaSet(patch){const t={...temaLoad(),...patch};try{localStorage.setItem(TEMA_KEY,JSON.stringify(t));}catch(e){}temaAplicar(t);
+  /* por pessoa: grava na linha dela (RPC só mexe em quem chama); sem login fica só no aparelho */
+  if(typeof MODE!=="undefined"&&MODE==="live"&&typeof sb!=="undefined"&&sb&&!PERM.legacy){sb.rpc("app_set_tema",{t:t.tema,c:t.cor}).then(({error})=>{if(error)toast("Tema salvo só neste aparelho: "+error.message);},()=>{});}
+  if(typeof CURRENT!=="undefined"&&CURRENT==="config")viewConfig();}
 temaAplicar();
 function temaPanel(){const t=temaLoad();
   const prev=k=>k==="original"?`<div class="tema-prev"><div class="pv-side" style="background:#0b1220"><i style="background:#3b5bdb"></i><i style="background:#334155"></i><i style="background:#334155"></i></div><div class="pv-main" style="background:#f5f6f8"><i style="background:#fff;border:1px solid #e7e9ee"></i><i style="background:#fff;border:1px solid #e7e9ee;width:60%"></i></div></div>`
     :`<div class="tema-prev"><div class="pv-side" style="background:#fff;border-right:1px solid #e4e7ec"><i style="background:#eaf3de"></i><i style="background:#e4e7ec"></i><i style="background:#e4e7ec"></i></div><div class="pv-main" style="background:#f5f6f8"><i style="background:#fff;border:1px solid #e4e7ec"></i><i style="background:#fff;border:1px solid #e4e7ec;width:60%"></i></div></div>`;
-  return`<div class="panel"><h2>🎨 Tema</h2><div class="sub">Vale neste aparelho. A cor de destaque muda botões, item ativo do menu e o ✓ das contas.</div>
+  return`<div class="panel"><h2>🎨 Tema</h2><div class="sub">É seu: vale em todos os seus aparelhos${MODE==="live"?"":" (na demo, só neste)"}. A cor de destaque muda botões, item ativo do menu e o ✓ das contas.</div>
     <div class="tema-grid" style="margin-top:10px">${Object.keys(TEMAS).map(k=>`<div class="tema-card${t.tema===k?" on":""}" onclick="temaSet({tema:'${k}'})" role="button" tabindex="0">${prev(k)}<b>${esc(TEMAS[k].nome)}</b><div class="sub" style="margin:2px 0 0;font-size:12px">${esc(TEMAS[k].desc)}</div></div>`).join("")}</div></div>
   <div class="panel"><h2>Cor de destaque</h2><div class="cores">${CORES.map(x=>`<div class="cor${t.cor===x.c?" on":""}" style="background:${x.c}" title="${esc(x.n)}" onclick="temaSet({cor:'${x.c}'})" role="button" tabindex="0" aria-label="${esc(x.n)}"></div>`).join("")}<button class="btn ghost sm" onclick="temaSet({cor:null})" style="align-self:center">Padrão do tema</button></div></div>`;}
 const NAV_KEY="cfin_nav_v1";
@@ -2157,7 +2160,7 @@ async function loadPerm(){
     const{data:s}=await sb.auth.getSession();
     PERM.email=((s&&s.session&&s.session.user&&s.session.user.email)||"").toLowerCase();
     const[u,v]=await Promise.all([
-      sb.from("app_usuarios").select("admin,nome,visao_padrao").eq("email",PERM.email).maybeSingle(),
+      sb.from("app_usuarios").select("admin,nome,visao_padrao,tema,cor").eq("email",PERM.email).maybeSingle(),
       sb.from("usuario_visoes").select("visao,ler,escrever").eq("email",PERM.email)]);
     /* tabela ainda não existe (migração não rodou) → mantém o comportamento antigo */
     if(u.error&&/(does not exist|schema cache)/i.test(u.error.message||""))return;
@@ -2165,6 +2168,8 @@ async function loadPerm(){
     PERM.admin=!!(u.data&&u.data.admin);
     PERM.nome=(u.data&&u.data.nome)||"";
     PERM.visaoPadrao=(u.data&&u.data.visao_padrao)||null;
+    /* TEMA É DA PESSOA (05/09): o que está no banco vence o cache do aparelho; o cache só evita piscar no boot */
+    if(u.data&&(u.data.tema||u.data.cor)){const t={tema:TEMAS[u.data.tema]?u.data.tema:"claro",cor:/^#[0-9a-f]{6}$/i.test(u.data.cor||"")?u.data.cor:null};try{localStorage.setItem(TEMA_KEY,JSON.stringify(t));}catch(e){}temaAplicar(t);}
     ((v&&v.data)||[]).forEach(r=>PERM.visoes[r.visao]={ler:r.ler!==false,escrever:!!r.escrever});
     /* 2.0: carimba o último acesso da própria pessoa (RPC só mexe na linha dela; falha não trava nada) */
     try{sb.rpc("app_touch").then(()=>{},()=>{});}catch(e){}
@@ -3189,7 +3194,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/fxOrcItens\(/.test(String(viewFluxo))||!/fxOrcItens\(/.test(String(fluxoDrill)))f.push("Fluxo e drill do Orçamento com contas diferentes (teto sem abater o gasto do mês)");
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
-  if(typeof temaPanel!=="function"||!/data-tema/.test(String(temaAplicar)))f.push("Configurações › Tema ausente");
+  if(typeof temaPanel!=="function"||!/data-tema/.test(String(temaAplicar))||!/app_set_tema/.test(String(temaSet)))f.push("Configurações › Tema ausente ou sem gravar por pessoa");
   if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");

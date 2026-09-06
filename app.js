@@ -405,7 +405,7 @@ const DEMO=(()=>{
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,ln,mv,ct,pv,rg,gl,orc,tg,mt,px]=await Promise.all([
+  const [contas,cats,ln,mv,ct,pv,pc,rg,gl,orc,tg,mt,px]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     /* Módulos & Links (v8.1): links por visão; tabela pode não existir num clone antigo → lista vazia */
@@ -413,6 +413,8 @@ async function loadData(){
     sb.from("movimentos").select("id,data,descricao_original,descricao_limpa,valor,sinal,conta_id,categoria_id,observacao").in("visao",VFILTER).order("data",{ascending:false}).limit(20000),
     sb.from("cartao_transacoes").select("id,data_compra,data_fatura,descricao,valor,cartao_id,categoria_id").in("visao",VFILTER).order("data_compra",{ascending:false}).limit(20000),
     sb.from("previstos").select("id,descricao,valor,vencimento,tipo,status,conta_id,categoria_id,recorrencia,observacao,visao").in("visao",VFILTER).order("vencimento").limit(20000),
+    /* v8.2: competência (mês a que a conta se refere) ≠ vencimento (quando ele decide pagar); coluna nova → se ainda não existir, o app segue sem ela */
+    sb.from("previstos").select("id,competencia").in("visao",VFILTER).limit(20000).then(r=>r,()=>({error:{message:"sem coluna"}})),
     sb.from("regras_classificacao").select("padrao,peso,categoria_id,ativo").limit(5000),
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
     sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000),
@@ -429,10 +431,12 @@ async function loadData(){
   const cartoes=ct.data.map(r=>({_row:r.id,data:(r.data_compra||"").slice(0,10),descricao:r.descricao||"",cartao:cb.get(r.cartao_id)?.nome||"",valor:Number(r.valor||0),subcategoria:nameOf(r.categoria_id),mesFatura:(r.data_fatura||"").slice(5,7)+"/"+(r.data_fatura||"").slice(0,4)}));
   const contasPagar=pv.data.filter(p=>p.tipo==="pagar").map(p=>({_row:p.id,descricao:p.descricao,vencimento:(p.vencimento||"").slice(0,10),valor:Number(p.valor||0),categoria:nameOf(p.categoria_id),banco:cb.get(p.conta_id)?.nome||"",status:p.status,recorrencia:p.recorrencia||"",obs:p.observacao||"",visao:p.visao,movId:p.movimento_id_realizado||null}));
   const aReceber=pv.data.filter(p=>p.tipo==="receber").map(p=>({_row:p.id,linha:p.descricao,dataPrevista:(p.vencimento||"").slice(0,10),previstoLiquido:Number(p.valor||0),status:p.status,conta:cb.get(p.conta_id)?.nome||"",recorrencia:p.recorrencia||"",visao:p.visao,movId:p.movimento_id_realizado||null}));
+  const hasComp=!(pc&&pc.error);const compMap=new Map();if(hasComp)((pc&&pc.data)||[]).forEach(r=>compMap.set(r.id,(r.competencia||"").slice(0,7)));
+  contasPagar.forEach(c=>{c.competencia=compMap.get(c._row)||"";});
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
-  return{links:((ln&&ln.data)||[]),movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
+  return{hasComp,links:((ln&&ln.data)||[]),movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1078,21 +1082,47 @@ function conciliar(tipo,row){const it=(tipo==="pagar"?DB.contasPagar:DB.aReceber
   modal({title:"Conciliar",extraHTML:body,saveLabel:"Conciliar",onSave:async(v,bg)=>{const sel=bg.querySelector("input[name=cand]:checked");if(!sel){toast("Escolha um");return false;}const st=tipo==="pagar"?"pago":"recebido";if(MODE==="live")await sbUpd("previstos",row,{status:st});it.status=st;toast("Conciliado ✓");await afterWrite();}});}
 
 /* ===== Pagar / Receber ===== */
-function viewPagar(){const rows=DB.contasPagar;$("#view").innerHTML=`<div class="row"><div><h1>Contas a Pagar</h1><div class="sub">${rows.length} contas</div></div><button class="btn" onclick="addPagar()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Banco</th><th class="num">Valor</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editPagar('${p._row}')">${fmtDate(p.vencimento)}</td><td style="cursor:pointer" onclick="editPagar('${p._row}')">${esc(p.descricao)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td><span class="chip">${esc(p.categoria||"—")}</span></td><td>${esc(p.banco||"—")}</td><td class="num out">${fmtBRL(p.valor)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status==="aberto"?`<button class="btn ghost sm" onclick="conciliar('pagar','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="7"><div class="empty">Nenhuma.</div></td></tr>`}</tbody></table></div>`;}
+/* ===== Contas a Pagar (Negócios) — v8.2 (06/09, pedido dele): um tópico dobrável por MÊS, com o total no
+   cabeçalho; agrupa por PAGAMENTO (vencimento = quando ele decide pagar) ou por COMPETÊNCIA (mês a que a
+   conta se refere). Mês passado com tudo pago nasce fechado; no celular só o mês corrente nasce aberto. ===== */
+let PG_AGR=(()=>{try{return localStorage.getItem("cfin_pg_agr")||"pag";}catch(e){return"pag";}})();
+function pgAgrSet(v){PG_AGR=v;try{localStorage.setItem("cfin_pg_agr",v);}catch(e){}viewPagar();}
+function viewPagar(){const rows=DB.contasPagar.slice(),tk=todayISO().slice(0,7),hoje=todayISO();
+  const keyOf=p=>(PG_AGR==="comp"&&p.competencia)?p.competencia:(p.vencimento||"").slice(0,7);
+  const grupos=new Map();rows.forEach(p=>{const k=keyOf(p)||"—";if(!grupos.has(k))grupos.set(k,[]);grupos.get(k).push(p);});
+  const keys=[...grupos.keys()].sort();
+  const sum=a=>a.reduce((s,p)=>s+(+p.valor||0),0);
+  const rowH=p=>{const d=(p.vencimento||"").slice(0,10),aberto=p.status==="aberto",late=aberto&&d&&d<hoje,comp=p.competencia&&p.competencia!==d.slice(0,7);
+    return`<div class="ct-row conc-row ${p.status==="pago"?"paid":""} ${late?"late":""}" onclick="editPagar('${p._row}')" role="button" tabindex="0">
+      <div class="dot-day"><b>${d?d.slice(8,10):"—"}</b><span>${d?ML[+d.slice(5,7)-1]:""}</span></div>
+      <div class="ct-main"><b>${esc(p.descricao)}</b><small>${p.recorrencia?`<span class="chip rec">${esc(p.recorrencia)}</span> · `:""}${p.categoria?catChip(p.categoria)+" · ":""}${esc(p.banco||"—")}${comp?` · <span class="chip" title="Mês a que a conta se refere">comp. ${mkLabel(p.competencia)}</span>`:""}${late?` · <span class="ct-latebdg">em atraso</span>`:""}</small></div>
+      <div class="ct-val num out">${fmtBRL(p.valor)}</div>
+      <span class="pill ${p.status}">${p.status}</span>
+      ${aberto?`<button class="btn ghost sm" onclick="event.stopPropagation();conciliar('pagar','${p._row}')">Conciliar</button>`:""}
+    </div>`;};
+  const bloco=k=>{const arr=grupos.get(k).sort((a,b)=>(a.vencimento||"")<(b.vencimento||"")?-1:1),ab=arr.filter(p=>p.status==="aberto");
+    const def=k<tk?ab.length===0:(k>tk&&isMobile());
+    return dobr("pg-"+k,`<div class="panel ct-grp"><h2 class="secttl" style="margin:2px 0 4px">${k==="—"?"Sem data":mkLabel(k)}</h2><div>${arr.map(rowH).join("")}</div></div>`,ab.length?`${ab.length} em aberto · ${fmtBRL(sum(ab))}`:`tudo pago · ${fmtBRL(sum(arr))}`,def);};
+  $("#view").innerHTML=`<div class="row"><div><h1>Contas a Pagar</h1></div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><div class="seg" style="display:inline-flex;gap:4px"><button class="${PG_AGR==="pag"?"on":""}" onclick="pgAgrSet('pag')" title="Agrupar pelo mês em que você decide pagar">Por pagamento</button><button class="${PG_AGR==="comp"?"on":""}" onclick="pgAgrSet('comp')" title="Agrupar pelo mês a que a conta se refere">Por competência</button></div><button class="btn" onclick="addPagar()">+ Adicionar</button></div></div>
+  ${dobrBar()}
+  ${keys.length?keys.map(bloco).join(""):`<div class="panel"><div class="empty">Nenhuma conta a pagar.</div></div>`}`;}
 function addMonthsDate(iso,n){let[y,m,d]=iso.split("-").map(Number);m+=n;y+=Math.floor((m-1)/12);m=((m-1)%12+12)%12+1;const last=new Date(y,m,0).getDate();if(d>last)d=last;return`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;}
-function pagarFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"vencimento",label:"Vencimento",type:"date"},{name:"valor",label:"Valor (R$)",type:"number"},{name:"categoria",label:"Categoria",type:"select",options:catOptsByTipo("saida").filter(o=>o!=="__new")},{name:"banco",label:"Banco",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
+const compOk=()=>MODE!=="live"||!!(DB&&DB.hasComp);
+const compPatch=v=>compOk()?{competencia:v.competencia?String(v.competencia).slice(0,7)+"-01":null}:{};
+function pagarFields(forAdd){const f=[{name:"descricao",label:"Descrição"},{name:"vencimento",label:"Pagamento (quando você decide pagar)",type:"date"},...(compOk()?[{name:"competencia",label:"Competência (mês a que a conta se refere)",type:"month"}]:[]),{name:"valor",label:"Valor (R$)",type:"number"},{name:"categoria",label:"Categoria",type:"select",options:catOptsByTipo("saida").filter(o=>o!=="__new")},{name:"banco",label:"Banco",type:"select",options:bancoOpts()},{name:"recorrencia",label:"Recorrência",type:"select",options:[{v:"",l:"Pontual"},"mensal","semanal","anual",{v:"parcelado",l:"Parcelado"}]}];if(forAdd)f.push({name:"parcelas",label:"Número de parcelas",type:"number",placeholder:"Ex.: 12",showIf:{field:"recorrencia",val:"parcelado"}});return f;}
 async function addPagar(){if(isAll()){toast("O consolidado é leitura — escolha uma visão pra lançar");return;}modal({title:"Nova conta a pagar",fields:pagarFields(true),values:{vencimento:todayISO(),parcelas:2},onSave:async v=>{if(!v.descricao){toast("Descrição");return false;}
   const parcelado=v.recorrencia==="parcelado",N=parcelado?Math.max(1,Math.round(+v.parcelas||1)):1,rec=parcelado?"":v.recorrencia,valor=Math.abs(+v.valor||0),catNome=leafCat(v.categoria);
   for(let i=0;i<N;i++){const venc=N>1?addMonthsDate(v.vencimento,i):v.vencimento;const desc=N>1?`${v.descricao} (${i+1}/${N})`:v.descricao;
-    const o={_row:"p"+Date.now()+i,descricao:desc,vencimento:venc,valor,categoria:catNome,banco:v.banco,status:"aberto",recorrencia:rec};
-    if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:venc||null,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+    const compI=v.competencia?(N>1?addMonth(String(v.competencia).slice(0,7),i):String(v.competencia).slice(0,7)):"";
+    const o={_row:"p"+Date.now()+i,descricao:desc,vencimento:venc,valor,categoria:catNome,banco:v.banco,status:"aberto",recorrencia:rec,competencia:compI};
+    if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:venc||null,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria),...compPatch({competencia:compI})});
     DB.contasPagar.push(o);}
   toast(N>1?`${N} parcelas lançadas`:"Lançada");await afterWrite();}});}
 function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)return;const mhEd=modal({title:"Editar conta a pagar",fields:[...pagarFields(true),{name:"status",label:"Status",type:"select",options:["aberto","pago","cancelado"]}],values:{...p,parcelas:2},extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="delPrev('contasPagar','${row}')">Excluir</button>`,onSave:async v=>{
   const parcelado=v.recorrencia==="parcelado",N=parcelado?Math.max(1,Math.round(+v.parcelas||1)):1,valor=Math.abs(+v.valor||0),base=String(v.descricao||"").replace(/\s*\(\d+\/\d+\)\s*$/,"");
   if(parcelado&&N>1){const d1=`${base} (1/${N})`;
-    if(MODE==="live")await sbUpd("previstos",row,{descricao:d1,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
-    Object.assign(p,{descricao:d1,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:""});
+    if(MODE==="live")await sbUpd("previstos",row,{...compPatch(v),descricao:d1,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+    Object.assign(p,{competencia:String(v.competencia||"").slice(0,7),descricao:d1,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:""});
     for(let i=1;i<N;i++){const venc=addMonthsDate(v.vencimento,i),desc=`${base} (${i+1}/${N})`,o={_row:"p"+Date.now()+i,descricao:desc,vencimento:venc,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"aberto",recorrencia:""};if(MODE==="live")o._row=await sbIns("previstos",{descricao:desc,valor,vencimento:venc||null,tipo:"pagar",status:"aberto",visao:VISAO,recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});DB.contasPagar.push(o);}
     toast(`${N} parcelas geradas`);
   }else{const rec=parcelado?"":v.recorrencia,kindPg=recKind(rec);
@@ -1100,12 +1130,12 @@ function editPagar(row){const p=DB.contasPagar.find(x=>x._row===row);if(!p)retur
       /* pagar RECORRENTE pelo modal não mata a série: esta linha vira instância PAGA
          e nasce um template aberto na próxima ocorrência (mesmo modelo do ✓ das Contas do mês) */
       const nx=stepRec((v.vencimento||todayISO()).slice(0,10),kindPg,1);
-      if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:"pago",recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
-      Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"pago",recorrencia:""});
+      if(MODE==="live")await sbUpd("previstos",row,{...compPatch(v),descricao:v.descricao,valor,vencimento:v.vencimento||null,status:"pago",recorrencia:null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
+      Object.assign(p,{competencia:String(v.competencia||"").slice(0,7),descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"pago",recorrencia:""});
       const o={_row:"p"+Date.now(),descricao:v.descricao,vencimento:nx,valor,categoria:leafCat(v.categoria),banco:v.banco,status:"aberto",recorrencia:rec};
       if(MODE==="live")o._row=await sbIns("previstos",{descricao:v.descricao,valor,vencimento:nx,tipo:"pagar",status:"aberto",visao:(p.visao||VISAO),recorrencia:rec,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});
       DB.contasPagar.push(o);toast("Pago ✓ · próxima ocorrência criada pra "+fmtDate(nx));
-    }else{if(MODE==="live")await sbUpd("previstos",row,{descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}}
+    }else{if(MODE==="live")await sbUpd("previstos",row,{...compPatch(v),descricao:v.descricao,valor,vencimento:v.vencimento||null,status:v.status,recorrencia:rec||null,conta_id:contaId(v.banco),categoria_id:catId(v.categoria)});Object.assign(p,{competencia:String(v.competencia||"").slice(0,7),descricao:v.descricao,vencimento:v.vencimento,valor,categoria:leafCat(v.categoria),banco:v.banco,status:v.status,recorrencia:rec});toast("Atualizado");}}
   await afterWrite();}});
   anexSection(mhEd.bg,"previsto",row,VISAO);entField(mhEd.bg,"previstos",row,p.descricao);}
 function viewReceber(){const rows=DB.aReceber;$("#view").innerHTML=`<div class="row"><div><h1>A Receber</h1><div class="sub">${rows.length} previstos</div></div><button class="btn" onclick="addReceber()">+ Adicionar</button></div><div class="panel"><table><thead><tr><th>Data prevista</th><th>Descrição</th><th>Conta</th><th class="num">Previsto</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(p=>`<tr><td style="cursor:pointer" onclick="editReceber('${p._row}')">${fmtDate(p.dataPrevista)}</td><td style="cursor:pointer" onclick="editReceber('${p._row}')">${esc(p.linha)}${p.recorrencia?` <span class="chip">${esc(p.recorrencia)}</span>`:""}</td><td>${esc(p.conta||"—")}</td><td class="num in">${fmtBRL(p.previstoLiquido)}</td><td><span class="pill ${p.status}">${p.status}</span></td><td>${p.status!=="recebido"?`<button class="btn ghost sm" onclick="conciliar('receber','${p._row}')">Conciliar</button>`:""}</td></tr>`).join("")||`<tr><td colspan="6"><div class="empty">Nenhum.</div></td></tr>`}</tbody></table></div>`;}
@@ -3209,6 +3239,7 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/ctBaixa\(/.test(String(ctPay))||typeof ctBaixa!=="function")f.push("ctPay não passa pelo núcleo ctBaixa (o ✓ e a Conciliação divergiriam)");
   if(ROUTES.conciliacao!==viewConciliacao||!NAV_CAT.conciliacao)f.push("Conciliação fora das rotas/menu");
   if(typeof temaPanel!=="function"||!/data-tema/.test(String(temaAplicar))||!/app_set_tema/.test(String(temaSet)))f.push("Configurações › Tema ausente ou sem gravar por pessoa");
+  if(!/dobr\("pg-"/.test(String(viewPagar))||!/competencia/.test(String(pagarFields)))f.push("Contas a Pagar sem tópicos por mês / sem competência");
   if(!/movimento_id_realizado/.test(String(ctBaixa))||!/p\.movId/.test(String(concPares)))f.push("Conciliação sem gravar/ler o vínculo previsto↔movimento (par repetido)");
   if(!/from\("links"\)/.test(String(loadData))||!/DB\.links/.test(String(linksLoad)))f.push("Módulos & Links sem ler a tabela links");
   if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");

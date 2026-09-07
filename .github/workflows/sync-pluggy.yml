@@ -27,18 +27,21 @@ on:
         description: "PROBE (>0 = só lista movimentos recentes do app e sai)"
         required: false
         default: "0"
-  # Piloto automático LIGADO: cron diário às 06h40 BRT. Secrets PLUGGY_* já
+      force_refresh:
+        description: "FORCE_REFRESH (true = força PATCH /items agora; padrão só lê o refresh diário)"
+        required: false
+        default: "true"
+  # Piloto automático LIGADO: cron diário às 08h40 BRT (só leitura). Secrets PLUGGY_* já
   # cadastrados. O GitHub só dispara schedule a partir da branch DEFAULT (main),
   # então este cron só passa a rodar sozinho depois que a branch for mergeada.
-  # O sync tenta PATCH /items (se negado pós-trial, lê o dado diário do MeuPluggy);
+  # O cron NAO forca PATCH (le o refresh diario do MeuPluggy); run manual forca;
   # janela padrão de 7 dias + dedup por hash = sem duplicata em reexecuções.
   schedule:
-    # A cada 2h (02/08): o dado do MeuPluggy chega 1x/dia mas em hora imprevisível,
-    # entao rodar de 2 em 2h faz o app pegar a atualizacao logo que ela existe.
-    # Seguro: dedup por conteudo + guard de saldo já provados (rodadas repetidas
-    # gravam 0); repo publico = minutos de Actions ilimitados; 12 execucoes/dia
-    # e volume baixo pra API da Pluggy.
-    - cron: "40 */2 * * *"   # :40 de 2 em 2h UTC
+    # 06/09: 1x/dia. O MeuPluggy grátis tem teto mensal de requisicoes; rodar de
+    # 2 em 2h FORCANDO refresh estourava o teto e o item travava ("toda hora
+    # conectando"). Agora o cron so LE o refresh diario que o MeuPluggy ja faz
+    # sozinho (sem PATCH). Pra forcar na hora, rode manual com force_refresh=true.
+    - cron: "40 11 * * *"   # 11:40 UTC = 08:40 BRT, depois do refresh diario
 
 # Nunca dois syncs ao mesmo tempo (cron + botão ⚡ do app podiam se cruzar).
 concurrency:
@@ -67,4 +70,5 @@ jobs:
           MAPPING: ${{ github.event.inputs.mapping || '' }}
           SYNC_DAYS: ${{ github.event.inputs.sync_days || '7' }}
           PROBE_DAYS: ${{ github.event.inputs.probe_days || '0' }}
+          FORCE_REFRESH: ${{ github.event.inputs.force_refresh || 'false' }}
         run: node scripts/sync-pluggy.mjs

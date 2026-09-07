@@ -3,7 +3,7 @@
 // Cobre Nubank (visao=FAMILIA), Inter PF (visao=JUCA) e C6 (visao=PIPEX)
 // numa tacada só. Lê a tabela `pluggy_conexoes` (item_id → conta_id + visao)
 // e, pra cada item ativo:
-//   1) PATCH /items/{id}  → FORÇA refresh (gratuito)
+//   1) (opcional, só com FORCE_REFRESH) PATCH /items/{id} → força refresh
 //   2) espera o item terminar de atualizar (poll GET /items/{id})
 //   3) GET /accounts?itemId  → acha a conta bancária do item
 //   4) GET /transactions?accountId → pagina tudo na janela
@@ -52,6 +52,7 @@ const DAYS = Number(process.env.SYNC_DAYS || 90);
 const ITEM_IDS = (process.env.ITEM_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const MAPPING = (process.env.MAPPING || '').trim();
 const PROBE_DAYS = Number(process.env.PROBE_DAYS || 0);   // >0: só lista movimentos recentes e sai
+const FORCE_REFRESH = String(process.env.FORCE_REFRESH ?? 'false') === 'true';  // 06/09: por padrão NÃO força PATCH — lê o refresh diário do MeuPluggy (evita estourar o teto grátis). true só em run manual/⚡.
 
 // MAPPING/PROBE só falam com o Supabase; o resto precisa também das credenciais Pluggy.
 if (!SUPABASE_URL || !SERVICE_KEY || (!MAPPING && !PROBE_DAYS && (!CLIENT_ID || !CLIENT_SECRET))) {
@@ -289,8 +290,15 @@ async function main() {
       let st;
       if (refreshFeito.has(c.item_id)) {
         st = `${refreshFeito.get(c.item_id)} [mesmo item da conexão anterior]`;
+      } else if (!FORCE_REFRESH) {
+        // 06/09: por padrão NÃO forçamos PATCH. O MeuPluggy já atualiza cada item
+        // ~1x/dia sozinho; forçar 12x/dia estourava o teto mensal do grátis e o
+        // item travava ("toda hora conectando"). Aqui a gente só LÊ o que ele
+        // trouxe. Force manualmente com FORCE_REFRESH=true (run/⚡).
+        st = 'sem PATCH (lendo o refresh diário do MeuPluggy)';
+        refreshFeito.set(c.item_id, st);
       } else {
-        console.log('   refresh do item (PATCH /items)…');
+        console.log('   refresh do item (PATCH /items) [FORCE_REFRESH]…');
         try {
           st = await refreshItem(c.item_id);
         } catch (e) {

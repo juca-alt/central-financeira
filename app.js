@@ -802,8 +802,6 @@ function viewDashboard(){
 function viewDashFamilia(){
   const{de,ate}=ovBounds();
   const o=overviewNumbers(de,ate);
-  const sobra=o.entPrev-o.saiPrev;
-  const pct=o.entPrev>0?Math.min(100,Math.round(o.saiPrev/o.entPrev*100)):(o.saiPrev>0?100:0);
   const disp=saldoCorrente();
   let cartTot=0;contaSaldos().forEach((v,n)=>{if(isCartaoConta(n))cartTot+=v;});
   /* triagem: atrasados primeiro, depois os próximos — no máx. 4 itens */
@@ -835,13 +833,6 @@ function viewDashFamilia(){
   </div>
   ${ovPeriodBar()}
   ${primeirosPassos()}
-  <div class="panel fam-hero">
-    <div class="lbl">Sobra prevista ${PERIOD.mode==="mes"?"do mês":"do período"}</div>
-    <div class="val ${sobra>=0?"":"neg"}">${fmtBRL(sobra)}</div>
-    <div class="hint">entra <span class="link" onclick="ovDrill('ent')">${fmtK(o.entPrev)} ›</span> − compromissos e gastos <span class="link" onclick="ovDrill('sai')">${fmtK(o.saiPrev)} ›</span> (real ${fmtK(o.saiReal)} · a realizar ${fmtK(o.saiAReal)})</div>
-    <div class="bar fam-bar"><i style="width:${pct}%"></i></div>
-    <div class="hint">${pct}% do previsto de saídas já comprometido</div>
-  </div>
   <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
     <div class="kpi"><div class="lbl">💰 Disponível agora</div><div class="val ${disp>=0?"in":"out"}">${fmtBRL(disp)}</div><div class="hint">contas correntes da visão</div></div>
     <div class="kpi" onclick="route('cartoes')" style="cursor:pointer"><div class="lbl">💳 Cartões</div><div class="val ${cartTot>=0?"in":"out"}">${fmtBRL(cartTot)}</div><div class="hint">ver faturas ›</div></div>

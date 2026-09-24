@@ -38,11 +38,11 @@ const SHELL_HTML = `
   <main class="main" id="view"></main>
 </div>
 <nav class="bnav" id="bnav" aria-label="Navegação rápida">
-  <a data-route="central"><span class="bico"><i class="ti ti-layout-grid"></i></span><span class="blbl">Central</span></a>
-  <a data-route="financeiro"><span class="bico"><i class="ti ti-wallet"></i></span><span class="blbl">Contas</span></a>
+  <a data-route="central"><span class="bico">🗂️</span><span class="blbl">Central</span></a>
+  <a data-route="financeiro"><span class="bico">💼</span><span class="blbl">Contas</span></a>
   <button class="bnav-fab" id="bnavFab" aria-label="Novo lançamento">＋</button>
-  <a data-route="movimentos"><span class="bico"><i class="ti ti-arrows-exchange"></i></span><span class="blbl">Movim.</span></a>
-  <a data-bnav="menu"><span class="bico"><i class="ti ti-menu-2"></i></span><span class="blbl">Menu</span></a>
+  <a data-route="movimentos"><span class="bico">🔁</span><span class="blbl">Movim.</span></a>
+  <a data-bnav="menu"><span class="bico">☰</span><span class="blbl">Menu</span></a>
 </nav>
 <div class="toast" id="toast"></div>
 <div class="upd" id="updBanner">
@@ -106,26 +106,31 @@ async function setVisao(code){applyVisao(code);syncChrome();if(MODE==="live"){tr
    `vis` = regra de visibilidade por visão (o que o syncChrome fazia na mão).
    ===================================================================== */
 /* DESIGN 2.0 (05/09): ícones de linha (Tabler), como no Painel Central; `desc` alimenta a tela Módulos & Links */
+/* ícones = EMOJI (24/09, pedido dele: "mantém as cores, traz os ícones como emoji").
+   O Design 2.0 tinha trocado por ícones de linha (Tabler); a paleta clara ficou. */
 const NAV_CAT={
-  central:   {ico:"ti-layout-grid",  label:"Central", vis:()=>!isAll()},   /* em ALL, a Visão Geral JÁ é a central */
-  financeiro:{ico:"ti-wallet",       label:"Modo Financeiro", desc:"Contas a pagar por dia de vencimento: atrasadas, hoje, a vencer."},
-  dashboard: {ico:"ti-layout-dashboard", label:"Visão Geral", desc:"Sobra do mês, o que precisa de você, saldos e cartões."},
-  fluxo:     {ico:"ti-chart-line",   label:"Fluxo de Caixa", desc:"Realizado + projeção: compromissos cadastrados e orçamento dos variáveis."},
-  dre:       {ico:"ti-report-analytics", label:"DRE", vis:()=>IS_NEGOCIOS, desc:"Resultado por linha, mês a mês."},
-  orcamento: {ico:"ti-target",       label:"Orçamento", vis:()=>!isAll(), desc:"Tetos por categoria e o realizado contra cada um."},
-  movimentos:{ico:"ti-arrows-exchange", label:"Movimentos", desc:"Todos os lançamentos, filtros, categorias e edição em massa."},
-  conciliacao:{ico:"ti-checks",      label:"Conciliação", vis:()=>!isAll(), desc:"Casa o que está pra pagar com o que o extrato trouxe."},
-  contas:    {ico:"ti-calendar-check", label:"Contas do mês", vis:()=>IS_PESSOAL, desc:"Compromissos da casa: toque no ✓ pra dar baixa."},
-  pagar:     {ico:"ti-receipt",      label:"Contas a Pagar", vis:()=>!IS_PESSOAL, desc:"Cadastro de contas a pagar da visão."},
-  receber:   {ico:"ti-cash",         label:"A Receber", vis:()=>!IS_PESSOAL, desc:"Recebimentos previstos e baixa."},
-  pipex:     {ico:"ti-users",        label:"Pipe X", vis:()=>VISAO==="PIPEX", desc:"Parceria com o Daniel: devido × previsto, mês a mês."},
-  comissoes: {ico:"ti-heart-handshake", label:"Comissões LP", vis:()=>VISAO==="PIPEX", desc:"Fechamento mensal do extrato de comissões."},
-  cartoes:   {ico:"ti-credit-card",  label:"Cartões", desc:"Faturas, dívida real e lançamentos por cartão."},
-  importar:  {ico:"ti-upload",       label:"Importar", vis:()=>!isAll(), desc:"OFX, CSV ou PDF do banco — com leitura por IA."},
-  atalhos:   {ico:"ti-link",         label:"Módulos & Links", desc:"Tudo num lugar: módulos do app e links do Drive, Notion e bancos."},
-  config:    {ico:"ti-settings",     label:"Configurações", desc:"Contas, cartões, categorias, tags, pessoas e acessos."},
+  central:   {ico:"🗂️", label:"Central", vis:()=>!isAll()},   /* em ALL, a Visão Geral JÁ é a central */
+  financeiro:{ico:"💼", label:"Modo Financeiro", desc:"Contas a pagar por dia de vencimento: atrasadas, hoje, a vencer."},
+  dashboard: {ico:"🧭", label:"Visão Geral", desc:"Sobra do mês, o que precisa de você, saldos e cartões."},
+  fluxo:     {ico:"📈", label:"Fluxo de Caixa", desc:"Realizado + projeção: compromissos cadastrados e orçamento dos variáveis."},
+  dre:       {ico:"📊", label:"DRE", vis:()=>IS_NEGOCIOS, desc:"Resultado por linha, mês a mês."},
+  orcamento: {ico:"🎯", label:"Orçamento", vis:()=>!isAll(), desc:"Tetos por categoria e o realizado contra cada um."},
+  movimentos:{ico:"🔁", label:"Movimentos", desc:"Todos os lançamentos, filtros, categorias e edição em massa."},
+  conciliacao:{ico:"🔗", label:"Conciliação", vis:()=>!isAll(), desc:"Casa o que está pra pagar com o que o extrato trouxe."},
+  contas:    {ico:"🗓️", label:"Contas do mês", vis:()=>IS_PESSOAL, desc:"Compromissos da casa: toque no ✓ pra dar baixa."},
+  pagar:     {ico:"🧾", label:"Contas a Pagar", vis:()=>!IS_PESSOAL, desc:"Cadastro de contas a pagar da visão."},
+  receber:   {ico:"💵", label:"A Receber", vis:()=>!IS_PESSOAL, desc:"Recebimentos previstos e baixa."},
+  pipex:     {ico:"🤝", label:"Pipe X", vis:()=>VISAO==="PIPEX", desc:"Fechamento da parceria com o Daniel: o que entra, a sua parte, o que ele já pagou e o saldo."},
+  comissoes: {ico:"💰", label:"Comissões LP", vis:()=>VISAO==="PIPEX", desc:"Fechamento mensal do extrato de comissões."},
+  at:        {ico:"🩺", label:"AT", vis:()=>VISAO==="FAMILIA", desc:"Guias, lotes e repasses do acompanhamento terapêutico: quanto já veio e o que falta acertar."},
+  cartoes:   {ico:"💳", label:"Cartões", desc:"Faturas, dívida real e lançamentos por cartão."},
+  importar:  {ico:"📥", label:"Importar", vis:()=>!isAll(), desc:"OFX, CSV ou PDF do banco — com leitura por IA."},
+  atalhos:   {ico:"🧩", label:"Módulos & Links", desc:"Tudo num lugar: módulos do app e links do Drive, Notion e bancos."},
+  config:    {ico:"⚙️", label:"Configurações", desc:"Contas, cartões, categorias, tags, pessoas e acessos."},
 };
-const navIco=ico=>/^ti-/.test(ico)?`<i class="ti ${ico}"></i>`:ico;
+/* links antigos no banco guardam "ti-folder" etc. — traduz na hora, sem migrar dado */
+const TI_EMO={"ti-folder":"📁","ti-notebook":"📓","ti-database":"🗄️","ti-plug":"🔌","ti-building-bank":"🏦","ti-external-link":"🔗","ti-link":"🔗","ti-wallet":"💼"};
+const navIco=ico=>/^ti-/.test(ico||"")?(TI_EMO[ico]||"🔗"):(ico||"🔗");
 /* ===== TEMA (05/09, pedido dele): "claro" (padrão do Painel Central) ou "original" (azul-escuro de antes),
    + cor de destaque. Escolha por aparelho em localStorage; aplicada antes do 1º render. ===== */
 const TEMA_KEY="cfin_tema_v1";
@@ -151,7 +156,7 @@ const NAV_KEY="cfin_nav_v1";
 const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no menu (04/09: Central = seletor de visão) */
 const navDefault=()=>[
   {titulo:"",             itens:["financeiro","dashboard","fluxo","orcamento","dre"]},   /* 04/09: "Central" saiu do menu — o seletor de visão no topo já leva a Todas */
-  {titulo:"Lançamentos",  itens:["movimentos","conciliacao","contas","pagar","receber","comissoes","cartoes","importar"]},
+  {titulo:"Lançamentos",  itens:["movimentos","conciliacao","contas","pagar","receber","comissoes","at","cartoes","importar"]},
   {titulo:"Sistema",      itens:["atalhos","config"]},
 ];
 let NAVLAY=null, NAV_HIDE=new Set(), NAV_EDIT=false;
@@ -400,7 +405,15 @@ const DEMO=(()=>{
   const contas=[...new Set(mov.map(m=>m.banco))].map((n,i)=>({id:"co"+i,nome:n,banco:n.split(" ")[0],tipo:/cart/i.test(n)?"cartao":"corrente"}));
   const regras=[["MJM","Fornecedores",5],["DAS","Impostos e Taxas PJ",5],["INSS","Impostos e Taxas PJ",5],["OUTLIERS","Comissões/Repasses",5],["PRUDENTIAL","Comissão Prudential",5],["CLAUDE","Software/Assinaturas",4],["ANTHROPIC","Software/Assinaturas",4],["META ADS","Marketing/Publicidade",4]];
   const glossario=[["MARIA LUIZA","Fornecedores"],["MJM CONTABILIDADE","Fornecedores"],["COMPENSATIO","Comissão Prudential"]];
-  return{movimentos:mov,contasPagar:pagar,aReceber:receber,cartoes,categorias:cats,contas,regras:regras.map(r=>({padrao:r[0],cat:r[1],peso:r[2]})),glossario:glossario.map(g=>({termo:g[0],cat:g[1]}))};
+  /* Pipe X de exemplo — FICTÍCIO (repo público): nomes/apólices inventados */
+  const pxPer=[{id:"Mai/26",ini:"21/04/2026",fim:"20/05/2026"},{id:"Jun/26",ini:"21/05/2026",fim:"19/06/2026"},{id:"Jul/26",ini:"20/06/2026",fim:"20/07/2026"},{id:"Ago/26",ini:"21/07/2026",fim:"20/08/2026"}];
+  const pxRow=(seg,ap,pct,coms)=>({id:seg+"|"+ap,seg,apolice:ap,base_pct:pct,cells:Object.fromEntries(pxPer.map((p,i)=>[p.id,{com:coms[i],pct,entra:coms[i]>0}]))});
+  const pipex={gerado:"demo",tax:0.06,periodos:pxPer,
+    rows:[pxRow("CLIENTE DEMO ALFA","2100101",50,[180,180,180,180]),pxRow("CLIENTE DEMO BETA","2100102",50,[0,120,120,120]),pxRow("CLIENTE DEMO GAMA","2100103",20,[0,90,90,90]),pxRow("CLIENTE DEMO DELTA","2100104",0,[0,300,300,300])],
+    outros:[{seg:"CLIENTE DEMO ÉPSILON",apolice:"2100105",mes:{"Mai/26":0,"Jun/26":0,"Jul/26":150,"Ago/26":150}}],
+    pago_default:{"Mai/26":84.6,"Jun/26":169.2},
+    comprovantes:[{quem:"Daniel (demo)",valor:253.8,data:"10/07/2026",meio:"Pix",cobre:"Mai + Jun (exemplo)"}]};
+  return{movimentos:mov,contasPagar:pagar,aReceber:receber,cartoes,categorias:cats,contas,regras:regras.map(r=>({padrao:r[0],cat:r[1],peso:r[2]})),glossario:glossario.map(g=>({termo:g[0],cat:g[1]})),pipex};
 })();
 
 async function loadData(){
@@ -1327,13 +1340,13 @@ async function ctUndo(r){
    (cfin_links_v1); quando ele aprovar o design, vão pro banco por visão. */
 const LINKS_KEY="cfin_links_v1";
 const LINKS_SEED=[
-  {n:"Pasta Central Financeira (Drive)",d:"Canônico, snapshots e extratos.",u:"https://drive.google.com/drive/folders/177ft9fjF7onKwIII-irrD4c6czy9s8rw",i:"ti-folder"},
-  {n:"Assistente Financeira (Notion)",d:"Protocolo, memória e retomada da assistente.",u:"https://www.notion.so",i:"ti-notebook"},
-  {n:"Supabase · Central",d:"Banco e Edge Functions do app.",u:"https://supabase.com/dashboard/project/mieqsiojvfiqrhectquc",i:"ti-database"},
-  {n:"Meu Pluggy",d:"Conexões bancárias (Inter PF, C6, Nubank).",u:"https://meu.pluggy.ai",i:"ti-plug"},
+  {n:"Pasta Central Financeira (Drive)",d:"Canônico, snapshots e extratos.",u:"https://drive.google.com/drive/folders/177ft9fjF7onKwIII-irrD4c6czy9s8rw",i:"📁"},
+  {n:"Assistente Financeira (Notion)",d:"Protocolo, memória e retomada da assistente.",u:"https://www.notion.so",i:"📓"},
+  {n:"Supabase · Central",d:"Banco e Edge Functions do app.",u:"https://supabase.com/dashboard/project/mieqsiojvfiqrhectquc",i:"🗄️"},
+  {n:"Meu Pluggy",d:"Conexões bancárias (Inter PF, C6, Nubank).",u:"https://meu.pluggy.ai",i:"🔌"},
 ];
 function linksLoad(){
-  if(MODE==="live")return (DB.links||[]).map(l=>({id:l.id,n:l.nome,u:l.url,d:l.descricao||"",i:l.icone||"ti-external-link",visao:l.visao}));
+  if(MODE==="live")return (DB.links||[]).map(l=>({id:l.id,n:l.nome,u:l.url,d:l.descricao||"",i:l.icone||"🔗",visao:l.visao}));
   try{const v=JSON.parse(localStorage.getItem(LINKS_KEY)||"null");if(Array.isArray(v))return v;}catch(e){}return LINKS_SEED.slice();}
 function linksSave(v){try{localStorage.setItem(LINKS_KEY,JSON.stringify(v));}catch(e){}}
 function viewAtalhos(){
@@ -1342,10 +1355,10 @@ function viewAtalhos(){
   const tile=(ico,n,d,k,on,x)=>`<div class="tile" onclick="${on}"><div class="t-i">${navIco(ico)}</div><div class="t-n">${esc(n)}</div><div class="t-d">${esc(d||"")}</div><div class="t-k${k==="live"?" live":""}">${k==="live"?"● Módulo":"↗ Link"}</div>${x!=null?`<button class="t-x" onclick="event.stopPropagation();linkDel(${x})" title="Remover">✕</button>`:""}</div>`;
   $("#view").innerHTML=`<div class="row"><div><h1>Módulos & Links</h1><div class="sub">${esc(VISAO_LABEL)} · o que você usa, num lugar só</div></div></div>
   <div class="t-sec">Módulos do app</div><div class="tiles">${mods.map(r=>tile(NAV_CAT[r].ico,NAV_CAT[r].label,NAV_CAT[r].desc,"live",`route('${r}')`)).join("")}</div>
-  <div class="t-sec">Pastas, documentos e apps</div><div class="tiles">${links.map((l,i)=>tile(l.i||"ti-external-link",l.n,l.d,"link",`window.open('${esc(l.u)}','_blank')`,i)).join("")}
-    ${pode?`<div class="tile add" onclick="linkAdd()"><i class="ti ti-plus"></i> Adicionar link</div>`:""}</div>`;
+  <div class="t-sec">Pastas, documentos e apps</div><div class="tiles">${links.map((l,i)=>tile(l.i||"🔗",l.n,l.d,"link",`window.open('${esc(l.u)}','_blank')`,i)).join("")}
+    ${pode?`<div class="tile add" onclick="linkAdd()">＋ Adicionar link</div>`:""}</div>`;
 }
-function linkAdd(){modal({title:"Novo link",fields:[{name:"n",label:"Nome"},{name:"u",label:"Endereço (URL)",placeholder:"https://…"},{name:"d",label:"Descrição (opcional)"},{name:"i",label:"Ícone",type:"select",options:[{v:"ti-folder",l:"Pasta"},{v:"ti-notebook",l:"Notion / documento"},{v:"ti-building-bank",l:"Banco"},{v:"ti-database",l:"Sistema"},{v:"ti-external-link",l:"Link"}],default:"ti-external-link"}],onSave:async v=>{if(!v.n||!/^https?:\/\//.test(v.u||"")){toast("Nome e endereço começando com https://");return false;}
+function linkAdd(){modal({title:"Novo link",fields:[{name:"n",label:"Nome"},{name:"u",label:"Endereço (URL)",placeholder:"https://…"},{name:"d",label:"Descrição (opcional)"},{name:"i",label:"Ícone",type:"select",options:[{v:"📁",l:"📁 Pasta"},{v:"📓",l:"📓 Notion / documento"},{v:"🏦",l:"🏦 Banco"},{v:"🗄️",l:"🗄️ Sistema"},{v:"🔗",l:"🔗 Link"}],default:"🔗"}],onSave:async v=>{if(!v.n||!/^https?:\/\//.test(v.u||"")){toast("Nome e endereço começando com https://");return false;}
     if(MODE==="live"){if(isAll()){toast("Escolha uma visão no topo pra guardar o link nela");return false;}
       try{await sbIns("links",{visao:VISAO,nome:v.n,url:v.u,descricao:v.d||null,icone:v.i,ordem:linksLoad().length+1});}catch(e){toast("Erro: "+e.message);return false;}
       toast("Link adicionado");await afterWrite();return;}
@@ -1847,79 +1860,490 @@ async function gerarFatura(fk){if(isAll()){toast("Escolha uma visão pra gerar a
 }
 
 /* ===== Pipe X — parceria com o Daniel =====================================
-   O modulo Pipe X (app separado) grava o estado em `pipex_state.data`; aqui a
-   Central LE esse estado e mostra o que ele significa em dinheiro.
+   24/09: a Central É o fechamento. Antes era um artefato à parte ("Central da
+   Parceria") que guardava as marcações só no navegador; aqui a mesma tela
+   passa a gravar no banco.
 
-   REGUA (regra do Gustavo): devido do mes = soma, por apolice que ENTRA no
-   mes, de  comissao x % acordado x (1 - imposto do Simples).  Corte dia 20
-   (janela 21->20); vence dia 05 do mes seguinte.  % vem da carteira: 50%
-   padrao, 20% (Hildete, Pablo), 0% = abono (Sinval, Ricardo, Paulo Carolino).
+   BASE  = `pipex_state.data` (comissão do Daniel por apólice × mês, periodos,
+           outros clientes do livro dele, comprovantes, pago_default).
+   EDIÇÕES do Gustavo = `data.state` {row:{[id]:{on,cells:{[mes]:{pct,entra}}}},
+           pago:{[mes]:valor}, extra:[clientes adicionados]} — o MESMO formato do
+           artefato, então o "Backup JSON" feito lá restaura aqui sem conversão.
 
-   O VALOR desta tela nao e repetir o modulo — e CONFRONTAR: para cada mes ela
-   compara o devido calculado com o previsto que esta gravado no banco. Foi
-   assim que apareceu que Mai/26 estava 402,35 quando devia 484,24 e Jun/26
-   estava 510,54 quando devia 685,32. Se as duas pontas divergirem de novo, a
-   tela avisa em vez de deixar passar. */
-const pxDevido=(px,per)=>!px?0:Math.round((px.rows||[]).reduce((s,r)=>{
-  const c=(r.cells||{})[per]; if(!c||!c.entra)return s;
-  return s+Number(c.com||0)*(Number(c.pct||0)/100)*(1-Number(px.tax||0));},0)*100)/100;
-const pxLinhas=(px,per)=>!px?[]:(px.rows||[]).map(r=>{
-  const c=(r.cells||{})[per]||{};
-  return{seg:r.seg,apolice:r.apolice,com:Number(c.com||0),pct:Number(c.pct||0),entra:!!c.entra,
-         liq:Math.round(Number(c.com||0)*(Number(c.pct||0)/100)*(1-Number(px.tax||0))*100)/100};})
-  .filter(x=>x.entra||x.com).sort((a,b)=>b.liq-a.liq||a.seg.localeCompare(b.seg,"pt"));
-/* o previsto que a Central gravou pra esse mes (mesma convencao de descricao) */
-const pxPrevisto=per=>(DB.aReceber||[]).find(a=>(a.descricao||"")==="Comissão LP Daniel · "+per)||null;
+   RÉGUA: parte do mês = Σ, por apólice que ENTRA, de comissão × % × (1 − 6%),
+   arredondada POR CÉLULA (igual ao artefato — senão os centavos divergem).
+   Abono do mês = desmarcar ✓. Fora da parceria de vez = desmarcar "na parceria".
+   Corte dia 20 (janela 21→20); vence dia 05.
 
-let PX_PER=null;
+   O extra da Central é CONFRONTAR o devido com o previsto gravado em A Receber
+   ("Comissão LP Daniel · Mai/26"): foi assim que apareceram Mai/26 402,35 vs
+   484,24 e Jun/26 510,54 vs 685,32. Divergiu de novo → a tela avisa. */
+const pxR2=v=>Math.round(((Number(v)||0)+Number.EPSILON)*100)/100;
+const pxSt=px=>{if(!px)return{row:{},pago:{},extra:[]};if(!px.state||typeof px.state!=="object")px.state={};const s=px.state;
+  if(!s.row||typeof s.row!=="object")s.row={};if(!s.pago||typeof s.pago!=="object")s.pago={};if(!Array.isArray(s.extra))s.extra=[];return s;};
+/* busca sem acento/caixa: "joão" acha "JOAO" (os extratos vêm sem acento) */
+const pxNorm=v=>String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+const pxRid=r=>r.id||((r.seg||"")+"|"+(r.apolice||""));
+const pxRows=px=>!px?[]:(px.rows||[]).concat(pxSt(px).extra);
+const pxRowSt=(px,r)=>{const s=pxSt(px),id=pxRid(r);if(!s.row[id])s.row[id]={on:true,cells:{}};if(!s.row[id].cells)s.row[id].cells={};return s.row[id];};
+function pxCell(px,r,per){const b=(r.cells||{})[per]||{com:0,pct:(r.base_pct!=null?r.base_pct:50),entra:false};
+  const rs=pxSt(px).row[pxRid(r)]||{},ov=(rs.cells||{})[per]||{};
+  return{com:Number(b.com||0),pct:Number(ov.pct!=null?ov.pct:(b.pct||0)),entra:!!(ov.entra!=null?ov.entra:b.entra),on:rs.on!==false};}
+const pxShare=(px,r,per)=>{const v=pxCell(px,r,per);return(v.on&&v.entra)?pxR2(v.com*(v.pct/100)*(1-Number(px.tax||0))):0;};
+const pxProd=(px,r,per)=>{const v=pxCell(px,r,per);return v.on?pxR2(v.com*(v.pct/100)*(1-Number(px.tax||0))):0;};
+const pxDevido=(px,per)=>!px?0:pxR2(pxRows(px).reduce((s,r)=>s+pxShare(px,r,per),0));
+/* número de campo: <input type=number> SEMPRE entrega "157.92"; texto BR ("1.234,56") também passa */
+const pxNum=v=>{const n=String(v==null?"":v).trim();if(/^-?\d+(\.\d+)?$/.test(n))return Number(n);return parseFloat(n.replace(/\./g,"").replace(",","."))||0;};
+const pxPago=(px,per)=>{const s=pxSt(px);return s.pago[per]!==undefined?(Number(s.pago[per])||0):Number((px.pago_default||{})[per]||0);};
+/* o previsto que a Central gravou pra esse mês (mesma convenção de descrição) */
+const pxPrevisto=per=>(DB.aReceber||[]).find(a=>(a.descricao||a.linha||"")==="Comissão LP Daniel · "+per)||null;
+
+/* ---- gravação: debounce + relê a base antes (não atropela atualização da base) ---- */
+let PX_T=null,PX_SALVO="";
+function pxSave(){if(MODE!=="live"){PX_SALVO="demo · não grava";pxStatus();return;}
+  PX_SALVO="salvando…";pxStatus();clearTimeout(PX_T);PX_T=setTimeout(pxSaveNow,700);}
+async function pxSaveNow(){const px=DB.pipex;if(!px)return;
+  try{
+    const{data:u}=await sb.auth.getUser();const uid=u&&u.user&&u.user.id;if(!uid)throw new Error("sem login");
+    const{data:cur,error:e1}=await sb.from("pipex_state").select("data").eq("user_id",uid).maybeSingle();if(e1)throw new Error(e1.message);
+    if(!cur)throw new Error("sem linha do Pipe X pra este login");
+    const novo=Object.assign({},cur.data,{state:pxSt(px)});
+    const{error:e2}=await sb.from("pipex_state").update({data:novo,updated_at:new Date().toISOString()}).eq("user_id",uid);if(e2)throw new Error(e2.message);
+    PX_SALVO="salvo ✓ "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+  }catch(e){PX_SALVO="⚠ não salvou";toast("Pipe X não salvou: "+e.message);}
+  pxStatus();}
+function pxStatus(){const el=document.getElementById("pxSalvo");if(el)el.textContent=PX_SALVO;}
+
+/* ---- ações da grade (índice na lista COMPLETA — nome de cliente nunca vai pra onclick) ---- */
+function pxSetPct(i,per,v){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;const rs=pxRowSt(px,r);rs.cells[per]=rs.cells[per]||{};rs.cells[per].pct=Math.max(0,Math.min(100,pxNum(v)));pxSave();pxRefresh();}
+function pxSetEntra(i,per,b){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;const rs=pxRowSt(px,r);rs.cells[per]=rs.cells[per]||{};rs.cells[per].entra=!!b;pxSave();pxRefresh();}
+function pxSetOn(i,b){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;pxRowSt(px,r).on=!!b;pxSave();pxRefresh();}
+function pxSetPago(per,v){const s=pxSt(DB.pipex),n=String(v==null?"":v).trim();if(n==="")delete s.pago[per];else s.pago[per]=pxNum(n);pxSave();pxRefresh();}
+function pxAddCli(k){const px=DB.pipex,o=(px.outros||[])[k];if(!o)return;const id=o.seg+"|"+o.apolice,s=pxSt(px);
+  if(pxRows(px).some(r=>pxRid(r)===id)){toast("Esse cliente já está na grade");return;}
+  const cells={};(px.periodos||[]).forEach(p=>{const c=Number((o.mes||{})[p.id]||0);cells[p.id]={com:c,pct:50,entra:c>0};});
+  s.extra.push({id,seg:o.seg,apolice:o.apolice,base_pct:50,cells});pxSave();document.querySelector(".modal-bg")?.remove();pxRefresh();toast("Cliente adicionado");}
+function pxAddModal(){const px=DB.pipex;if(!px)return;
+  const{bg}=modal({title:"Adicionar cliente do livro do Daniel",extraHTML:`<input id="pxAddQ" placeholder="buscar por nome ou apólice…" style="width:100%"><div id="pxAddL" class="px-addl"></div>`});
+  const ja=new Set(pxRows(px).map(pxRid));
+  const draw=()=>{const q=pxNorm(bg.querySelector("#pxAddQ").value);
+    const L=(px.outros||[]).map((o,k)=>({o,k})).filter(({o})=>!ja.has(o.seg+"|"+o.apolice)&&(pxNorm(o.seg).includes(q)||String(o.apolice).includes(q))).slice(0,60);
+    bg.querySelector("#pxAddL").innerHTML=L.map(({o,k})=>{const tot=(px.periodos||[]).reduce((a,p)=>a+Number((o.mes||{})[p.id]||0),0);
+      return`<div class="px-addr"><div><div>${esc(o.seg)}</div><div class="sub" style="margin:0">apól ${esc(o.apolice)} · comissão total ${fmtBRL(tot)}</div></div><button class="btn sm" onclick="pxAddCli(${k})">Adicionar</button></div>`;}).join("")||`<div class="empty">Nada encontrado.</div>`;};
+  bg.querySelector("#pxAddQ").addEventListener("input",draw);draw();}
+function pxBackup(){const blob=new Blob([JSON.stringify({state:pxSt(DB.pipex),when:new Date().toISOString()},null,1)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="pipex_fechamento_backup_"+todayISO()+".json";document.body.appendChild(a);a.click();a.remove();}
+function pxRestaurar(){const inp=document.createElement("input");inp.type="file";inp.accept="application/json,.json";
+  inp.onchange=()=>{const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{let j;try{j=JSON.parse(rd.result);}catch(e){toast("Arquivo inválido");return;}
+    const st=j&&(j.state||j);if(!st||typeof st!=="object"||(!st.row&&!st.pago&&!st.extra)){toast("Esse JSON não é um backup do fechamento Pipe X");return;}
+    const nr=Object.keys(st.row||{}).length,np=Object.keys(st.pago||{}).length,ne=(st.extra||[]).length;
+    pxConfirm(`Substituir as marcações atuais pelo backup? (${nr} clientes marcados · ${np} meses com pago · ${ne} clientes extras)`,"Restaurar",()=>{DB.pipex.state=st;pxSt(DB.pipex);pxSave();pxRefresh();toast("Backup restaurado");});};rd.readAsText(f);};
+  inp.click();}
+function pxZerar(){pxConfirm("Zerar TODAS as suas marcações (✓, %, abonos, pagos, clientes extras) e voltar ao padrão do extrato?","Zerar",()=>{DB.pipex.state={};pxSt(DB.pipex);pxSave();pxRefresh();toast("Marcações zeradas");});}
+
+function pxConfirm(msg,label,fn){modal({title:"Confirmar",extraHTML:`<div class="sub">${esc(msg)}</div>`,saveLabel:label,onSave:()=>{fn();}});}
+
+/* ---- tela ---- */
+let PX_F={per:"",q:"",so:false};
 function viewPipeX(){
   const px=DB.pipex;
   if(!px){$("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel</div></div></div>
-    <div class="panel"><div class="empty">Nenhum estado do módulo Pipe X salvo ainda.<br>Abra o módulo, faça um fechamento e ele grava aqui — esta tela passa a mostrar o devido, o pago e o que diverge dos previstos.</div></div>`;return;}
-  const pers=(px.periodos||[]).map(p=>p.id);
-  if(!PX_PER||!pers.includes(PX_PER))PX_PER=pers.filter(p=>pxDevido(px,p)>0).pop()||pers[pers.length-1];
-
-  const linhasPer=pers.map(p=>{
-    const dev=pxDevido(px,p), prev=pxPrevisto(p);
-    const gravado=prev?Number(prev.previstoLiquido||prev.valor||0):null;
-    const diverge=gravado!=null&&Math.abs(gravado-dev)>0.01;
-    return{p,dev,gravado,diverge,status:prev?(prev.status||"aberto"):null};
-  }).filter(x=>x.dev>0||x.gravado);
-
-  const totDev=linhasPer.reduce((s,x)=>s+x.dev,0);
-  const emAberto=linhasPer.filter(x=>x.status&&String(x.status).toLowerCase()!=="recebido").reduce((s,x)=>s+(x.gravado??x.dev),0);
-  const recebido=totDev-emAberto;
-  const nDiv=linhasPer.filter(x=>x.diverge).length;
-  const semPrev=linhasPer.filter(x=>x.gravado==null).length;
-
-  const per=(px.periodos||[]).find(p=>p.id===PX_PER)||{};
-  const det=pxLinhas(px,PX_PER);
-  const devPer=pxDevido(px,PX_PER);
-
-  $("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel · corte dia 20 · vence dia 05 · imposto ${((px.tax||0)*100).toFixed(0)}% · estado de ${esc(px.gerado||"?")}</div></div></div>
-  <div class="kpis">
-    <div class="kpi"><div class="lbl">Devido no total</div><div class="val">${fmtBRL(totDev)}</div><div class="hint">${linhasPer.length} meses com movimento</div></div>
-    <div class="kpi"><div class="lbl">Já recebido</div><div class="val in">${fmtBRL(recebido)}</div></div>
-    <div class="kpi"><div class="lbl">Em aberto</div><div class="val ${emAberto>0?"out":""}">${fmtBRL(emAberto)}</div><div class="hint">o que o Daniel ainda deve</div></div>
-    <div class="kpi"><div class="lbl">Confere com o previsto?</div><div class="val ${nDiv||semPrev?"out":"in"}">${nDiv||semPrev?"⚠ "+(nDiv+semPrev):"✓ tudo"}</div><div class="hint">${nDiv?nDiv+" divergindo":""}${nDiv&&semPrev?" · ":""}${semPrev?semPrev+" sem previsto":""}</div></div>
-  </div>
-  <div class="panel"><h2>Mês a mês — módulo × Central</h2>
-   <div class="sub">O <b>devido</b> sai da régua do módulo. O <b>previsto</b> é a linha gravada na Central. Divergiram = alguém está desatualizado.</div>
-   <table><thead><tr><th>Mês</th><th>Janela</th><th class="num">Devido (módulo)</th><th class="num">Previsto (Central)</th><th>Situação</th></tr></thead><tbody>
-   ${linhasPer.map(x=>{
-     const pp=(px.periodos||[]).find(q=>q.id===x.p)||{};
-     const sit=x.gravado==null?`<span class="chip none">sem previsto</span>`
-       :x.diverge?`<span class="chip none">⚠ difere ${fmtBRL(Math.abs(x.gravado-x.dev))}</span>`
-       :`<span class="chip">${esc(String(x.status||"aberto"))}</span>`;
-     return`<tr style="cursor:pointer" onclick="PX_PER='${esc(x.p)}';viewPipeX()"><td><b>${esc(x.p)}</b></td><td class="sub">${esc(pp.ini||"")} – ${esc(pp.fim||"")}</td><td class="num">${fmtBRL(x.dev)}</td><td class="num ${x.diverge?"out":""}">${x.gravado==null?"—":fmtBRL(x.gravado)}</td><td>${sit}</td></tr>`;}).join("")}
-   </tbody></table></div>
-  <div class="panel"><h2>Detalhe · ${esc(PX_PER)}</h2>
-   <div class="sub">Janela ${esc(per.ini||"")} – ${esc(per.fim||"")} · ${det.filter(d=>d.entra).length} apólices entram · devido ${fmtBRL(devPer)}</div>
-   <table><thead><tr><th>Cliente</th><th>Apólice</th><th class="num">Comissão</th><th class="num">%</th><th class="num">Cabe a você</th></tr></thead><tbody>
-   ${det.map(d=>`<tr${d.entra?"":' class="lp-off"'}><td>${esc(d.seg)}${d.entra?"":' <span class="chip none">não entra</span>'}${d.pct===0&&d.entra?' <span class="chip">abono</span>':""}</td><td><span class="chip">${esc(d.apolice)}</span></td><td class="num">${fmtBRL(d.com)}</td><td class="num">${d.pct}%</td><td class="num in">${d.entra?fmtBRL(d.liq):"—"}</td></tr>`).join("")
-     ||`<tr><td colspan="5"><div class="empty">Nada neste período.</div></td></tr>`}
-   </tbody></table></div>`;
+    <div class="panel"><div class="empty">Ainda não há base do Pipe X no banco.<br>Quando os extratos do Daniel forem carregados em <b>pipex_state</b>, o fechamento aparece aqui.</div></div>`;return;}
+  pxSt(px);
+  const pers=(px.periodos||[]).map(p=>p.id);if(PX_F.per&&!pers.includes(PX_F.per))PX_F.per="";
+  $("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel · corte dia 20 · vence dia 05 · imposto ${((px.tax||0)*100).toFixed(0)}% · base de ${esc(px.gerado||"?")} · <span id="pxSalvo">${esc(PX_SALVO||"")}</span></div></div></div>
+  <div class="kpis" id="pxKpis"></div>
+  ${(px.comprovantes||[]).length?dobr("px-comp",`<div class="panel"><h2>🧾 Comprovantes do Daniel</h2><div class="px-comp">${(px.comprovantes||[]).map(c=>`<div class="px-compc"><b>${fmtBRL(c.valor)}</b><div>${esc(c.quem||"")} · ${esc(c.data||"")} · ${esc(c.meio||"")}</div><div class="sub" style="margin:2px 0 0">${esc(c.cobre||"")}</div></div>`).join("")}</div></div>`,`${(px.comprovantes||[]).length} Pix · ${fmtBRL((px.comprovantes||[]).reduce((a,c)=>a+Number(c.valor||0),0))}`,true):""}
+  <div id="pxPainel"></div>
+  <div id="pxConf"></div>
+  <div class="panel"><h2>✏️ Fechamento</h2>
+    <div class="px-tool">
+      <select onchange="PX_F.per=this.value;pxRefresh()" aria-label="Período"><option value="">Todos os meses</option>${pers.map(p=>`<option${PX_F.per===p?" selected":""}>${esc(p)}</option>`).join("")}</select>
+      <input placeholder="filtrar cliente/apólice…" value="${esc(PX_F.q)}" oninput="PX_F.q=this.value;pxRefresh()" aria-label="Filtrar">
+      <label class="px-so"><input type="checkbox"${PX_F.so?" checked":""} onchange="PX_F.so=this.checked;pxRefresh()"> só quem entra</label>
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" onclick="pxAddModal()">＋ Cliente do Daniel</button>
+      <button class="btn ghost sm" onclick="pxBackup()">⬇ Backup</button>
+      <button class="btn ghost sm" onclick="pxRestaurar()">⬆ Restaurar</button>
+      <button class="btn ghost sm" onclick="pxZerar()">↺ Zerar</button>
+    </div>
+    <div class="sub">Cada célula: <b>comissão do Daniel</b> · <b>%</b> · <b>✓ entra</b> · <b>= sua parte</b>. Abono do mês = desmarque o ✓. Tirar da parceria de vez = desmarque <b>na parceria</b>. Regra: comissão × % × (1 − ${((px.tax||0)*100).toFixed(0)}%).</div>
+    <div class="px-wrap" id="pxWrap"><table class="px-t" id="pxGrid"></table></div>
+  </div>`;
+  pxRefresh();
 }
+function pxRefresh(){
+  const px=DB.pipex;if(!px||!document.getElementById("pxGrid"))return;
+  const pers=(px.periodos||[]).map(p=>p.id),rows=pxRows(px);
+  /* KPIs = os do artefato */
+  let gprod=0,gdev=0,gpago=0;const mF={},mP={};pers.forEach(m=>{mF[m]=0;mP[m]=0;});
+  rows.forEach(r=>pers.forEach(m=>{gprod+=pxProd(px,r,m);const s=pxShare(px,r,m);gdev+=s;mP[m]+=s;}));
+  (px.rows||[]).forEach(r=>pers.forEach(m=>{mF[m]+=Number(((r.cells||{})[m]||{}).com||0);}));
+  (px.outros||[]).forEach(o=>pers.forEach(m=>{mF[m]+=Number((o.mes||{})[m]||0);}));
+  pers.forEach(m=>gpago+=pxPago(px,m));
+  const sal=pxR2(gdev-gpago);
+  document.getElementById("pxKpis").innerHTML=`
+    <div class="kpi"><div class="lbl">Produção Pipe X</div><div class="val">${fmtBRL(gprod)}</div><div class="hint">tudo que está na parceria</div></div>
+    <div class="kpi"><div class="lbl">Devido · faturado</div><div class="val">${fmtBRL(gdev)}</div><div class="hint">só o que entra na cobrança</div></div>
+    <div class="kpi"><div class="lbl">Pago pelo Daniel</div><div class="val in">${fmtBRL(gpago)}</div></div>
+    <div class="kpi"><div class="lbl">Saldo em aberto</div><div class="val ${Math.abs(sal)<0.01?"in":"out"}">${fmtBRL(sal)}</div><div class="hint">${Math.abs(sal)<0.01?"tudo acertado":sal>0?"o Daniel ainda te deve":"pago a mais"}</div></div>`;
+  /* painel: FYC do Daniel × sua parte + faixas */
+  const W=Math.max(560,pers.length*98),H=214,pad=32,gw=(W-2*pad)/Math.max(1,pers.length);let max=1;pers.forEach(m=>{max=Math.max(max,mF[m],mP[m]);});
+  const base=H-26,y=v=>base-(Math.max(0,v)/max)*(H-52);let bars="";
+  pers.forEach((m,i)=>{const cx=pad+i*gw+gw/2,bw=Math.min(24,gw/3.2),f=mF[m],p=mP[m];
+    bars+=`<rect x="${cx-bw-2}" y="${y(f)}" width="${bw}" height="${base-y(f)}" rx="3" fill="var(--proj)"/><rect x="${cx+2}" y="${y(p)}" width="${bw}" height="${base-y(p)}" rx="3" fill="var(--primary)"/>`+
+      `<text x="${cx}" y="${H-9}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(m)}</text>`+
+      `<text x="${cx-bw/2-2}" y="${y(f)-4}" text-anchor="middle" font-size="9" fill="var(--proj)">${f>=1000?(f/1000).toFixed(1)+"k":Math.round(f)}</text>`+
+      `<text x="${cx+bw/2+2}" y="${y(p)-4}" text-anchor="middle" font-size="9" fill="var(--primary)">${Math.round(p)}</text>`;});
+  const g={};(px.rows||[]).forEach(r=>{const b=Number(r.base_pct!=null?r.base_pct:50);(g[b]=g[b]||[]).push(r.seg);});
+  const curto=n=>String(n||"").split(" ").slice(0,2).join(" ");
+  const fx=(pct,cls,lbl)=>{const a=g[pct]||[];return`<div class="px-fx ${cls}"><div class="px-fxh"><span>${pct}%</span> ${lbl} <small>(${a.length})</small></div><div class="sub" style="margin:0">${a.map(n=>esc(curto(n))).join(" · ")||"—"}</div></div>`;};
+  document.getElementById("pxPainel").innerHTML=dobr("px-painel",`<div class="panel"><h2>📊 Painel da parceria</h2>
+    <div class="px-leg"><span><i style="background:var(--proj)"></i>FYC que o Daniel recebe</span><span><i style="background:var(--primary)"></i>Sua parte (o que ele te paga)</span></div>
+    <div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="FYC do Daniel e sua parte por mês">${bars}</svg></div>
+    <div class="px-fxs">${fx(50,"c50","divisão cheia")}${fx(20,"c20","divisão reduzida")}${fx(0,"c0","você não cobra")}</div></div>`,`sua parte ${fmtBRL(gdev)}`,false);
+  /* confronto módulo × Central */
+  const conf=pers.map(p=>{const dev=pxDevido(px,p),prev=pxPrevisto(p),grav=prev?Number(prev.previstoLiquido||prev.valor||0):null;
+    return{p,dev,grav,div:grav!=null&&Math.abs(grav-dev)>0.01,status:prev?(prev.status||"aberto"):null};}).filter(x=>x.dev>0||x.grav);
+  const nDiv=conf.filter(x=>x.div).length,semPrev=conf.filter(x=>x.grav==null).length;
+  document.getElementById("pxConf").innerHTML=dobr("px-conf",`<div class="panel"><h2>🔎 Confere com a Central?</h2>
+    <div class="sub">O <b>devido</b> sai do fechamento acima. O <b>previsto</b> é a linha gravada em A Receber. Divergiu = alguém está desatualizado.</div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Mês</th><th class="num">Devido (fechamento)</th><th class="num">Previsto (Central)</th><th>Situação</th></tr></thead><tbody>
+    ${conf.map(x=>`<tr><td><b>${esc(x.p)}</b></td><td class="num">${fmtBRL(x.dev)}</td><td class="num ${x.div?"out":""}">${x.grav==null?"—":fmtBRL(x.grav)}</td><td>${x.grav==null?`<span class="chip none">sem previsto</span>`:x.div?`<span class="chip none">⚠ difere ${fmtBRL(Math.abs(x.grav-x.dev))}</span>`:`<span class="chip">${esc(String(x.status||"aberto"))}</span>`}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Nenhum mês com devido.</div></td></tr>`}
+    </tbody></table></div></div>`,nDiv||semPrev?`⚠ ${nDiv?nDiv+" divergindo":""}${nDiv&&semPrev?" · ":""}${semPrev?semPrev+" sem previsto":""}`:"✓ tudo confere",!(nDiv||semPrev));
+  /* grade */
+  const wrap=document.getElementById("pxWrap"),sl=wrap?wrap.scrollLeft:0,st=wrap?wrap.scrollTop:0;
+  const cols=PX_F.per?[PX_F.per]:pers,q=pxNorm(PX_F.q);
+  let h=`<thead><tr><th class="px-cli">Cliente · apólice</th>${(px.periodos||[]).filter(p=>cols.includes(p.id)).map(p=>`<th><div>${esc(p.id)}</div><small>${esc(p.ini||"")}→${esc(p.fim||"")}</small></th>`).join("")}<th class="px-tot">Total</th></tr></thead><tbody>`;
+  let prev=null;
+  rows.forEach((r,i)=>{
+    if(q&&!pxNorm((r.seg||"")+" "+(r.apolice||"")).includes(q))return;
+    const on=(pxSt(px).row[pxRid(r)]||{}).on!==false;let tot=0,algum=false,cells="";
+    cols.forEach(m=>{const v=pxCell(px,r,m),sh=pxShare(px,r,m);if(v.entra)algum=true;tot+=sh;
+      cells+=`<td class="px-c${(!on||v.com<=0)?" off":""}"><div class="px-com">${fmtBRL(v.com)}</div><div class="px-ctl"><input type="number" inputmode="decimal" min="0" max="100" step="5" value="${v.pct}" onchange="pxSetPct(${i},'${m}',this.value)" aria-label="% ${esc(m)}"><span>%</span><label class="px-ck"><input type="checkbox"${v.entra?" checked":""} onchange="pxSetEntra(${i},'${m}',this.checked)" aria-label="entra em ${esc(m)}"></label></div><div class="px-sh${sh?"":" zero"}">= ${fmtBRL(sh)}</div></td>`;});
+    if(PX_F.so&&!algum)return;
+    const nm=r.seg!==prev?`<div class="px-nm">${esc(r.seg)}</div>`:`<div class="px-nm" style="opacity:.45">↳</div>`;prev=r.seg;
+    h+=`<tr><td class="px-cli${on?"":" off"}">${nm}<div class="px-ap">apól ${esc(r.apolice)}${pxSt(px).extra.some(x=>pxRid(x)===pxRid(r))?" · adicionado":""}</div><label class="px-on"><input type="checkbox"${on?" checked":""} onchange="pxSetOn(${i},this.checked)"> na parceria</label></td>${cells}<td class="px-tot">${fmtBRL(tot)}</td></tr>`;});
+  const colDev={};let colTot=0;cols.forEach(m=>{colDev[m]=pxDevido(px,m);colTot+=colDev[m];});
+  let totPago=0;const pagoCells=cols.map(m=>{totPago+=pxPago(px,m);const sv=pxSt(px).pago[m],pv=sv!==undefined?sv:((px.pago_default||{})[m]!=null?px.pago_default[m]:"");
+    return`<td><input class="px-pago" type="number" inputmode="decimal" step="0.01" value="${pv}" placeholder="0,00" onchange="pxSetPago('${m}',this.value)" aria-label="Pago em ${esc(m)}"></td>`;}).join("");
+  h+=`</tbody><tfoot><tr><td class="px-cli">Devido (faturado)</td>${cols.map(m=>`<td>${fmtBRL(pxR2(colDev[m]))}</td>`).join("")}<td class="px-tot">${fmtBRL(pxR2(colTot))}</td></tr>
+    <tr><td class="px-cli">Pago pelo Daniel</td>${pagoCells}<td class="px-tot">${fmtBRL(pxR2(totPago))}</td></tr>
+    <tr><td class="px-cli">Saldo</td>${cols.map(m=>{const s=pxR2(colDev[m]-pxPago(px,m));return`<td class="${Math.abs(s)<0.01?"in":"out"}">${fmtBRL(s)}</td>`;}).join("")}<td class="px-tot ${Math.abs(colTot-totPago)<0.01?"in":"out"}">${fmtBRL(pxR2(colTot-totPago))}</td></tr></tfoot>`;
+  document.getElementById("pxGrid").innerHTML=h;
+  if(wrap){wrap.scrollLeft=sl;wrap.scrollTop=st;}
+  pxStatus();
+}
+
+/* ===== AT (acompanhamento terapêutico) — guias, lotes, repasses =====
+   REPO PÚBLICO: nomes (beneficiário, prestadora, plano) vêm da GUIA no banco
+   via atNm(g) — nunca escritos no código.
+   Tabelas próprias at_guias/at_lotes/at_repasses (RLS owner=auth.uid()),
+   fora do fluxo de movimentos/visão. Carrega sob demanda (como Comissões LP). */
+let AT=null, AT_GID=null, AT_CONF=false;
+const AT_MS=7*864e5;
+const nSes=n=>{const v=Math.round((Number(n)||0)*100)/100;return (v%1===0?String(v):v.toLocaleString("pt-BR",{minimumFractionDigits:0,maximumFractionDigits:2}));};
+function atDemo(){
+  const gid="atg-demo";
+  return{
+    guias:[{id:gid,numero:"00000001",tipo:"AT Escolar",beneficiario:"Beneficiário",prestador_nome:"Prestadora (demo)",prestador_apelido:"Prestadora",plano:"Plano (demo)",prestador_cnpj:"00.000.000/0001-00",processo:"",data_inicio:"2026-04-08",data_fim:"2026-07-05",horas_totais:252,horas_por_sessao:4,valor_sessao_bruto:600,inss_pct:5,minha_parte_sessao:120,parte_modo:"reais",parte_pct:20,status:"vencida",observacoes:"Guia de exemplo (demo)."}],
+    lotes:[
+      {id:"l1",guia_id:gid,protocolo:"200155699",tipo_guia:"SP/SADT",dt_envio:"2026-04-14",dt_pagamento:"2026-04-17",valor_bruto:3000,status:"pago"},
+      {id:"l2",guia_id:gid,protocolo:"200159751",tipo_guia:"SP/SADT",dt_envio:"2026-05-04",dt_pagamento:"2026-05-07",valor_bruto:3000,status:"pago"},
+      {id:"l3",guia_id:gid,protocolo:"200200445",tipo_guia:"SP/SADT",dt_envio:"2026-07-09",dt_pagamento:null,valor_bruto:3000,status:"aguardando_liberacao"}],
+    repasses:[
+      {id:"r1",guia_id:gid,data:"2026-05-07",valor:600,metodo:"99Pay/Pix",observacoes:""},
+      {id:"r2",guia_id:gid,data:"2026-06-11",valor:1140,metodo:"99Pay/Pix",observacoes:"INSS descontado indevido"}]
+  };
+}
+async function atLoad(){
+  if(MODE!=="live"){AT=atDemo();return true;}
+  try{
+    const[g,l,r]=await Promise.all([
+      sb.from("at_guias").select("*").order("data_inicio",{ascending:false}),
+      sb.from("at_lotes").select("*").order("dt_envio"),
+      sb.from("at_repasses").select("*").order("data")
+    ]);
+    if(g.error)throw new Error(g.error.message);
+    AT={guias:g.data||[],lotes:(l.data||[]),repasses:(r.data||[])};
+    return true;
+  }catch(e){AT={guias:[],lotes:[],repasses:[],err:e.message};return false;}
+}
+const atNm=g=>{g=g||{};const pre=String(g.prestador_apelido||String(g.prestador_nome||"").split(" ")[0]||"prestadora").trim();return{ben:String(g.beneficiario||"").trim(),pre,pl:String(g.plano||"plano").trim()};};
+function atParte(g){return g.parte_modo==="pct"?(Number(g.valor_sessao_bruto)||0)*(Number(g.parte_pct)||0)/100:(Number(g.minha_parte_sessao)||0);}
+function atCalc(g){
+  const brc=Number(g.valor_sessao_bruto)||600, hps=Number(g.horas_por_sessao)||4, parte=atParte(g);
+  const lotes=(AT.lotes||[]).filter(l=>l.guia_id===g.id);
+  const reps =(AT.repasses||[]).filter(r=>r.guia_id===g.id);
+  const qtd=l=>brc?(Number(l.valor_bruto)||0)/brc:0;
+  const sessoes_totais=hps?(Number(g.horas_totais)||0)/hps:0;
+  const faturadas=lotes.filter(l=>l.status!=="cancelado").reduce((s,l)=>s+qtd(l),0);
+  const pagas    =lotes.filter(l=>l.status==="pago").reduce((s,l)=>s+qtd(l),0);
+  const aguardando=Math.max(0,faturadas-pagas);
+  const restantes =Math.max(0,sessoes_totais-faturadas);
+  const devido   =pagas*parte;
+  const recebido =reps.reduce((s,r)=>s+(Number(r.valor)||0),0);
+  const vencido  =Math.max(0,devido-recebido);
+  const aReceberFut=aguardando*parte;
+  const totalAReceber=vencido+aReceberFut;
+  const totalGuia=sessoes_totais*parte;
+  const naoFaturado=restantes*parte;
+  // previsão semanal
+  const di=g.data_inicio?new Date(g.data_inicio):null, df=g.data_fim?new Date(g.data_fim):null, hoje=new Date();
+  let semanas=1,ritmo=0,decorridas=0,esperado=0;
+  if(di&&df&&df>di){semanas=Math.max(1,Math.ceil((df-di)/AT_MS));ritmo=totalGuia/semanas;
+    decorridas=Math.min(semanas,Math.max(0,Math.ceil((hoje-di)/AT_MS)));esperado=Math.min(totalGuia,ritmo*decorridas);}
+  const emDia=recebido>=esperado-0.01, faltaPrev=Math.max(0,esperado-recebido);
+  const vencida=!!(df&&df<hoje&&g.status!=="renovada"&&g.status!=="quitada");
+  const esgotada=sessoes_totais>0&&restantes<0.01;
+  return{brc,hps,parte,lotes,reps,qtd,sessoes_totais,faturadas,pagas,aguardando,restantes,devido,recebido,vencido,aReceberFut,totalAReceber,totalGuia,naoFaturado,semanas,ritmo,decorridas,esperado,emDia,faltaPrev,vencida,esgotada};
+}
+/* repasse "redondo"? múltiplo da sua parte; senão calcula quanto falta (ex.: INSS indevido) */
+function atRepDiv(valor,parte){if(!parte)return null;const n=Math.round(valor/parte);const alvo=n*parte;const dif=Math.round((alvo-valor)*100)/100;
+  if(n<=0||Math.abs(dif)<0.01)return null;return{n,alvo,dif};}
+function atAlertas(g,c){const a=[],N=atNm(g);
+  if(c.vencida)a.push({t:"Guia vencida",d:`Terminou em ${fmtDate(g.data_fim)} e não está renovada.`});
+  if(c.esgotada)a.push({t:"Guia esgotada",d:"Todas as sessões autorizadas já foram faturadas."});
+  if(!c.lotes.length)a.push({t:"Guia sem lotes",d:"Nenhum lote faturado nesta guia ainda."});
+  if(c.vencido>0.01)a.push({t:"Falta repasse",d:`${N.pre} já recebeu do ${N.pl} o correspondente a ${fmtBRL(c.devido)}, mas repassou ${fmtBRL(c.recebido)} — faltam ${fmtBRL(c.vencido)}.`});
+  c.reps.forEach(r=>{const d=atRepDiv(Number(r.valor)||0,c.parte);if(d)a.push({t:"Repasse divergente",d:`${fmtDate(r.data)} veio ${fmtBRL(r.valor)} — não fecha em múltiplos de ${fmtBRL(c.parte)}. Faltam ${fmtBRL(d.dif)} (provável INSS descontado indevido).`});});
+  return a;
+}
+const AT_LOTE_ST=["digitacao","gerado","aguardando_liberacao","liberado","pago","cancelado"];
+const atLoteLabel=s=>({digitacao:"digitação",gerado:"gerado",aguardando_liberacao:"aguardando liberação",liberado:"liberado",pago:"pago",cancelado:"cancelado"}[s]||s||"—");
+const atLotePill=s=>s==="pago"?"pago":s==="cancelado"?"cancelado":"aberto";
+function atResumoTxt(g,c){
+  const L=[],N=atNm(g);
+  L.push(`*AT${N.ben?" do "+N.ben:""} — Guia ${g.numero||"?"}* (${g.tipo||""})`);
+  if(g.prestador_nome)L.push(`Prestadora: ${g.prestador_nome}`);
+  L.push(`Período: ${fmtDate(g.data_inicio)} a ${fmtDate(g.data_fim)}`);
+  L.push("");
+  L.push(`Faturado · ${N.pl}: ${fmtBRL(c.faturadas*c.brc)} (${nSes(c.faturadas)} sessões)`);
+  L.push(`Pago · ${N.pl}: ${fmtBRL(c.pagas*c.brc)} (${nSes(c.pagas)} sessões)`);
+  L.push(`Sua parte sobre o pago (${g.parte_modo==="pct"?(g.parte_pct+"%"):fmtBRL(c.parte)+"/sessão"}): ${fmtBRL(c.devido)}`);
+  L.push(`Já repassado: ${fmtBRL(c.recebido)}`);
+  L.push(`*Saldo a acertar: ${fmtBRL(c.vencido)}*`);
+  if(c.aReceberFut>0.01)L.push(`A receber quando ${N.pl} pagar o resto: ${fmtBRL(c.aReceberFut)}`);
+  return L.join("\n");
+}
+function atCopiar(gid){const g=(AT.guias||[]).find(x=>x.id===gid);if(!g)return;const c=atCalc(g);const t=atResumoTxt(g,c);
+  const done=()=>toast("Resumo copiado — cola no WhatsApp");
+  try{navigator.clipboard.writeText(t).then(done,()=>{atCopiarFallback(t);});}catch(e){atCopiarFallback(t);}}
+function atCopiarFallback(t){try{const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();toast("Resumo copiado");}catch(e){modal({title:"Copiar resumo",extraHTML:`<textarea rows="12" style="width:100%;font-size:13px">${esc(t)}</textarea>`,saveLabel:"Fechar",onSave:()=>{}});}}
+function atConf(v){AT_CONF=!!v;viewAT();}
+
+async function viewAT(){
+  if(!AT){$("#view").innerHTML=`<div class="row"><div><h1>AT</h1><div class="sub">Carregando…</div></div></div>`;await atLoad();}
+  if(AT.err){$("#view").innerHTML=`<div class="row"><div><h1>AT</h1></div></div><div class="panel"><div class="empty">Não consegui ler as guias.<br>${esc(AT.err)}<br><br>Se acabou de criar as tabelas, recarregue a página.</div></div>`;return;}
+  const guias=AT.guias||[];
+  if(!guias.length){$("#view").innerHTML=`<div class="row"><div><h1>AT</h1><div class="sub">Acompanhamento terapêutico — guias, lotes e repasses</div></div><button class="btn" onclick="atGuiaNova()">+ Nova guia</button></div>
+    <div class="panel"><div class="empty">Nenhuma guia cadastrada ainda.<br>Crie a primeira guia (número no plano, período, valor por sessão e a sua parte) e depois lance os lotes e os repasses.</div></div>`;return;}
+  if(!AT_GID||!guias.some(g=>g.id===AT_GID))AT_GID=guias[0].id;
+  const g=guias.find(x=>x.id===AT_GID);
+  const c=atCalc(g),N=atNm(g);
+  const alertas=atAlertas(g,c);
+  const conf=AT_CONF;
+
+  const pill=c.vencida?`<span class="pill cancelado">vencida</span>`:(g.status==="renovada"||g.status==="quitada")?`<span class="pill pago">${esc(g.status)}</span>`:`<span class="pill recebido">vigente</span>`;
+  const seletor=guias.length>1?`<select onchange="AT_GID=this.value;viewAT()" style="max-width:220px">${guias.map(x=>`<option value="${x.id}"${x.id===AT_GID?" selected":""}>Guia ${esc(x.numero||"?")} · ${esc(x.tipo||"")}</option>`).join("")}</select>`:"";
+
+  // 4. barra de uso (verde pago / âmbar aguardando / cinza não faturado)
+  const tot=c.sessoes_totais||1;
+  const pPag=100*c.pagas/tot, pAgu=100*c.aguardando/tot, pRest=100*Math.max(0,c.restantes)/tot;
+  const usoBar=`<div class="at-use"><i style="width:${pPag}%;background:#16a34a" title="Pagas"></i><i style="width:${pAgu}%;background:#d97706" title="Aguardando ${esc(N.pl)}"></i><i style="width:${pRest}%;background:#e4e7ec" title="Não faturado"></i></div>
+    <div class="at-legend"><span><b style="background:#16a34a"></b>Pagas ${nSes(c.pagas)}</span><span><b style="background:#d97706"></b>Aguardando ${nSes(c.aguardando)}</span><span><b style="background:#e4e7ec"></b>Não faturado ${nSes(c.restantes)}</span></div>`;
+
+  // 6. previsão semanal — barras recebido por semana + ritmo tracejado
+  const semBars=(()=>{
+    if(!g.data_inicio||!g.data_fim)return"";
+    const di=new Date(g.data_inicio),df=new Date(g.data_fim);
+    const nS=Math.max(1,Math.ceil((df-di)/AT_MS));
+    const rec=new Array(nS).fill(0);
+    c.reps.forEach(r=>{if(!r.data)return;const w=Math.floor((new Date(r.data)-di)/AT_MS);if(w>=0&&w<nS)rec[w]+=Number(r.valor)||0;});
+    const maxV=Math.max(c.ritmo,...rec,1);
+    return`<div class="at-weeks">${rec.map((v,i)=>{const h=Math.round(100*v/maxV),hr=Math.round(100*c.ritmo/maxV),passou=i<c.decorridas;
+      return`<div class="at-wk" title="Semana ${i+1}: ${fmtBRL(v)}"><div class="at-wk-bar"><span class="at-wk-goal" style="bottom:${hr}%"></span><span class="at-wk-fill" style="height:${h}%;background:${passou?"var(--primary)":"#c7cdd6"}"></span></div><small>${i+1}</small></div>`;}).join("")}</div>`;
+  })();
+
+  const kpi=(lbl,val,cls,hint)=>`<div class="kpi"><div class="lbl">${lbl}</div><div class="val ${cls||""}">${val}</div>${hint?`<div class="hint">${hint}</div>`:""}</div>`;
+
+  // 2. premissas (some no modo conferência)
+  const premModo=g.parte_modo==="pct";
+  const premissas=conf?"":`<div class="panel"><h2>Premissas da guia</h2><div class="sub">Editável por guia — recalcula na hora e salva. A sua parte pode ser um valor fixo por sessão ou uma % do bruto.</div>
+    <div class="at-prem">
+      <label>Valor/sessão (bruto ${esc(N.pl)})<input type="number" step="10" value="${g.valor_sessao_bruto??600}" onchange="atPrem('valor_sessao_bruto',this.value)"></label>
+      <label>Horas por sessão<input type="number" step="1" value="${g.horas_por_sessao??4}" onchange="atPrem('horas_por_sessao',this.value)"></label>
+      <label>INSS % (retido de ${esc(N.pre)})<input type="number" step="1" value="${g.inss_pct??5}" onchange="atPrem('inss_pct',this.value)"></label>
+      <label>Horas totais autorizadas<input type="number" step="4" value="${g.horas_totais??0}" onchange="atPrem('horas_totais',this.value)"></label>
+    </div>
+    <div class="at-prem2">
+      <div class="seg" style="max-width:280px"><button class="${premModo?"":"on"}" onclick="atPrem('parte_modo','reais')">R$ por sessão</button><button class="${premModo?"on":""}" onclick="atPrem('parte_modo','pct')">% do bruto</button></div>
+      ${premModo
+        ?`<label>Sua parte (% do bruto)<input type="number" step="1" value="${g.parte_pct??20}" onchange="atPrem('parte_pct',this.value)"></label>`
+        :`<label>Sua parte (R$/sessão)<input type="number" step="10" value="${g.minha_parte_sessao??120}" onchange="atPrem('minha_parte_sessao',this.value)"></label>`}
+      <div class="at-prem-eff">Sua parte efetiva: <b>${fmtBRL(c.parte)}</b> por sessão</div>
+    </div></div>`;
+
+  $("#view").innerHTML=`
+  <div class="row"><div><h1>AT${N.ben?" do "+esc(N.ben):""}</h1><div class="sub">Acompanhamento terapêutico · ${esc(N.pre)} × ${esc(N.pl)}${MODE==="live"?"":" · demo"}</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${seletor}<button class="btn ghost sm" onclick="atConf(${conf?"false":"true"})">${conf?"↩ Sair da conferência":"🖨 Modo conferência"}</button>${conf?"":`<button class="btn ghost sm" onclick="atGuiaNova()">+ Guia</button>`}</div>
+  </div>
+
+  <div class="panel"><h2>Guia ${esc(g.numero||"?")} ${pill}</h2>
+    <div class="at-head">
+      <div><span class="sub">Tipo</span><b>${esc(g.tipo||"—")}</b></div>
+      <div><span class="sub">Prestadora</span><b>${esc(g.prestador_nome||"—")}</b></div>
+      <div><span class="sub">Período</span><b>${fmtDate(g.data_inicio)} – ${fmtDate(g.data_fim)}</b></div>
+      <div><span class="sub">Horas / sessões</span><b>${g.horas_totais||0}h · ${nSes(c.sessoes_totais)} sessões</b></div>
+      <div><span class="sub">Valor da guia (bruto)</span><b>${fmtBRL(c.sessoes_totais*c.brc)}</b></div>
+      <div><span class="sub">Total seu na guia</span><b class="in">${fmtBRL(c.totalGuia)}</b></div>
+    </div>
+    ${g.processo?`<div class="sub" style="margin-top:8px">Processo: ${esc(g.processo)}</div>`:""}
+    ${conf?"":`<div style="margin-top:10px"><button class="btn ghost sm" onclick="atGuiaEdit()">Editar dados da guia</button></div>`}
+  </div>
+
+  ${premissas}
+
+  <div class="kpis">
+    ${kpi("Sessões da guia",nSes(c.sessoes_totais))}
+    ${kpi("Pagas p/ "+esc(N.pre),nSes(c.pagas),"in")}
+    ${kpi("Aguardando "+esc(N.pl),nSes(c.aguardando),c.aguardando>0?"":"")}
+    ${kpi("Não faturado",nSes(c.restantes),c.esgotada?"":"")}
+  </div>
+  <div class="kpis">
+    ${kpi("Você recebeu",fmtBRL(c.recebido),"in")}
+    ${kpi("Vencido (falta)",fmtBRL(c.vencido),c.vencido>0.01?"out":"in")}
+    ${kpi("A receber futuro",fmtBRL(c.aReceberFut))}
+    ${kpi("Total a receber",fmtBRL(c.totalAReceber),c.totalAReceber>0.01?"out":"in")}
+  </div>
+
+  <div class="panel"><h2>Uso da guia</h2>${usoBar}</div>
+
+  <div class="panel"><h2>Sua conta</h2>
+    <table><tbody>
+      <tr><td>Devido pelas sessões já pagas (${nSes(c.pagas)} × ${fmtBRL(c.parte)})</td><td class="num">${fmtBRL(c.devido)}</td></tr>
+      <tr><td>Já repassado por ${esc(N.pre)}</td><td class="num in">${fmtBRL(c.recebido)}</td></tr>
+      <tr><td><b>Vencido a acertar</b></td><td class="num ${c.vencido>0.01?"out":""}"><b>${fmtBRL(c.vencido)}</b></td></tr>
+      <tr><td>A receber quando ${esc(N.pl)} liberar o resto (${nSes(c.aguardando)} sessões)</td><td class="num">${fmtBRL(c.aReceberFut)}</td></tr>
+      <tr><td><b>Total a receber</b></td><td class="num"><b>${fmtBRL(c.totalAReceber)}</b></td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="panel"><h2>Previsão semanal</h2>
+    <div class="sub">Ritmo de ${fmtBRL(c.ritmo)}/semana (sua parte) ao longo de ${c.semanas} semanas. ${c.emDia?`<b class="in">Em dia</b> — recebido cobre o esperado até hoje.`:`<b class="out">Faltando ${fmtBRL(c.faltaPrev)}</b> em relação ao esperado até hoje.`}</div>
+    ${semBars||`<div class="empty">Sem período definido pra projetar.</div>`}
+  </div>
+
+  <div class="panel"><h2>Encontro de contas <span class="sub">(pra enviar a ${esc(N.pre)})</span></h2>
+    <div class="at-conta">${esc(atResumoTxt(g,c)).replace(/\n/g,"<br>").replace(/\*(.+?)\*/g,"<b>$1</b>")}</div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="atCopiar('${g.id}')">📋 Copiar resumo</button><button class="btn ghost" onclick="window.print()">🖨 Imprimir / PDF</button></div>
+  </div>
+
+  ${conf?"":`
+  <div class="panel"><h2>Lotes faturados · ${esc(N.pl)}</h2>
+    <div class="dobr-bar" style="margin-bottom:6px"><button class="btn ghost sm" onclick="atLoteAdd()">+ Lote</button></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Protocolo</th><th>Envio</th><th>Pagamento</th><th class="num">Bruto</th><th class="num">Sessões</th><th class="num">Líq. ${esc(N.pre)}</th><th class="num">Sua parte</th><th>Status</th><th></th></tr></thead><tbody>
+    ${c.lotes.length?c.lotes.map(l=>{const q=c.qtd(l);const liq=(Number(l.valor_bruto)||0)*(1-(Number(g.inss_pct)||0)/100);
+      return`<tr><td>${esc(l.protocolo||"—")}</td><td>${fmtDate(l.dt_envio)}</td><td>${fmtDate(l.dt_pagamento)}</td><td class="num">${fmtBRL(l.valor_bruto)}</td><td class="num">${nSes(q)}</td><td class="num">${fmtBRL(liq)}</td><td class="num">${fmtBRL(q*c.parte)}</td><td><span class="pill ${atLotePill(l.status)}">${esc(atLoteLabel(l.status))}</span></td><td><button class="btn ghost sm" onclick="atLoteEdit('${l.id}')">editar</button></td></tr>`;}).join("")
+      :`<tr><td colspan="9"><div class="empty">Nenhum lote lançado. Os lotes vêm do portal ${esc(N.pl)} — lance conforme forem gerados.</div></td></tr>`}
+    </tbody></table></div>
+  </div>
+
+  <div class="panel"><h2>Repasses de ${esc(N.pre)}</h2>
+    <div class="dobr-bar" style="margin-bottom:6px"><button class="btn ghost sm" onclick="atRepAdd()">+ Repasse</button></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Data</th><th class="num">Valor</th><th>Método</th><th>Obs</th><th></th></tr></thead><tbody>
+    ${c.reps.length?c.reps.map(r=>{const d=atRepDiv(Number(r.valor)||0,c.parte);
+      return`<tr><td>${fmtDate(r.data)}</td><td class="num in">${fmtBRL(r.valor)}${d?` <span class="chip none" title="faltam ${fmtBRL(d.dif)}">⚠</span>`:""}</td><td>${esc(r.metodo||"—")}</td><td class="sub">${esc(r.observacoes||"")}</td><td><button class="btn ghost sm" onclick="atRepEdit('${r.id}')">editar</button></td></tr>`;}).join("")
+      :`<tr><td colspan="5"><div class="empty">Nenhum repasse lançado.</div></td></tr>`}
+    </tbody></table></div>
+  </div>
+
+  ${alertas.length?`<div class="panel"><h2>Alertas</h2>${alertas.map(a=>`<div class="at-alert"><b>${esc(a.t)}</b><span>${esc(a.d)}</span></div>`).join("")}</div>`:""}
+  `}
+  <div class="sub" style="margin-top:6px">Fase 2 (TODO): importar lotes do portal do plano e anexar comprovantes dos repasses.</div>`;
+}
+function atWritable(){if(MODE!=="live"){toast("Só no modo logado (a demo não grava)");return false;}return true;}
+async function atReload(){if(MODE==="live")await atLoad();(CURRENT==="at")&&viewAT();}
+async function atPrem(campo,valor){const g=(AT.guias||[]).find(x=>x.id===AT_GID);if(!g)return;
+  const num=["valor_sessao_bruto","horas_por_sessao","inss_pct","horas_totais","minha_parte_sessao","parte_pct"];
+  const v=num.includes(campo)?(Number(valor)||0):valor;g[campo]=v;
+  if(MODE==="live"){try{await sbUpd("at_guias",g.id,{[campo]:v,atualizado:new Date().toISOString()});}catch(e){toast("Erro ao salvar: "+e.message);}}
+  viewAT();
+}
+function atGuiaFields(g){g=g||{};return[
+  {name:"numero",label:"Número da guia (no plano)"},
+  {name:"tipo",label:"Tipo",default:"AT Escolar"},
+  {name:"beneficiario",label:"Beneficiário"},
+  {name:"plano",label:"Plano de saúde"},
+  {name:"prestador_apelido",label:"Como você chama a prestadora"},
+  {name:"prestador_nome",label:"Prestadora (nome)"},
+  {name:"prestador_cnpj",label:"CNPJ da prestadora"},
+  {name:"processo",label:"Processo / liminar (opcional)"},
+  {name:"data_inicio",label:"Início",type:"date"},
+  {name:"data_fim",label:"Fim",type:"date"},
+  {name:"horas_totais",label:"Horas totais autorizadas",type:"number"},
+  {name:"status",label:"Status",type:"select",options:["autorizada","vigente","vencida","em_renovacao","renovada","quitada"]}
+];}
+function atGuiaNova(){if(!atWritable())return;
+  modal({title:"Nova guia de AT",fields:atGuiaFields(),values:{tipo:"AT Escolar",status:"vigente"},saveLabel:"Criar",onSave:async v=>{
+    if(!v.numero){toast("Informe o número da guia");return false;}
+    const row={numero:v.numero,plano:v.plano||null,prestador_apelido:v.prestador_apelido||null,tipo:v.tipo,beneficiario:v.beneficiario,prestador_nome:v.prestador_nome,prestador_cnpj:v.prestador_cnpj,processo:v.processo||null,data_inicio:v.data_inicio||null,data_fim:v.data_fim||null,horas_totais:Number(v.horas_totais)||null,status:v.status};
+    try{const id=await sbIns("at_guias",row);AT_GID=id;}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Guia criada");
+  }});
+}
+function atGuiaEdit(){if(!atWritable())return;const g=(AT.guias||[]).find(x=>x.id===AT_GID);if(!g)return;
+  modal({title:"Editar guia",fields:atGuiaFields(g),values:g,
+    extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="atGuiaDel('${g.id}')">Excluir guia</button>`,saveLabel:"Salvar",onSave:async v=>{
+    const patch={numero:v.numero,plano:v.plano||null,prestador_apelido:v.prestador_apelido||null,tipo:v.tipo,beneficiario:v.beneficiario,prestador_nome:v.prestador_nome,prestador_cnpj:v.prestador_cnpj,processo:v.processo||null,data_inicio:v.data_inicio||null,data_fim:v.data_fim||null,horas_totais:Number(v.horas_totais)||null,status:v.status,atualizado:new Date().toISOString()};
+    try{await sbUpd("at_guias",g.id,patch);}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Guia salva");
+  }});
+}
+function atGuiaDel(id){confirmDel("Excluir a guia e todos os lotes/repasses ligados a ela?",async()=>{try{await sbDel("at_guias",id);AT_GID=null;await atReload();toast("Guia excluída");}catch(e){toast("Erro: "+e.message);}});}
+function atLoteFields(){return[
+  {name:"protocolo",label:"Protocolo"},
+  {name:"dt_envio",label:"Data de envio",type:"date"},
+  {name:"dt_pagamento",label:"Data de pagamento (se pago)",type:"date"},
+  {name:"valor_bruto",label:"Valor bruto (R$)",type:"number"},
+  {name:"status",label:"Status",type:"select",options:AT_LOTE_ST.map(s=>({v:s,l:atLoteLabel(s)}))}
+];}
+function atLoteAdd(){if(!atWritable())return;
+  modal({title:"Novo lote",fields:atLoteFields(),values:{status:"gerado"},saveLabel:"Adicionar",onSave:async v=>{
+    if(!v.valor_bruto){toast("Informe o valor bruto");return false;}
+    try{await sbIns("at_lotes",{guia_id:AT_GID,protocolo:v.protocolo||null,dt_envio:v.dt_envio||null,dt_pagamento:v.dt_pagamento||null,valor_bruto:Number(v.valor_bruto)||0,status:v.status});}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Lote adicionado");
+  }});
+}
+function atLoteEdit(id){if(!atWritable())return;const l=(AT.lotes||[]).find(x=>x.id===id);if(!l)return;
+  modal({title:"Editar lote",fields:atLoteFields(),values:l,extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="atLoteDel('${id}')">Excluir</button>`,saveLabel:"Salvar",onSave:async v=>{
+    try{await sbUpd("at_lotes",id,{protocolo:v.protocolo||null,dt_envio:v.dt_envio||null,dt_pagamento:v.dt_pagamento||null,valor_bruto:Number(v.valor_bruto)||0,status:v.status,atualizado:new Date().toISOString()});}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Lote salvo");
+  }});
+}
+function atLoteDel(id){confirmDel("Excluir este lote?",async()=>{try{await sbDel("at_lotes",id);await atReload();toast("Lote excluído");}catch(e){toast("Erro: "+e.message);}});}
+function atRepFields(){return[
+  {name:"data",label:"Data",type:"date"},
+  {name:"valor",label:"Valor (R$)",type:"number"},
+  {name:"metodo",label:"Método",default:"99Pay/Pix"},
+  {name:"id_transacao",label:"ID transação (E2E, opcional)"},
+  {name:"observacoes",label:"Observações",type:"textarea"}
+];}
+function atRepAdd(){if(!atWritable())return;
+  modal({title:"Novo repasse",fields:atRepFields(),values:{data:todayISO(),metodo:"99Pay/Pix"},saveLabel:"Adicionar",onSave:async v=>{
+    if(!v.valor){toast("Informe o valor");return false;}
+    if(v.id_transacao&&(AT.repasses||[]).some(r=>r.id_transacao&&r.id_transacao===v.id_transacao)){toast("Já existe um repasse com esse ID (dedup)");return false;}
+    try{await sbIns("at_repasses",{guia_id:AT_GID,data:v.data||null,valor:Number(v.valor)||0,metodo:v.metodo||null,id_transacao:v.id_transacao||null,observacoes:v.observacoes||null});}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Repasse adicionado");
+  }});
+}
+function atRepEdit(id){if(!atWritable())return;const r=(AT.repasses||[]).find(x=>x.id===id);if(!r)return;
+  modal({title:"Editar repasse",fields:atRepFields(),values:r,extraHTML:`<button class="btn danger sm" style="align-self:flex-start" onclick="atRepDel('${id}')">Excluir</button>`,saveLabel:"Salvar",onSave:async v=>{
+    try{await sbUpd("at_repasses",id,{data:v.data||null,valor:Number(v.valor)||0,metodo:v.metodo||null,id_transacao:v.id_transacao||null,observacoes:v.observacoes||null,atualizado:new Date().toISOString()});}catch(e){toast("Erro: "+e.message);return false;}
+    await atReload();toast("Repasse salvo");
+  }});
+}
+function atRepDel(id){confirmDel("Excluir este repasse?",async()=>{try{await sbDel("at_repasses",id);await atReload();toast("Repasse excluído");}catch(e){toast("Erro: "+e.message);}});}
 
 /* ===== Importar ===== */
 function viewImportar(){$("#view").innerHTML=`<div class="row"><div><h1>Importar</h1><div class="sub">Tipo + destino + arquivo (ou cole)</div></div></div><div class="panel"><div class="controls"><div class="fld"><label class="sub" style="margin:0">Tipo</label><select id="impTipo"><option value="auto">Detectar</option><option value="ofx">Extrato OFX</option><option value="csv">Extrato CSV</option><option value="fatura">Fatura cartão</option><option value="compensatio">Compensatio</option></select></div><div class="fld"><label class="sub" style="margin:0">Lançar em</label><select id="impDest"></select></div></div><div class="controls"><input id="impFile" type="file" accept=".ofx,.qfx,.csv,.txt,.xml,.pdf,.xlsx,.jpg,.jpeg,.png,.webp,.heic"><span class="sub">ou cole ↓ · PDF/foto lê com IA</span></div><textarea id="imp" placeholder="Cole o conteúdo..." style="width:100%;height:120px;font-family:ui-monospace,monospace;font-size:12px"></textarea><div style="margin-top:10px"><button class="btn" onclick="doImport()">Processar</button></div><div id="impOut" style="margin-top:14px"></div></div>`;const fill=()=>{const t=$("#impTipo").value;const opts=(t==="fatura")?cartaoOpts():bancoOpts();$("#impDest").innerHTML=opts.map(o=>`<option>${esc(o)}</option>`).join("");};$("#impTipo").onchange=fill;fill();}
@@ -3004,7 +3428,7 @@ async function fpAfterWrite(visao){
   viewFinanceiro();
 }
 
-const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,atalhos:viewAtalhos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,atalhos:viewAtalhos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,at:viewAT,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
@@ -3233,9 +3657,31 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/dobr\("pg-"/.test(String(viewPagar))||!/competencia/.test(String(pagarFields)))f.push("Contas a Pagar sem tópicos por mês / sem competência");
   if(!/movimento_id_realizado/.test(String(ctBaixa))||!/p\.movId/.test(String(concPares)))f.push("Conciliação sem gravar/ler o vínculo previsto↔movimento (par repetido)");
   if(!/from\("links"\)/.test(String(loadData))||!/DB\.links/.test(String(linksLoad)))f.push("Módulos & Links sem ler a tabela links");
-  if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||!/<i class="ti ti-wallet">/.test(navIco("ti-wallet")))f.push("Módulos & Links / ícones de linha fora do lugar");
+  if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||Object.values(NAV_CAT).some(x=>/^ti-/.test(x.ico))||navIco("ti-folder")!=="📁"||navIco("ti-qualquer")!=="🔗")f.push("ícones: menu voltou pra ícone de linha, ou link antigo do banco (ti-*) sem virar emoji");
+  /* Pipe X = fechamento editável: marcações aplicadas, arredondamento POR CÉLULA (igual ao artefato) e gravação no banco */
+  {const _p={tax:0.06,periodos:[{id:"M"}],pago_default:{M:10},
+     rows:[{id:"A|1",seg:"A",apolice:"1",base_pct:50,cells:{M:{com:100.33,pct:50,entra:true}}},{id:"B|2",seg:"B",apolice:"2",base_pct:50,cells:{M:{com:200,pct:50,entra:true}}}],
+     state:{row:{"B|2":{on:true,cells:{M:{entra:false}}}},pago:{M:20},extra:[{id:"C|3",seg:"C",apolice:"3",base_pct:50,cells:{M:{com:50,pct:20,entra:true}}}]}};
+   if(pxDevido(_p,"M")!==56.56)f.push("Pipe X não aplica abono/cliente extra ou arredonda diferente do artefato (esperado 56,56, deu "+pxDevido(_p,"M")+")");
+   if(pxPago(_p,"M")!==20)f.push("Pipe X: pago editado não vence o pago padrão do extrato");
+   _p.state.row["A|1"]={on:false,cells:{}};if(pxDevido(_p,"M")!==9.4)f.push("Pipe X: cliente fora da parceria continua sendo cobrado");}
+  if(!pxNorm("JOÃO CONCEIÇÃO").includes("joao conceicao"))f.push("busca do Pipe X sensível a acento (\"joão\" não acha \"JOAO\")");
+  if(pxNum("157.92")!==157.92||pxNum("157,92")!==157.92||pxNum("1.234,56")!==1234.56||pxNum("")!==0)f.push("Pipe X lê errado o valor digitado (157.92 virava 15.792 — bug de 24/09)");
+  if(!/pipex_state/.test(String(pxSaveNow))||!/state:pxSt\(px\)/.test(String(pxSaveNow)))f.push("Pipe X não grava as marcações no banco (voltariam a morar só no navegador)");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
   if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");
+  /* AT: módulo no lugar (visão Família) + a régua de sessões/repasses/vencido */
+  if(ROUTES.at!==viewAT||!NAV_CAT.at||typeof NAV_CAT.at.vis!=="function")f.push("Módulo AT fora das rotas/menu");
+  {const n=atNm({});if(n.pre!=="prestadora"||n.pl!=="plano"||n.ben!==""||!/atNm\(g\)/.test(String(viewAT))||!/atNm\(g\)/.test(String(atResumoTxt)))f.push("AT: rótulos não vêm da guia (risco de nome escrito no código — repo público)");}
+  if(atParte({parte_modo:"pct",parte_pct:20,valor_sessao_bruto:600})!==120||atParte({parte_modo:"reais",minha_parte_sessao:120})!==120)f.push("atParte (% do bruto × R$/sessão) divergindo");
+  {const d=atRepDiv(1140,120);if(!d||d.dif!==60)f.push("atRepDiv não pega INSS indevido (1140 vs 120 → faltam 60)");
+   if(atRepDiv(1200,120)!==null||atRepDiv(600,120)!==null)f.push("atRepDiv acusando repasse redondo como divergente");}
+  {const _at=AT;AT={guias:[],lotes:[{guia_id:"G",status:"pago",valor_bruto:3000},{guia_id:"G",status:"pago",valor_bruto:3000},{guia_id:"G",status:"aguardando_liberacao",valor_bruto:3000}],repasses:[{guia_id:"G",valor:600,data:"2026-05-07"}]};
+   const c=atCalc({id:"G",horas_totais:252,horas_por_sessao:4,valor_sessao_bruto:600,minha_parte_sessao:120,parte_modo:"reais",data_inicio:"2026-04-08",data_fim:"2026-07-05"});
+   if(c.sessoes_totais!==63)f.push("atCalc sessões totais (252/4≠63)");
+   if(c.pagas!==10||c.aguardando!==5||Math.round(c.restantes)!==48)f.push("atCalc contagem de sessões (pagas/aguardando/restantes)");
+   if(c.devido!==1200||c.vencido!==600||c.aReceberFut!==600||c.totalGuia!==7560)f.push("atCalc conta do dono (devido/vencido/a receber/total)");
+   AT=_at;}
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

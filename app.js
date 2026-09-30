@@ -120,8 +120,8 @@ const NAV_CAT={
   contas:    {ico:"🗓️", label:"Contas do mês", vis:()=>IS_PESSOAL, desc:"Compromissos da casa: toque no ✓ pra dar baixa."},
   pagar:     {ico:"🧾", label:"Contas a Pagar", vis:()=>!IS_PESSOAL, desc:"Cadastro de contas a pagar da visão."},
   receber:   {ico:"💵", label:"A Receber", vis:()=>!IS_PESSOAL, desc:"Recebimentos previstos e baixa."},
-  pipex:     {ico:"🤝", label:"Pipe X", vis:()=>VISAO==="PIPEX", desc:"Fechamento da parceria com o Daniel: o que entra, a sua parte, o que ele já pagou e o saldo."},
-  comissoes: {ico:"💰", label:"Comissões LP", vis:()=>VISAO==="PIPEX", desc:"Fechamento mensal do extrato de comissões."},
+  pipex:     {ico:"🤝", label:"Pipe X", vis:()=>VISAO==="PIPEX", desc:"Parceria com o Daniel: painel, carteira do acordo, apuração do extrato, a receber, prestação de contas e projeção."},
+  comissoes: {ico:"💰", label:"Comissões LP", vis:()=>false, desc:"LEGADO (lp_comissao_*): substituída pelo módulo Pipe X em 30/09."},   /* fora do menu; rota viva só por link antigo */
   at:        {ico:"🩺", label:"AT", vis:()=>VISAO==="FAMILIA", desc:"Guias, lotes e repasses do acompanhamento terapêutico: quanto já veio e o que falta acertar."},
   cartoes:   {ico:"💳", label:"Cartões", desc:"Faturas, dívida real e lançamentos por cartão."},
   importar:  {ico:"📥", label:"Importar", vis:()=>!isAll(), desc:"OFX, CSV ou PDF do banco — com leitura por IA."},
@@ -405,20 +405,12 @@ const DEMO=(()=>{
   const contas=[...new Set(mov.map(m=>m.banco))].map((n,i)=>({id:"co"+i,nome:n,banco:n.split(" ")[0],tipo:/cart/i.test(n)?"cartao":"corrente"}));
   const regras=[["MJM","Fornecedores",5],["DAS","Impostos e Taxas PJ",5],["INSS","Impostos e Taxas PJ",5],["OUTLIERS","Comissões/Repasses",5],["PRUDENTIAL","Comissão Prudential",5],["CLAUDE","Software/Assinaturas",4],["ANTHROPIC","Software/Assinaturas",4],["META ADS","Marketing/Publicidade",4]];
   const glossario=[["MARIA LUIZA","Fornecedores"],["MJM CONTABILIDADE","Fornecedores"],["COMPENSATIO","Comissão Prudential"]];
-  /* Pipe X de exemplo — FICTÍCIO (repo público): nomes/apólices inventados */
-  const pxPer=[{id:"Mai/26",ini:"21/04/2026",fim:"20/05/2026"},{id:"Jun/26",ini:"21/05/2026",fim:"19/06/2026"},{id:"Jul/26",ini:"20/06/2026",fim:"20/07/2026"},{id:"Ago/26",ini:"21/07/2026",fim:"20/08/2026"}];
-  const pxRow=(seg,ap,pct,coms)=>({id:seg+"|"+ap,seg,apolice:ap,base_pct:pct,cells:Object.fromEntries(pxPer.map((p,i)=>[p.id,{com:coms[i],pct,entra:coms[i]>0}]))});
-  const pipex={gerado:"demo",tax:0.06,periodos:pxPer,
-    rows:[pxRow("CLIENTE DEMO ALFA","2100101",50,[180,180,180,180]),pxRow("CLIENTE DEMO BETA","2100102",50,[0,120,120,120]),pxRow("CLIENTE DEMO GAMA","2100103",20,[0,90,90,90]),pxRow("CLIENTE DEMO DELTA","2100104",0,[0,300,300,300])],
-    outros:[{seg:"CLIENTE DEMO ÉPSILON",apolice:"2100105",mes:{"Mai/26":0,"Jun/26":0,"Jul/26":150,"Ago/26":150}}],
-    pago_default:{"Mai/26":84.6,"Jun/26":169.2},
-    comprovantes:[{quem:"Daniel (demo)",valor:253.8,data:"10/07/2026",meio:"Pix",cobre:"Mai + Jun (exemplo)"}]};
-  return{movimentos:mov,contasPagar:pagar,aReceber:receber,cartoes,categorias:cats,contas,regras:regras.map(r=>({padrao:r[0],cat:r[1],peso:r[2]})),glossario:glossario.map(g=>({termo:g[0],cat:g[1]})),pipex};
+  return{movimentos:mov,contasPagar:pagar,aReceber:receber,cartoes,categorias:cats,contas,regras:regras.map(r=>({padrao:r[0],cat:r[1],peso:r[2]})),glossario:glossario.map(g=>({termo:g[0],cat:g[1]}))};
 })();
 
 async function loadData(){
   if(MODE==="demo")return structuredClone(DEMO);
-  const [contas,cats,ln,mv,ct,pv,pc,rg,gl,orc,tg,mt,px]=await Promise.all([
+  const [contas,cats,ln,mv,ct,pv,pc,rg,gl,orc,tg,mt]=await Promise.all([
     sb.from("contas").select("id,nome,banco,tipo,ativo,visao,saldo_atual,saldo_atualizado_em").in("visao",VFILTER),
     sb.from("categorias").select("*").in("visao",VFILTER),
     /* Módulos & Links (v8.1): links por visão; tabela pode não existir num clone antigo → lista vazia */
@@ -432,11 +424,10 @@ async function loadData(){
     sb.from("glossario_termos").select("termo,categoria_sugerida_id").in("visao",VFILTER).limit(5000),
     sb.from("orcamentos").select("mes,categoria_id,valor").in("visao",VFILTER).limit(20000),
     sb.from("tags").select("id,nome,cor,visao,ativo").in("visao",VFILTER).order("nome"),
-    sb.from("movimento_tags").select("movimento_id,tag_id").limit(50000),
-    sb.from("pipex_state").select("data").limit(1)]);
+    sb.from("movimento_tags").select("movimento_id,tag_id").limit(50000)]);
   /* Perfil novo ainda não provisionado no enum `visao` → mostra vazio em vez de quebrar. */
   const enumNovo=[contas,cats,mv,ct,pv].some(r=>r.error&&(/invalid input value for enum/i.test(r.error.message||"")||r.error.code==="22P02"));
-  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{},tags:[],pipex:null};
+  if(enumNovo)return{movimentos:[],contasPagar:[],aReceber:[],cartoes:[],categorias:[],contas:[],regras:[],glossario:[],orcamentos:{},tags:[]};
   for(const r of[contas,cats,mv,ct,pv])if(r.error)throw new Error(r.error.message);
   const cb=new Map(contas.data.map(c=>[c.id,c])),kb=new Map(cats.data.map(c=>[c.id,c])),nameOf=id=>kb.get(id)?.nome||"";
   const mtMap=new Map();((mt&&mt.data)||[]).forEach(r=>{const a=mtMap.get(r.movimento_id)||[];a.push(r.tag_id);mtMap.set(r.movimento_id,a);});
@@ -449,7 +440,7 @@ async function loadData(){
   const regras=((rg&&rg.data)||[]).filter(r=>r.ativo!==false&&r.categoria_id).map(r=>({padrao:r.padrao,peso:r.peso||1,cat:nameOf(r.categoria_id)}));
   const glossario=((gl&&gl.data)||[]).filter(g=>g.categoria_sugerida_id).map(g=>({termo:g.termo,cat:nameOf(g.categoria_sugerida_id)}));
   const orcamentos={};((orc&&orc.data)||[]).forEach(r=>{const mk=r.mes;if(!mk)return;const cn=nameOf(r.categoria_id);if(!cn)return;orcamentos[mk]=orcamentos[mk]||{};orcamentos[mk][cn]=Number(r.valor||0);});
-  return{hasComp,links:((ln&&ln.data)||[]),movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[]),pipex:((px&&px.data&&px.data[0]&&px.data[0].data)||null)};
+  return{hasComp,links:((ln&&ln.data)||[]),movimentos,contasPagar,aReceber,cartoes,categorias:cats.data,contas:contas.data,regras,glossario,orcamentos,tags:((tg&&tg.data)||[])};
 }
 async function sbIns(t,p){const{data,error}=await sb.from(t).insert(p).select("id").single();if(error)throw new Error(error.message);return data.id;}
 async function sbUpd(t,id,p){const{error}=await sb.from(t).update(p).eq("id",id);if(error)throw new Error(error.message);}
@@ -1859,181 +1850,307 @@ async function gerarFatura(fk){if(isAll()){toast("Escolha uma visão pra gerar a
   }catch(e){toast("Erro: "+e.message);}
 }
 
-/* ===== Pipe X — parceria com o Daniel =====================================
-   24/09: a Central É o fechamento. Antes era um artefato à parte ("Central da
-   Parceria") que guardava as marcações só no navegador; aqui a mesma tela
-   passa a gravar no banco.
+/* ===== Pipe X — módulo da parceria com o Daniel (v8.4, 30/09) =============
+   Substitui os 4 artefatos HTML soltos e a grade editável sobre `pipex_state`.
 
-   BASE  = `pipex_state.data` (comissão do Daniel por apólice × mês, periodos,
-           outros clientes do livro dele, comprovantes, pago_default).
-   EDIÇÕES do Gustavo = `data.state` {row:{[id]:{on,cells:{[mes]:{pct,entra}}}},
-           pago:{[mes]:valor}, extra:[clientes adicionados]} — o MESMO formato do
-           artefato, então o "Backup JSON" feito lá restaura aqui sem conversão.
+   FONTE ÚNICA DA REGRA = banco (scripts/pipex_modulo.sql):
+     pipex_v_apuracao     parte por apólice × competência (arredonda por apólice)
+     pipex_v_competencias devido · pago · saldo · previsto de cada competência
+     pipex_projecao       FYC restante + renovação 8%, com cenário por cliente
+   Esta tela SÓ LÊ os números prontos — não recalcula parte, Simples nem devido.
+   (Antes cada artefato tinha a sua conta e os meses divergiram entre si.)
 
-   RÉGUA: parte do mês = Σ, por apólice que ENTRA, de comissão × % × (1 − 6%),
-   arredondada POR CÉLULA (igual ao artefato — senão os centavos divergem).
-   Abono do mês = desmarcar ✓. Fora da parceria de vez = desmarcar "na parceria".
-   Corte dia 20 (janela 21→20); vence dia 05.
-
-   O extra da Central é CONFRONTAR o devido com o previsto gravado em A Receber
-   ("Comissão LP Daniel · Mai/26"): foi assim que apareceram Mai/26 402,35 vs
-   484,24 e Jun/26 510,54 vs 685,32. Divergiu de novo → a tela avisa. */
+   Importador: .xls do portal (tabela HTML, ISO-8859-1) → pxParseXls → RPC
+   pipex_importar_extrato (dedup pela chave; bloqueia se total/linhas não baterem)
+   → pipex_fechar (congela o devido e gera "Comissão LP Daniel · Mmm/aa", venc. 05).
+   Demo (?demo=1): dados FICTÍCIOS em pxDemo(); nada aqui vem do banco real. */
 const pxR2=v=>Math.round(((Number(v)||0)+Number.EPSILON)*100)/100;
-const pxSt=px=>{if(!px)return{row:{},pago:{},extra:[]};if(!px.state||typeof px.state!=="object")px.state={};const s=px.state;
-  if(!s.row||typeof s.row!=="object")s.row={};if(!s.pago||typeof s.pago!=="object")s.pago={};if(!Array.isArray(s.extra))s.extra=[];return s;};
 /* busca sem acento/caixa: "joão" acha "JOAO" (os extratos vêm sem acento) */
-const pxNorm=v=>String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
-const pxRid=r=>r.id||((r.seg||"")+"|"+(r.apolice||""));
-const pxRows=px=>!px?[]:(px.rows||[]).concat(pxSt(px).extra);
-const pxRowSt=(px,r)=>{const s=pxSt(px),id=pxRid(r);if(!s.row[id])s.row[id]={on:true,cells:{}};if(!s.row[id].cells)s.row[id].cells={};return s.row[id];};
-function pxCell(px,r,per){const b=(r.cells||{})[per]||{com:0,pct:(r.base_pct!=null?r.base_pct:50),entra:false};
-  const rs=pxSt(px).row[pxRid(r)]||{},ov=(rs.cells||{})[per]||{};
-  return{com:Number(b.com||0),pct:Number(ov.pct!=null?ov.pct:(b.pct||0)),entra:!!(ov.entra!=null?ov.entra:b.entra),on:rs.on!==false};}
-const pxShare=(px,r,per)=>{const v=pxCell(px,r,per);return(v.on&&v.entra)?pxR2(v.com*(v.pct/100)*(1-Number(px.tax||0))):0;};
-const pxProd=(px,r,per)=>{const v=pxCell(px,r,per);return v.on?pxR2(v.com*(v.pct/100)*(1-Number(px.tax||0))):0;};
-const pxDevido=(px,per)=>!px?0:pxR2(pxRows(px).reduce((s,r)=>s+pxShare(px,r,per),0));
+const pxNorm=v=>String(v||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
 /* número de campo: <input type=number> SEMPRE entrega "157.92"; texto BR ("1.234,56") também passa */
 const pxNum=v=>{const n=String(v==null?"":v).trim();if(/^-?\d+(\.\d+)?$/.test(n))return Number(n);return parseFloat(n.replace(/\./g,"").replace(",","."))||0;};
-const pxPago=(px,per)=>{const s=pxSt(px);return s.pago[per]!==undefined?(Number(s.pago[per])||0):Number((px.pago_default||{})[per]||0);};
-/* o previsto que a Central gravou pra esse mês (mesma convenção de descrição) */
-const pxPrevisto=per=>(DB.aReceber||[]).find(a=>(a.descricao||a.linha||"")==="Comissão LP Daniel · "+per)||null;
+const pxN=v=>Number(v)||0;
+const PX_MES=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+const pxComp=s=>{const m=String(s||"").match(/([A-Za-z]{3})\/(\d{2})/),i=m?PX_MES.indexOf(m[1][0].toUpperCase()+m[1].slice(1).toLowerCase()):-1;return i<0?"":`20${m[2]}-${String(i+1).padStart(2,"0")}`;};
+const pxRot=c=>{const i=+String(c||"").slice(5,7)-1;return PX_MES[i]?PX_MES[i]+"/"+String(c).slice(2,4):String(c||"");};
+const pxNext=(c,n=1)=>{let y=+c.slice(0,4),m=+c.slice(5,7)+n;while(m>12){m-=12;y++;}while(m<1){m+=12;y--;}return y+"-"+String(m).padStart(2,"0");};
+const PX_SIT={rateio:"No rateio",fora_rateio:"Fora do rateio (0%)",nao_compensou:"Não compensou",fora_carteira:"Fora da carteira"};
+const PX_TABS=[["painel","📊 Painel"],["carteira","👥 Carteira"],["apuracao","🧮 Apuração"],["receber","💵 A receber"],["prestacao","📄 Prestação de contas"],["projecao","🔭 Projeção"]];
+let PX={tab:"painel",comp:"",ok:false,err:null,comps:[],ap:[],acordo:[],pags:[],movs:null,proj:null,projIni:"",cen:{},imp:null,q:""};
 
-/* ---- gravação: debounce + relê a base antes (não atropela atualização da base) ---- */
-let PX_T=null,PX_SALVO="";
-function pxSave(){if(MODE!=="live"){PX_SALVO="demo · não grava";pxStatus();return;}
-  PX_SALVO="salvando…";pxStatus();clearTimeout(PX_T);PX_T=setTimeout(pxSaveNow,700);}
-async function pxSaveNow(){const px=DB.pipex;if(!px)return;
-  try{
-    const{data:u}=await sb.auth.getUser();const uid=u&&u.user&&u.user.id;if(!uid)throw new Error("sem login");
-    const{data:cur,error:e1}=await sb.from("pipex_state").select("data").eq("user_id",uid).maybeSingle();if(e1)throw new Error(e1.message);
-    if(!cur)throw new Error("sem linha do Pipe X pra este login");
-    const novo=Object.assign({},cur.data,{state:pxSt(px)});
-    const{error:e2}=await sb.from("pipex_state").update({data:novo,updated_at:new Date().toISOString()}).eq("user_id",uid);if(e2)throw new Error(e2.message);
-    PX_SALVO="salvo ✓ "+new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
-  }catch(e){PX_SALVO="⚠ não salvou";toast("Pipe X não salvou: "+e.message);}
-  pxStatus();}
-function pxStatus(){const el=document.getElementById("pxSalvo");if(el)el.textContent=PX_SALVO;}
+/* ---- .xls do portal Prudential = tabela HTML. Regex (não DOMParser) pra rodar igual no
+   navegador e no teste em node. Colunas: 0 mês/ano · 1–2 período · 5 tipo · 7 apólice ·
+   8 cobertura · 9 segurado · 13 data geração · 14 mês pago até (= parcela) · 15 prêmio
+   líquido · 16 % · 19 comissão direta · 20 dt. emissão. Total em centavos (sem drift). */
+function pxParseXls(text){
+  const cel=s=>s.replace(/<[^>]*>/g,"").replace(/&nbsp;/gi," ").replace(/&#(\d+);/g,(m,n)=>String.fromCharCode(+n)).replace(/&quot;/g,'"').replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&amp;/g,"&").trim();
+  const num=s=>{s=String(s||"").trim();if(!s)return null;const v=Number(s.replace(/\./g,"").replace(",","."));return isNaN(v)?null:v;};
+  const dt=s=>{const m=String(s||"").match(/(\d{2})\/(\d{2})\/(\d{4})/);return m?`${m[3]}-${m[2]}-${m[1]}`:null;};
+  const linhas=[],erros=[];let head=null,cent=0;
+  for(const tr of String(text||"").match(/<tr[\s\S]*?<\/tr>/gi)||[]){
+    const td=(tr.match(/<td[\s\S]*?<\/td>/gi)||[]).map(cel);if(td.length<21)continue;
+    const ap=td[7].replace(/\D/g,"").replace(/^0+/,""),com=num(td[19]);if(!ap||com==null)continue;   /* cabeçalho / rodapé */
+    if(!head)head={rot:td[0],ini:dt(td[1]),fim:dt(td[2])};
+    else if(td[0]!==head.rot)erros.push(`linha com competência diferente: ${td[0]}`);
+    if(!dt(td[13]))erros.push(`apólice ${ap} sem data de geração`);
+    cent+=Math.round(com*100);
+    linhas.push({apolice:ap,cobertura:td[8],parcela:parseInt(td[14],10)||0,dt_geracao:dt(td[13]),segurado:td[9],premio_liquido:num(td[15]),pct_comissao:num(td[16]),comissao:com,dt_emissao:dt(td[20]),tipo:td[5]});}
+  const comp=head?pxComp(head.rot):"";if(linhas.length&&!comp)erros.push("não reconheci a competência (coluna Mês/Ano)");
+  return{comp,rotulo:comp?pxRot(comp):"",ini:head&&head.ini,fim:head&&head.fim,linhas,total:cent/100,erros:[...new Set(erros)].slice(0,5)};}
 
-/* ---- ações da grade (índice na lista COMPLETA — nome de cliente nunca vai pra onclick) ---- */
-function pxSetPct(i,per,v){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;const rs=pxRowSt(px,r);rs.cells[per]=rs.cells[per]||{};rs.cells[per].pct=Math.max(0,Math.min(100,pxNum(v)));pxSave();pxRefresh();}
-function pxSetEntra(i,per,b){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;const rs=pxRowSt(px,r);rs.cells[per]=rs.cells[per]||{};rs.cells[per].entra=!!b;pxSave();pxRefresh();}
-function pxSetOn(i,b){const px=DB.pipex,r=pxRows(px)[i];if(!r)return;pxRowSt(px,r).on=!!b;pxSave();pxRefresh();}
-function pxSetPago(per,v){const s=pxSt(DB.pipex),n=String(v==null?"":v).trim();if(n==="")delete s.pago[per];else s.pago[per]=pxNum(n);pxSave();pxRefresh();}
-function pxAddCli(k){const px=DB.pipex,o=(px.outros||[])[k];if(!o)return;const id=o.seg+"|"+o.apolice,s=pxSt(px);
-  if(pxRows(px).some(r=>pxRid(r)===id)){toast("Esse cliente já está na grade");return;}
-  const cells={};(px.periodos||[]).forEach(p=>{const c=Number((o.mes||{})[p.id]||0);cells[p.id]={com:c,pct:50,entra:c>0};});
-  s.extra.push({id,seg:o.seg,apolice:o.apolice,base_pct:50,cells});pxSave();document.querySelector(".modal-bg")?.remove();pxRefresh();toast("Cliente adicionado");}
-function pxAddModal(){const px=DB.pipex;if(!px)return;
-  const{bg}=modal({title:"Adicionar cliente do livro do Daniel",extraHTML:`<input id="pxAddQ" placeholder="buscar por nome ou apólice…" style="width:100%"><div id="pxAddL" class="px-addl"></div>`});
-  const ja=new Set(pxRows(px).map(pxRid));
-  const draw=()=>{const q=pxNorm(bg.querySelector("#pxAddQ").value);
-    const L=(px.outros||[]).map((o,k)=>({o,k})).filter(({o})=>!ja.has(o.seg+"|"+o.apolice)&&(pxNorm(o.seg).includes(q)||String(o.apolice).includes(q))).slice(0,60);
-    bg.querySelector("#pxAddL").innerHTML=L.map(({o,k})=>{const tot=(px.periodos||[]).reduce((a,p)=>a+Number((o.mes||{})[p.id]||0),0);
-      return`<div class="px-addr"><div><div>${esc(o.seg)}</div><div class="sub" style="margin:0">apól ${esc(o.apolice)} · comissão total ${fmtBRL(tot)}</div></div><button class="btn sm" onclick="pxAddCli(${k})">Adicionar</button></div>`;}).join("")||`<div class="empty">Nada encontrado.</div>`;};
-  bg.querySelector("#pxAddQ").addEventListener("input",draw);draw();}
-function pxBackup(){const blob=new Blob([JSON.stringify({state:pxSt(DB.pipex),when:new Date().toISOString()},null,1)],{type:"application/json"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="pipex_fechamento_backup_"+todayISO()+".json";document.body.appendChild(a);a.click();a.remove();}
-function pxRestaurar(){const inp=document.createElement("input");inp.type="file";inp.accept="application/json,.json";
-  inp.onchange=()=>{const f=inp.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{let j;try{j=JSON.parse(rd.result);}catch(e){toast("Arquivo inválido");return;}
-    const st=j&&(j.state||j);if(!st||typeof st!=="object"||(!st.row&&!st.pago&&!st.extra)){toast("Esse JSON não é um backup do fechamento Pipe X");return;}
-    const nr=Object.keys(st.row||{}).length,np=Object.keys(st.pago||{}).length,ne=(st.extra||[]).length;
-    pxConfirm(`Substituir as marcações atuais pelo backup? (${nr} clientes marcados · ${np} meses com pago · ${ne} clientes extras)`,"Restaurar",()=>{DB.pipex.state=st;pxSt(DB.pipex);pxSave();pxRefresh();toast("Backup restaurado");});};rd.readAsText(f);};
-  inp.click();}
-function pxZerar(){pxConfirm("Zerar TODAS as suas marcações (✓, %, abonos, pagos, clientes extras) e voltar ao padrão do extrato?","Zerar",()=>{DB.pipex.state={};pxSt(DB.pipex);pxSave();pxRefresh();toast("Marcações zeradas");});}
-
-function pxConfirm(msg,label,fn){modal({title:"Confirmar",extraHTML:`<div class="sub">${esc(msg)}</div>`,saveLabel:label,onSave:()=>{fn();}});}
+/* ---- dados ---- */
+async function pxLoad(){
+  if(MODE!=="live"){Object.assign(PX,window.PX_DEMO_DATA||pxDemo());PX.ok=true;PX.err=null;}
+  else{const[c,a,k,p]=await Promise.all([
+      sb.from("pipex_v_competencias").select("*").order("competencia"),
+      sb.from("pipex_v_apuracao").select("*"),
+      sb.from("pipex_acordo").select("*,pipex_acordo_pct(desde,pct)").order("segurado"),
+      sb.from("pipex_pagamentos").select("*").order("data")]);
+    const e=[c,a,k,p].find(r=>r.error);
+    if(e){PX.ok=false;PX.err=/does not exist|schema cache|relation/i.test(e.error.message)?"Tabelas pipex_* ainda não existem — rode scripts/pipex_modulo.sql no SQL Editor do Supabase.":e.error.message;return;}
+    Object.assign(PX,{comps:c.data||[],ap:a.data||[],acordo:k.data||[],pags:p.data||[],ok:true,err:null});}
+  if(!PX.comps.some(x=>x.competencia===PX.comp))PX.comp=(PX.comps[PX.comps.length-1]||{}).competencia||"";
+  PX.proj=null;}
+const pxUlt=()=>(PX.comps[PX.comps.length-1]||{}).competencia||"";
+const pxC=c=>PX.comps.find(x=>x.competencia===c)||{};
+const pxApDe=c=>PX.ap.filter(r=>r.competencia===c);
+/* % vigente = linha de maior `desde` <= competência (lookup do cadastro, não é regra de cálculo) */
+const pxPctVig=(k,c)=>{const h=(k.pipex_acordo_pct||[]).filter(x=>x.desde<=c).sort((a,b)=>b.desde.localeCompare(a.desde))[0];return h?pxN(h.pct):null;};
+/* candidatos a "Pix do Daniel": entradas da visão Pipe X que não estão conciliadas com outro previsto.
+   Sem nome no código (repo público) — quem é o pagador você confere na descrição. */
+const pxMovsDaniel=()=>{const own=new Set(PX.comps.map(c=>c.previsto_id)),usado=new Set([...((DB&&DB.aReceber)||[]),...((DB&&DB.contasPagar)||[])].filter(p=>p.movId&&!own.has(p._row)).map(p=>p.movId)),desde=addDaysISO(todayISO(),-240);
+  return(PX.movs||(DB&&DB.movimentos)||[]).filter(m=>m.sentido==="Entrada"&&!usado.has(m._row)&&(PX.movs||m.data>=desde)).sort((a,b)=>String(b.data).localeCompare(String(a.data)));};
+async function pxRpc(fn,args){if(MODE!=="live")return pxDemoRpc(fn,args);const{data,error}=await sb.rpc(fn,args);if(error)throw new Error(error.message);return data;}
+async function pxProjLoad(){PX.projIni=pxNext(pxUlt()||todayISO().slice(0,7));
+  try{PX.proj=(await pxRpc("pipex_projecao",{p_inicio:PX.projIni,p_cenario:PX.cen}))||[];}catch(e){PX.proj=[];toast("Projeção: "+e.message);}}
 
 /* ---- tela ---- */
-let PX_F={per:"",q:"",so:false};
-function viewPipeX(){
-  const px=DB.pipex;
-  if(!px){$("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel</div></div></div>
-    <div class="panel"><div class="empty">Ainda não há base do Pipe X no banco.<br>Quando os extratos do Daniel forem carregados em <b>pipex_state</b>, o fechamento aparece aqui.</div></div>`;return;}
-  pxSt(px);
-  const pers=(px.periodos||[]).map(p=>p.id);if(PX_F.per&&!pers.includes(PX_F.per))PX_F.per="";
-  $("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel · corte dia 20 · vence dia 05 · imposto ${((px.tax||0)*100).toFixed(0)}% · base de ${esc(px.gerado||"?")} · <span id="pxSalvo">${esc(PX_SALVO||"")}</span></div></div></div>
-  <div class="kpis" id="pxKpis"></div>
-  ${(px.comprovantes||[]).length?dobr("px-comp",`<div class="panel"><h2>🧾 Comprovantes do Daniel</h2><div class="px-comp">${(px.comprovantes||[]).map(c=>`<div class="px-compc"><b>${fmtBRL(c.valor)}</b><div>${esc(c.quem||"")} · ${esc(c.data||"")} · ${esc(c.meio||"")}</div><div class="sub" style="margin:2px 0 0">${esc(c.cobre||"")}</div></div>`).join("")}</div></div>`,`${(px.comprovantes||[]).length} Pix · ${fmtBRL((px.comprovantes||[]).reduce((a,c)=>a+Number(c.valor||0),0))}`,true):""}
-  <div id="pxPainel"></div>
-  <div id="pxConf"></div>
-  <div class="panel"><h2>✏️ Fechamento</h2>
-    <div class="px-tool">
-      <select onchange="PX_F.per=this.value;pxRefresh()" aria-label="Período"><option value="">Todos os meses</option>${pers.map(p=>`<option${PX_F.per===p?" selected":""}>${esc(p)}</option>`).join("")}</select>
-      <input placeholder="filtrar cliente/apólice…" value="${esc(PX_F.q)}" oninput="PX_F.q=this.value;pxRefresh()" aria-label="Filtrar">
-      <label class="px-so"><input type="checkbox"${PX_F.so?" checked":""} onchange="PX_F.so=this.checked;pxRefresh()"> só quem entra</label>
-      <span style="flex:1"></span>
-      <button class="btn ghost sm" onclick="pxAddModal()">＋ Cliente do Daniel</button>
-      <button class="btn ghost sm" onclick="pxBackup()">⬇ Backup</button>
-      <button class="btn ghost sm" onclick="pxRestaurar()">⬆ Restaurar</button>
-      <button class="btn ghost sm" onclick="pxZerar()">↺ Zerar</button>
-    </div>
-    <div class="sub">Cada célula: <b>comissão do Daniel</b> · <b>%</b> · <b>✓ entra</b> · <b>= sua parte</b>. Abono do mês = desmarque o ✓. Tirar da parceria de vez = desmarque <b>na parceria</b>. Regra: comissão × % × (1 − ${((px.tax||0)*100).toFixed(0)}%).</div>
-    <div class="px-wrap" id="pxWrap"><table class="px-t" id="pxGrid"></table></div>
-  </div>`;
-  pxRefresh();
-}
-function pxRefresh(){
-  const px=DB.pipex;if(!px||!document.getElementById("pxGrid"))return;
-  const pers=(px.periodos||[]).map(p=>p.id),rows=pxRows(px);
-  /* KPIs = os do artefato */
-  let gprod=0,gdev=0,gpago=0;const mF={},mP={};pers.forEach(m=>{mF[m]=0;mP[m]=0;});
-  rows.forEach(r=>pers.forEach(m=>{gprod+=pxProd(px,r,m);const s=pxShare(px,r,m);gdev+=s;mP[m]+=s;}));
-  (px.rows||[]).forEach(r=>pers.forEach(m=>{mF[m]+=Number(((r.cells||{})[m]||{}).com||0);}));
-  (px.outros||[]).forEach(o=>pers.forEach(m=>{mF[m]+=Number((o.mes||{})[m]||0);}));
-  pers.forEach(m=>gpago+=pxPago(px,m));
-  const sal=pxR2(gdev-gpago);
-  document.getElementById("pxKpis").innerHTML=`
-    <div class="kpi"><div class="lbl">Produção Pipe X</div><div class="val">${fmtBRL(gprod)}</div><div class="hint">tudo que está na parceria</div></div>
-    <div class="kpi"><div class="lbl">Devido · faturado</div><div class="val">${fmtBRL(gdev)}</div><div class="hint">só o que entra na cobrança</div></div>
-    <div class="kpi"><div class="lbl">Pago pelo Daniel</div><div class="val in">${fmtBRL(gpago)}</div></div>
-    <div class="kpi"><div class="lbl">Saldo em aberto</div><div class="val ${Math.abs(sal)<0.01?"in":"out"}">${fmtBRL(sal)}</div><div class="hint">${Math.abs(sal)<0.01?"tudo acertado":sal>0?"o Daniel ainda te deve":"pago a mais"}</div></div>`;
-  /* painel: FYC do Daniel × sua parte + faixas */
-  const W=Math.max(560,pers.length*98),H=214,pad=32,gw=(W-2*pad)/Math.max(1,pers.length);let max=1;pers.forEach(m=>{max=Math.max(max,mF[m],mP[m]);});
-  const base=H-26,y=v=>base-(Math.max(0,v)/max)*(H-52);let bars="";
-  pers.forEach((m,i)=>{const cx=pad+i*gw+gw/2,bw=Math.min(24,gw/3.2),f=mF[m],p=mP[m];
-    bars+=`<rect x="${cx-bw-2}" y="${y(f)}" width="${bw}" height="${base-y(f)}" rx="3" fill="var(--proj)"/><rect x="${cx+2}" y="${y(p)}" width="${bw}" height="${base-y(p)}" rx="3" fill="var(--primary)"/>`+
-      `<text x="${cx}" y="${H-9}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(m)}</text>`+
-      `<text x="${cx-bw/2-2}" y="${y(f)-4}" text-anchor="middle" font-size="9" fill="var(--proj)">${f>=1000?(f/1000).toFixed(1)+"k":Math.round(f)}</text>`+
-      `<text x="${cx+bw/2+2}" y="${y(p)-4}" text-anchor="middle" font-size="9" fill="var(--primary)">${Math.round(p)}</text>`;});
-  const g={};(px.rows||[]).forEach(r=>{const b=Number(r.base_pct!=null?r.base_pct:50);(g[b]=g[b]||[]).push(r.seg);});
-  const curto=n=>String(n||"").split(" ").slice(0,2).join(" ");
-  const fx=(pct,cls,lbl)=>{const a=g[pct]||[];return`<div class="px-fx ${cls}"><div class="px-fxh"><span>${pct}%</span> ${lbl} <small>(${a.length})</small></div><div class="sub" style="margin:0">${a.map(n=>esc(curto(n))).join(" · ")||"—"}</div></div>`;};
-  document.getElementById("pxPainel").innerHTML=dobr("px-painel",`<div class="panel"><h2>📊 Painel da parceria</h2>
-    <div class="px-leg"><span><i style="background:var(--proj)"></i>FYC que o Daniel recebe</span><span><i style="background:var(--primary)"></i>Sua parte (o que ele te paga)</span></div>
-    <div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="FYC do Daniel e sua parte por mês">${bars}</svg></div>
-    <div class="px-fxs">${fx(50,"c50","divisão cheia")}${fx(20,"c20","divisão reduzida")}${fx(0,"c0","você não cobra")}</div></div>`,`sua parte ${fmtBRL(gdev)}`,false);
-  /* confronto módulo × Central */
-  const conf=pers.map(p=>{const dev=pxDevido(px,p),prev=pxPrevisto(p),grav=prev?Number(prev.previstoLiquido||prev.valor||0):null;
-    return{p,dev,grav,div:grav!=null&&Math.abs(grav-dev)>0.01,status:prev?(prev.status||"aberto"):null};}).filter(x=>x.dev>0||x.grav);
-  const nDiv=conf.filter(x=>x.div).length,semPrev=conf.filter(x=>x.grav==null).length;
-  document.getElementById("pxConf").innerHTML=dobr("px-conf",`<div class="panel"><h2>🔎 Confere com a Central?</h2>
-    <div class="sub">O <b>devido</b> sai do fechamento acima. O <b>previsto</b> é a linha gravada em A Receber. Divergiu = alguém está desatualizado.</div>
-    <div style="overflow-x:auto"><table><thead><tr><th>Mês</th><th class="num">Devido (fechamento)</th><th class="num">Previsto (Central)</th><th>Situação</th></tr></thead><tbody>
-    ${conf.map(x=>`<tr><td><b>${esc(x.p)}</b></td><td class="num">${fmtBRL(x.dev)}</td><td class="num ${x.div?"out":""}">${x.grav==null?"—":fmtBRL(x.grav)}</td><td>${x.grav==null?`<span class="chip none">sem previsto</span>`:x.div?`<span class="chip none">⚠ difere ${fmtBRL(Math.abs(x.grav-x.dev))}</span>`:`<span class="chip">${esc(String(x.status||"aberto"))}</span>`}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Nenhum mês com devido.</div></td></tr>`}
-    </tbody></table></div></div>`,nDiv||semPrev?`⚠ ${nDiv?nDiv+" divergindo":""}${nDiv&&semPrev?" · ":""}${semPrev?semPrev+" sem previsto":""}`:"✓ tudo confere",!(nDiv||semPrev));
-  /* grade */
-  const wrap=document.getElementById("pxWrap"),sl=wrap?wrap.scrollLeft:0,st=wrap?wrap.scrollTop:0;
-  const cols=PX_F.per?[PX_F.per]:pers,q=pxNorm(PX_F.q);
-  let h=`<thead><tr><th class="px-cli">Cliente · apólice</th>${(px.periodos||[]).filter(p=>cols.includes(p.id)).map(p=>`<th><div>${esc(p.id)}</div><small>${esc(p.ini||"")}→${esc(p.fim||"")}</small></th>`).join("")}<th class="px-tot">Total</th></tr></thead><tbody>`;
-  let prev=null;
-  rows.forEach((r,i)=>{
-    if(q&&!pxNorm((r.seg||"")+" "+(r.apolice||"")).includes(q))return;
-    const on=(pxSt(px).row[pxRid(r)]||{}).on!==false;let tot=0,algum=false,cells="";
-    cols.forEach(m=>{const v=pxCell(px,r,m),sh=pxShare(px,r,m);if(v.entra)algum=true;tot+=sh;
-      cells+=`<td class="px-c${(!on||v.com<=0)?" off":""}"><div class="px-com">${fmtBRL(v.com)}</div><div class="px-ctl"><input type="number" inputmode="decimal" min="0" max="100" step="5" value="${v.pct}" onchange="pxSetPct(${i},'${m}',this.value)" aria-label="% ${esc(m)}"><span>%</span><label class="px-ck"><input type="checkbox"${v.entra?" checked":""} onchange="pxSetEntra(${i},'${m}',this.checked)" aria-label="entra em ${esc(m)}"></label></div><div class="px-sh${sh?"":" zero"}">= ${fmtBRL(sh)}</div></td>`;});
-    if(PX_F.so&&!algum)return;
-    const nm=r.seg!==prev?`<div class="px-nm">${esc(r.seg)}</div>`:`<div class="px-nm" style="opacity:.45">↳</div>`;prev=r.seg;
-    h+=`<tr><td class="px-cli${on?"":" off"}">${nm}<div class="px-ap">apól ${esc(r.apolice)}${pxSt(px).extra.some(x=>pxRid(x)===pxRid(r))?" · adicionado":""}</div><label class="px-on"><input type="checkbox"${on?" checked":""} onchange="pxSetOn(${i},this.checked)"> na parceria</label></td>${cells}<td class="px-tot">${fmtBRL(tot)}</td></tr>`;});
-  const colDev={};let colTot=0;cols.forEach(m=>{colDev[m]=pxDevido(px,m);colTot+=colDev[m];});
-  let totPago=0;const pagoCells=cols.map(m=>{totPago+=pxPago(px,m);const sv=pxSt(px).pago[m],pv=sv!==undefined?sv:((px.pago_default||{})[m]!=null?px.pago_default[m]:"");
-    return`<td><input class="px-pago" type="number" inputmode="decimal" step="0.01" value="${pv}" placeholder="0,00" onchange="pxSetPago('${m}',this.value)" aria-label="Pago em ${esc(m)}"></td>`;}).join("");
-  h+=`</tbody><tfoot><tr><td class="px-cli">Devido (faturado)</td>${cols.map(m=>`<td>${fmtBRL(pxR2(colDev[m]))}</td>`).join("")}<td class="px-tot">${fmtBRL(pxR2(colTot))}</td></tr>
-    <tr><td class="px-cli">Pago pelo Daniel</td>${pagoCells}<td class="px-tot">${fmtBRL(pxR2(totPago))}</td></tr>
-    <tr><td class="px-cli">Saldo</td>${cols.map(m=>{const s=pxR2(colDev[m]-pxPago(px,m));return`<td class="${Math.abs(s)<0.01?"in":"out"}">${fmtBRL(s)}</td>`;}).join("")}<td class="px-tot ${Math.abs(colTot-totPago)<0.01?"in":"out"}">${fmtBRL(pxR2(colTot-totPago))}</td></tr></tfoot>`;
-  document.getElementById("pxGrid").innerHTML=h;
-  if(wrap){wrap.scrollLeft=sl;wrap.scrollTop=st;}
-  pxStatus();
-}
+async function viewPipeX(){$("#view").innerHTML=`<div class="row"><div><h1>Pipe X</h1><div class="sub">Carregando…</div></div></div>`;await pxLoad();pxRender();}
+function pxTab(t){PX.tab=t;PX.imp=null;pxRender();}
+function pxRender(){
+  $("#view").innerHTML=`<div class="row no-print"><div><h1>Pipe X</h1><div class="sub">Parceria com o Daniel · sua parte = comissão do Daniel × % do cliente × (1 − 6% Simples) · competência ≈ 21→20 · vence dia 05</div></div></div>
+  ${PX.err?`<div class="panel"><div class="empty">⚠ ${esc(PX.err)}</div></div>`:""}
+  <div class="px-tabs no-print">${PX_TABS.map(([id,l])=>`<button class="btn ${PX.tab===id?"":"ghost"} sm" onclick="pxTab('${id}')">${l}</button>`).join("")}</div><div id="pxBody"></div>`;
+  if(!PX.ok)return;
+  ({painel:pxPainel,carteira:pxCarteira,apuracao:pxApuracao,receber:pxReceber,prestacao:pxPrestacao,projecao:pxProjecao}[PX.tab]||pxPainel)();}
+const pxBody=h=>{document.getElementById("pxBody").innerHTML=h;};
+const pxCompSel=(onch,so)=>`<select class="px-sel" onchange="${onch}" aria-label="Competência">${PX.comps.filter(c=>!so||so(c)).slice().reverse().map(c=>`<option value="${c.competencia}"${c.competencia===PX.comp?" selected":""}>${esc(c.rotulo)}${c.status==="fechada"?"":" · aberta"}</option>`).join("")}</select>`;
+const pxPct=v=>v==null?"—":(pxN(v)%1?pxN(v).toFixed(1).replace(".",","):pxN(v))+"%";
+const pxStatusPill=c=>Math.abs(pxN(c.saldo))<0.005&&c.status==="fechada"?`<span class="pill recebido">quitado</span>`:c.status!=="fechada"?`<span class="pill cancelado">aberta</span>`:`<span class="pill aberto">a receber</span>`;
+function pxBars(series,labels,fmt){/* barras agrupadas em SVG (sem lib): series=[{nome,cor,vals}] */
+  const n=labels.length,W=Math.max(520,n*(series.length*26+34)),H=210,pad=28,gw=(W-2*pad)/Math.max(1,n),base=H-24;let max=1;series.forEach(s=>s.vals.forEach(v=>max=Math.max(max,v)));
+  const y=v=>base-(Math.max(0,v)/max)*(H-50),bw=Math.min(22,gw/(series.length+1.4));let g="";
+  labels.forEach((l,i)=>{const x0=pad+i*gw+gw/2-(series.length*(bw+3))/2;series.forEach((s,j)=>{const v=s.vals[i],x=x0+j*(bw+3);
+    g+=`<rect x="${x}" y="${y(v)}" width="${bw}" height="${base-y(v)}" rx="3" fill="${s.cor}"><title>${esc(s.nome)} · ${esc(l)}: ${fmtBRL(v)}</title></rect><text x="${x+bw/2}" y="${y(v)-4}" text-anchor="middle" font-size="9" fill="${s.cor}">${fmt(v)}</text>`;});
+    g+=`<text x="${pad+i*gw+gw/2}" y="${H-7}" text-anchor="middle" font-size="11" fill="var(--muted)">${esc(l)}</text>`;});
+  return`<div class="px-leg">${series.map(s=>`<span><i style="background:${s.cor}"></i>${esc(s.nome)}</span>`).join("")}</div><div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" style="max-width:100%;height:auto" role="img" aria-label="${esc(series.map(s=>s.nome).join(" × "))}">${g}</svg></div>`;}
+const pxK=v=>v>=1000?(v/1000).toFixed(1).replace(".",",")+"k":String(Math.round(v));
+
+/* 1) Painel */
+function pxPainel(){const cs=PX.comps,S=k=>pxR2(cs.reduce((s,c)=>s+pxN(c[k]),0)),dev=S("devido"),pago=S("pago"),sal=S("saldo");
+  const prox=cs.filter(c=>pxN(c.saldo)>0.004).sort((a,b)=>String(a.vencimento).localeCompare(String(b.vencimento)))[0];
+  const div=cs.filter(c=>c.status==="fechada"&&Math.abs(pxN(c.devido)-pxN(c.devido_calc))>0.004);
+  pxBody(`<div class="kpis">
+    <div class="kpi"><div class="lbl">Devido${cs.length?` · ${esc(cs[0].rotulo)}→${esc(cs[cs.length-1].rotulo)}`:""}</div><div class="val">${fmtBRL(dev)}</div><div class="hint">sua parte, competências fechadas</div></div>
+    <div class="kpi"><div class="lbl">Pago pelo Daniel</div><div class="val in">${fmtBRL(pago)}</div></div>
+    <div class="kpi"><div class="lbl">Saldo</div><div class="val ${Math.abs(sal)<0.005?"in":"out"}">${fmtBRL(sal)}</div><div class="hint">${Math.abs(sal)<0.005?"tudo acertado":sal>0?"o Daniel ainda te deve":"pago a mais"}</div></div>
+    <div class="kpi"><div class="lbl">Próximo recebimento</div><div class="val">${prox?fmtBRL(prox.saldo):"—"}</div><div class="hint">${prox?`${esc(prox.rotulo)} · vence ${fmtDate(prox.vencimento)}`:"nada em aberto"}</div></div></div>
+  ${div.length?`<div class="panel px-warn">⚠ Devido congelado ≠ recalculado em ${div.map(c=>esc(c.rotulo)).join(", ")} — alguém mexeu no % ou nas linhas depois do fechamento. Reabra e feche de novo, ou volte o %.</div>`:""}
+  <div class="panel"><h2>📊 FYC do Daniel × sua parte</h2>${pxBars([{nome:"FYC do Daniel (extrato inteiro)",cor:"var(--proj)",vals:cs.map(c=>pxN(c.total_extrato))},{nome:"Comissão nos clientes do acordo",cor:"#94a3b8",vals:cs.map(c=>pxN(c.comissao_acordo))},{nome:"Sua parte (devido)",cor:"var(--primary)",vals:cs.map(c=>pxN(c.devido))}],cs.map(c=>c.rotulo),pxK)}</div>
+  <div class="panel"><h2>🗓️ Competências</h2><div style="overflow-x:auto"><table><thead><tr><th>Competência</th><th>Período</th><th class="num">Linhas</th><th class="num">Comissão no acordo</th><th class="num">Sua parte</th><th class="num">Pago</th><th class="num">Saldo</th><th>Situação</th></tr></thead><tbody>
+  ${cs.slice().reverse().map(c=>`<tr class="px-click" onclick="PX.comp='${c.competencia}';pxTab('apuracao')"><td><b>${esc(c.rotulo)}</b>${c.fonte==="historico"?` <span class="chip" title="Veio da Central de 01/09 (extratos em PDF consolidados por apólice)">histórico</span>`:""}</td><td>${fmtDate(c.periodo_ini)} → ${fmtDate(c.periodo_fim)}</td><td class="num">${c.n_linhas??"—"}</td><td class="num">${fmtBRL(c.comissao_acordo)}</td><td class="num"><b>${fmtBRL(c.devido)}</b></td><td class="num in">${fmtBRL(c.pago)}</td><td class="num ${Math.abs(pxN(c.saldo))<0.005?"":"out"}">${fmtBRL(c.saldo)}</td><td>${pxStatusPill(c)}</td></tr>`).join("")||`<tr><td colspan="8"><div class="empty">Nenhuma competência ainda — importe um extrato na aba Apuração.</div></td></tr>`}
+  </tbody><tfoot><tr><td colspan="4"><b>Total</b></td><td class="num"><b>${fmtBRL(dev)}</b></td><td class="num in"><b>${fmtBRL(pago)}</b></td><td class="num"><b>${fmtBRL(sal)}</b></td><td></td></tr></tfoot></table></div></div>`);}
+
+/* 2) Carteira do acordo */
+function pxCarteira(){const ult=pxUlt(),apU=new Map(pxApDe(ult).map(r=>[r.apolice,r])),q=pxNorm(PX.q);
+  const rows=PX.acordo.map(k=>({k,pct:pxPctVig(k,ult||"9999-12"),ap:apU.get(k.apolice)})).sort((a,b)=>(b.pct??-1)-(a.pct??-1)||a.k.segurado.localeCompare(b.k.segurado));
+  const ativos=rows.filter(r=>r.k.ativo!==false),nCli=new Set(ativos.map(r=>r.k.segurado)).size,premio=ativos.reduce((s,r)=>s+pxN(r.k.premio_mensal),0);
+  const hist=k=>(k.pipex_acordo_pct||[]).slice().sort((a,b)=>a.desde.localeCompare(b.desde)).map(h=>`${pxPct(h.pct)} desde ${pxRot(h.desde)}`).join(" · ");
+  const parc=k=>k.ult_parcela==null?"—":k.ult_parcela<=12?`${k.ult_parcela}/12 <span class="sub">FYC</span>`:`${k.ult_parcela-12}/12 <span class="sub">renov.</span>`;
+  pxBody(`<div class="kpis"><div class="kpi"><div class="lbl">Clientes / apólices</div><div class="val">${nCli} / ${ativos.length}</div></div>
+    <div class="kpi"><div class="lbl">No rateio</div><div class="val">${ativos.filter(r=>r.pct>0).length}</div><div class="hint">apólices com % &gt; 0</div></div>
+    <div class="kpi"><div class="lbl">Fora do rateio (0%)</div><div class="val">${ativos.filter(r=>r.pct===0).length}</div></div>
+    <div class="kpi"><div class="lbl">Prêmio líquido / mês</div><div class="val">${fmtBRL(premio)}</div><div class="hint">soma das apólices do acordo</div></div></div>
+  <div class="panel"><div class="px-tool"><input placeholder="buscar cliente ou apólice…" value="${esc(PX.q)}" oninput="PX.q=this.value;pxCarteira()" aria-label="Buscar"><span style="flex:1"></span><span class="sub" style="margin:0">situação = último extrato (${esc(pxRot(ult))})</span></div>
+  <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Apólice</th><th class="num">%</th><th>Situação ${esc(pxRot(ult))}</th><th class="num">Parcela</th><th class="num">Comissão / parcela</th><th class="num">Prêmio líq. / mês</th><th></th></tr></thead><tbody>
+  ${rows.filter(r=>!q||pxNorm(r.k.segurado+" "+r.k.apolice).includes(q)).map(({k,pct,ap})=>`<tr${k.ativo===false?' class="lp-off"':""}><td>${esc(k.segurado)}</td><td><span class="chip">${esc(k.apolice)}</span></td><td class="num" title="${esc(hist(k))}"><b>${pxPct(pct)}</b>${(k.pipex_acordo_pct||[]).length>1?' <span class="chip" title="'+esc(hist(k))+'">hist.</span>':""}</td><td>${ap?`<span class="px-sit ${ap.situacao}">${esc(PX_SIT[ap.situacao]||ap.situacao)}</span>`:"—"}</td><td class="num">${parc(k)}</td><td class="num">${k.comissao_mensal!=null?fmtBRL(k.comissao_mensal):"—"}</td><td class="num">${k.premio_mensal!=null?fmtBRL(k.premio_mensal):"—"}</td><td><button class="btn ghost sm" onclick="pxPctModal('${esc(k.apolice)}')">Alterar %</button></td></tr>`).join("")||`<tr><td colspan="8"><div class="empty">Nenhum cliente no acordo.</div></td></tr>`}
+  </tbody></table></div><div class="sub" style="margin-top:8px">O % vale <b>a partir</b> da competência escolhida — os meses anteriores ficam como estavam (histórico preservado). Parcela/comissão/prêmio = última parcela vista no extrato (base da projeção).</div></div>`);}
+function pxPctModal(ap){const k=PX.acordo.find(x=>x.apolice===ap);if(!k)return;const ult=pxUlt(),de=PX.comps.some(c=>c.competencia===ult&&c.status!=="fechada")?ult:pxNext(ult||todayISO().slice(0,7));
+  modal({title:`% de ${k.segurado} (${ap})`,fields:[{name:"pct",label:"Novo % (0 a 100)",type:"number",default:pxPctVig(k,de)??50},{name:"desde",label:"A partir da competência (AAAA-MM)",default:de}],saveLabel:"Gravar %",onSave:async v=>{
+    const pct=pxNum(v.pct),desde=String(v.desde||"").trim();if(!(pct>=0&&pct<=100)||!/^\d{4}-\d{2}$/.test(desde)){toast("% entre 0 e 100 e competência AAAA-MM");return false;}
+    if(PX.comps.some(c=>c.competencia===desde&&c.status==="fechada")){toast(`${pxRot(desde)} já está fechada — reabra na Apuração antes de mudar o % dela`);return false;}
+    if(MODE==="live"){const{error}=await sb.from("pipex_acordo_pct").upsert({apolice:ap,desde,pct},{onConflict:"apolice,desde"});if(error)throw new Error(error.message);await pxLoad();}
+    else{k.pipex_acordo_pct=(k.pipex_acordo_pct||[]).filter(h=>h.desde!==desde).concat({desde,pct});}
+    toast(`% gravado: ${pxPct(pct)} a partir de ${pxRot(desde)}`);pxRender();}});}
+
+/* 3) Apuração do mês (+ importador) */
+function pxApuracao(){
+  const imp=`<label class="btn sm">📥 Importar extrato (.xls)<input type="file" accept=".xls,.html,.htm" onchange="pxFile(event)" hidden></label>`;
+  if(PX.imp)return pxImpPreview();
+  const c=pxC(PX.comp);if(!c.competencia){pxBody(`<div class="panel"><h2>Nenhuma competência</h2><div class="sub" style="margin-bottom:10px">Importe o extrato de comissão do Daniel (o .xls do portal Prudential).</div>${imp}</div>`);return;}
+  const rs=pxApDe(c.competencia),grp=s=>rs.filter(r=>r.situacao===s);
+  const tab=(arr,cols)=>`<div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Apólice</th><th>Parcela(s)</th><th class="num">Comissão Daniel</th>${cols?`<th class="num">%</th><th class="num">Sua parte</th>`:""}</tr></thead><tbody>${arr.map(r=>`<tr><td>${esc(r.segurado)}</td><td><span class="chip">${esc(r.apolice)}</span></td><td>${r.parcelas?esc(r.parcelas.split(",").sort((a,b)=>a-b).join(", ")):"—"}${(r.parcelas||"").includes(",")?' <span class="chip" title="Parcelas atrasadas que compensaram juntas — entram cheias">juntas</span>':""}</td><td class="num${pxN(r.comissao)<0?" out":""}">${fmtBRL(r.comissao)}</td>${cols?`<td class="num">${pxPct(r.pct)}</td><td class="num"><b>${fmtBRL(r.parte)}</b></td>`:""}</tr>`).join("")}</tbody></table></div>`;
+  const rat=grp("rateio").sort((a,b)=>pxN(b.parte)-pxN(a.parte)),zero=grp("fora_rateio"),nc=grp("nao_compensou"),fora=grp("fora_carteira").sort((a,b)=>pxN(b.comissao)-pxN(a.comissao));
+  pxBody(`<div class="panel"><div class="px-tool">${pxCompSel("PX.comp=this.value;pxApuracao()")}<span class="sub" style="margin:0">${fmtDate(c.periodo_ini)} → ${fmtDate(c.periodo_fim)} · vence ${fmtDate(c.vencimento)} · ${c.n_linhas??"?"} linhas · extrato ${fmtBRL(c.total_extrato)}${c.fonte==="historico"?" · histórico (por apólice)":""}</span><span style="flex:1"></span>${imp}
+    ${c.status==="fechada"?`<span class="pill recebido">fechada</span><button class="btn ghost sm" onclick="pxReabrir('${c.competencia}')">Reabrir</button>`:`<button class="btn sm" onclick="pxFechar('${c.competencia}')">Fechar ${esc(c.rotulo)} → A receber</button>`}</div></div>
+  <div class="kpis px-k5"><div class="kpi"><div class="lbl">Comissão nos clientes do acordo</div><div class="val">${fmtBRL(c.comissao_acordo)}</div></div>
+    <div class="kpi"><div class="lbl">Bruto do rateio</div><div class="val">${fmtBRL(c.bruto_rateio)}</div><div class="hint">comissão × % do cliente</div></div>
+    <div class="kpi"><div class="lbl">(−) Simples 6%</div><div class="val out">${fmtBRL(c.simples)}</div></div>
+    <div class="kpi"><div class="lbl">Parte Pipe X</div><div class="val in">${fmtBRL(c.devido)}</div><div class="hint">${c.status==="fechada"?"congelada no fechamento":"prévia — ainda não fechada"}</div></div></div>
+  ${dobr("pxa-rat",`<div class="panel"><h2>✅ ${PX_SIT.rateio} (${rat.length})</h2>${tab(rat,true)}</div>`,fmtBRL(c.devido),false)}
+  ${zero.length?dobr("pxa-zero",`<div class="panel"><h2>⛔ ${PX_SIT.fora_rateio} (${zero.length})</h2>${tab(zero,true)}</div>`,fmtBRL(zero.reduce((s,r)=>s+pxN(r.comissao),0))+" ficam com o Daniel",false):""}
+  ${nc.length?dobr("pxa-nc",`<div class="panel"><h2>⏳ ${PX_SIT.nao_compensou} (${nc.length})</h2><div class="sub">No acordo, mas fora deste extrato. Não é cancelamento: cai no próximo ciclo.</div><div class="px-chips">${nc.map(r=>`<span class="chip">${esc(r.segurado)} · ${esc(r.apolice)} · ${pxPct(r.pct)}</span>`).join("")}</div></div>`,String(nc.length),false):""}
+  ${fora.length?dobr("pxa-fora",`<div class="panel"><h2>📚 ${PX_SIT.fora_carteira} (${fora.length})</h2><div class="sub">O resto do livro do Daniel neste extrato — não entra na sua parte.</div>${tab(fora,false)}</div>`,fmtBRL(fora.reduce((s,r)=>s+pxN(r.comissao),0)),true):""}`);}
+function pxFile(ev){const f=ev.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=e=>{const r=pxParseXls(e.target.result);if(!r.linhas.length){toast("Nenhuma linha de comissão reconhecida nesse arquivo");return;}
+    r.nome=f.name;r.add={};PX.imp=r;pxImpPreview();};
+  rd.readAsText(f,"ISO-8859-1");ev.target.value="";}
+/* cruzamento do extrato lido com o acordo — prévia; a parte em R$ só sai do banco depois de gravar */
+function pxImpCruz(r){const k=new Map(PX.acordo.map(x=>[x.apolice,x])),by={};
+  r.linhas.forEach(l=>{const o=by[l.apolice]||(by[l.apolice]={apolice:l.apolice,segurado:l.segurado,comissao:0,parcelas:new Set(),n:0});o.comissao+=l.comissao;o.parcelas.add(l.parcela);o.n++;});
+  const g={rateio:[],fora_rateio:[],nao_compensou:[],fora_carteira:[]};
+  Object.values(by).forEach(o=>{o.comissao=pxR2(o.comissao);const a=k.get(o.apolice),pct=a?pxPctVig(a,r.comp):null;o.pct=pct;g[!a||pct==null?"fora_carteira":pct>0?"rateio":"fora_rateio"].push(o);});
+  PX.acordo.forEach(a=>{const pct=pxPctVig(a,r.comp);if(pct!=null&&a.ativo!==false&&!by[a.apolice])g.nao_compensou.push({apolice:a.apolice,segurado:a.segurado,pct});});
+  Object.values(g).forEach(a=>a.sort((x,y)=>(y.comissao||0)-(x.comissao||0)));return g;}
+function pxImpPreview(){const r=PX.imp,g=pxImpCruz(r),ja=pxC(r.comp),sAc=g.rateio.concat(g.fora_rateio).reduce((s,o)=>s+o.comissao,0);
+  const bloqueio=r.erros.length?r.erros:[];if(ja.status==="fechada"&&ja.n_linhas&&ja.n_linhas!==r.linhas.length)bloqueio.push(`${r.rotulo} já está fechada com ${ja.n_linhas} linhas — reabra antes de importar outro arquivo`);
+  const lst=(arr,extra)=>arr.length?`<div style="overflow-x:auto"><table><thead><tr>${extra?"<th></th>":""}<th>Cliente</th><th>Apólice</th><th>Parcela(s)</th><th class="num">Comissão</th><th class="num">%</th></tr></thead><tbody>${arr.map(o=>`<tr>${extra?`<td><input type="checkbox"${r.add[o.apolice]!=null?" checked":""} onchange="pxImpAdd('${o.apolice}',this.checked)" aria-label="Adicionar ao acordo"></td>`:""}<td>${esc(o.segurado)}</td><td><span class="chip">${esc(o.apolice)}</span></td><td>${o.parcelas?[...o.parcelas].sort((a,b)=>a-b).join(", "):"—"}</td><td class="num">${o.comissao!=null?fmtBRL(o.comissao):"—"}</td><td class="num">${extra&&r.add[o.apolice]!=null?`<input class="px-pctin" type="number" min="0" max="100" value="${r.add[o.apolice]}" onchange="PX.imp.add['${o.apolice}']=pxNum(this.value)">%`:pxPct(o.pct)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="sub">—</div>`;
+  pxBody(`<div class="panel"><h2>📥 Extrato ${esc(r.rotulo||"?")} <span class="sub">${esc(r.nome||"")}</span></h2>
+    <div class="kpis px-k5"><div class="kpi"><div class="lbl">Competência</div><div class="val">${esc(r.rotulo||"?")}</div><div class="hint">${fmtDate(r.ini)} → ${fmtDate(r.fim)} · vence ${r.comp?fmtDate(pxNext(r.comp)+"-05"):"—"}</div></div>
+      <div class="kpi"><div class="lbl">Linhas no arquivo</div><div class="val">${r.linhas.length}</div></div>
+      <div class="kpi"><div class="lbl">Total do extrato</div><div class="val">${fmtBRL(r.total)}</div><div class="hint">confira com o portal antes de gravar</div></div>
+      <div class="kpi"><div class="lbl">Comissão nos clientes do acordo</div><div class="val">${fmtBRL(sAc)}</div><div class="hint">a parte em R$ sai do banco ao gravar</div></div></div>
+    ${ja.competencia?`<div class="sub">${esc(r.rotulo)} já tem ${ja.n_linhas} linhas no banco (${fmtBRL(ja.total_extrato)}). Reimportar o mesmo arquivo não duplica nada.</div>`:""}
+    ${bloqueio.length?`<div class="px-warn">⛔ ${bloqueio.map(esc).join("<br>")}</div>`:""}
+    <div class="px-tool" style="margin-top:10px"><button class="btn" ${bloqueio.length?"disabled":""} onclick="pxImpGravar(false)">Gravar extrato</button><button class="btn" ${bloqueio.length?"disabled":""} onclick="pxImpGravar(true)">Gravar e fechar ${esc(r.rotulo||"")} → A receber</button><button class="btn ghost" onclick="PX.imp=null;pxApuracao()">Cancelar</button></div></div>
+  ${dobr("pxi-rat",`<div class="panel"><h2>✅ ${PX_SIT.rateio} (${g.rateio.length})</h2>${lst(g.rateio)}</div>`,fmtBRL(g.rateio.reduce((s,o)=>s+o.comissao,0)),false)}
+  ${dobr("pxi-zero",`<div class="panel"><h2>⛔ ${PX_SIT.fora_rateio} (${g.fora_rateio.length})</h2>${lst(g.fora_rateio)}</div>`,String(g.fora_rateio.length),false)}
+  ${dobr("pxi-nc",`<div class="panel"><h2>⏳ ${PX_SIT.nao_compensou} (${g.nao_compensou.length})</h2><div class="sub">No acordo e fora deste extrato — não cancelou, cai no próximo ciclo.</div>${lst(g.nao_compensou)}</div>`,String(g.nao_compensou.length),false)}
+  ${dobr("pxi-fora",`<div class="panel"><h2>📚 ${PX_SIT.fora_carteira} (${g.fora_carteira.length}) — adicionar ao acordo?</h2><div class="sub">Marque quem deve entrar no acordo a partir de ${esc(r.rotulo||"")} (padrão 50%).</div>${lst(g.fora_carteira,true)}</div>`,`${Object.keys(r.add).length} marcado(s)`,true)}`);}
+function pxImpAdd(ap,on){if(on)PX.imp.add[ap]=50;else delete PX.imp.add[ap];pxImpPreview();}
+async function pxImpGravar(fechar){const r=PX.imp;if(!r)return;
+  try{
+    const novos=Object.entries(r.add).map(([ap,pct])=>{const l=r.linhas.find(x=>x.apolice===ap);return{apolice:ap,segurado:l?l.segurado:ap,pct:pxN(pct)};});
+    if(MODE==="live"){
+      if(novos.length){const a=await sb.from("pipex_acordo").upsert(novos.map(n=>({apolice:n.apolice,segurado:n.segurado})),{onConflict:"apolice",ignoreDuplicates:true});if(a.error)throw new Error(a.error.message);
+        const p=await sb.from("pipex_acordo_pct").upsert(novos.map(n=>({apolice:n.apolice,desde:r.comp,pct:n.pct})),{onConflict:"apolice,desde"});if(p.error)throw new Error(p.error.message);}
+      const res=await pxRpc("pipex_importar_extrato",{p_comp:r.comp,p_ini:r.ini,p_fim:r.fim,p_total:r.total,p_linhas:r.linhas});
+      toast(`${r.rotulo}: ${res.novas} linha(s) nova(s) · ${res.linhas} no banco · ${fmtBRL(res.total)}`);
+      if(fechar){const f=await pxRpc("pipex_fechar",{p_comp:r.comp});toast(`${r.rotulo} fechada · ${fmtBRL(f.devido)} lançado em A Receber`);DB=await loadData();}
+    }else{toast("Demo: importação não grava (sem banco)");}
+    PX.imp=null;PX.comp=r.comp;await pxLoad();pxRender();
+  }catch(e){toast("Importação bloqueada: "+e.message);}}
+async function pxFechar(c){const x=pxC(c);
+  modal({title:`Fechar ${x.rotulo}`,extraHTML:`<div class="sub">Congela a sua parte em <b>${fmtBRL(x.devido)}</b> e lança/atualiza <b>Comissão LP Daniel · ${esc(x.rotulo)}</b> em A Receber, vencendo <b>${fmtDate(x.vencimento)}</b>.</div>`,saveLabel:"Fechar",onSave:async()=>{
+    if(MODE!=="live"){toast("Demo: fechamento não grava");return;}
+    const f=await pxRpc("pipex_fechar",{p_comp:c});toast(`${x.rotulo} fechada · ${fmtBRL(f.devido)} em A Receber`);DB=await loadData();await pxLoad();pxRender();}});}
+async function pxReabrir(c){const x=pxC(c);
+  modal({title:`Reabrir ${x.rotulo}`,extraHTML:`<div class="sub">Volta a competência pra aberta (pra corrigir % ou reimportar). O previsto em A Receber só é atualizado quando você fechar de novo — e só se ainda estiver em aberto.</div>`,saveLabel:"Reabrir",onSave:async()=>{
+    if(MODE!=="live"){toast("Demo: não grava");return;}await pxRpc("pipex_reabrir",{p_comp:c});await pxLoad();pxRender();}});}
+
+/* 4) Contas a receber — um recebível por competência, conciliado com os Pix do Daniel */
+function pxReceber(){const cs=PX.comps.slice().reverse(),movs=pxMovsDaniel(),aloc={};PX.pags.forEach(p=>{if(p.movimento_id)aloc[p.movimento_id]=(aloc[p.movimento_id]||0)+pxN(p.valor);});
+  const livres=movs.filter(m=>pxN(m.valor)-(aloc[m._row]||0)>0.004);
+  const pg=c=>PX.pags.filter(p=>p.competencia===c).map(p=>`<span class="chip${p.movimento_id?"":" none"}" title="${esc(p.obs||"")}">${fmtDate(p.data)} · ${fmtBRL(p.valor)}${p.movimento_id?" · Pix ✓":" · sem Pix no extrato"} <span class="link" onclick="pxPagDel('${p.id}')" title="Remover">✕</span></span>`).join(" ")||`<span class="sub" style="margin:0">—</span>`;
+  pxBody(`<div class="panel"><h2>💵 A receber do Daniel</h2><div class="sub">Um recebível por competência (vence dia 05). Pagamento = quanto de cada Pix vai pra cada mês — um Pix pode cobrir mais de um.</div>
+  <div style="overflow-x:auto"><table><thead><tr><th>Competência</th><th>Vence</th><th class="num">Devido</th><th>Pagamentos</th><th class="num">Saldo</th><th>A Receber</th><th></th></tr></thead><tbody>
+  ${cs.map(c=>`<tr><td><b>${esc(c.rotulo)}</b></td><td>${fmtDate(c.vencimento)}</td><td class="num">${fmtBRL(c.devido)}</td><td class="px-pgs">${pg(c.competencia)}</td><td class="num ${Math.abs(pxN(c.saldo))<0.005?"in":"out"}">${fmtBRL(c.saldo)}</td><td>${c.previsto_status?`<span class="pill ${esc(c.previsto_status)}">${esc(c.previsto_status)}</span>`:`<span class="chip none">sem previsto</span>`}</td><td>${pxN(c.saldo)>0.004?`<button class="btn ghost sm" onclick="pxPagModal('${c.competencia}')">＋ Pagamento</button>`:""}</td></tr>`).join("")}
+  </tbody></table></div></div>
+  ${dobr("pxr-pix",`<div class="panel"><h2>🔗 Entradas sem alocação (${livres.length})</h2><div class="sub">Entradas da visão Pipe X (últimos 8 meses) que não estão conciliadas nem distribuídas por competência. Os Pix do Daniel aparecem aqui até você alocar — as demais, ignore.</div>
+    ${livres.length?`<table><thead><tr><th>Data</th><th>Descrição</th><th class="num">Valor</th><th class="num">Sem alocar</th><th></th></tr></thead><tbody>${livres.map(m=>`<tr><td>${fmtDate(m.data)}</td><td>${esc(m.descricao)}</td><td class="num in">${fmtBRL(m.valor)}</td><td class="num">${fmtBRL(pxN(m.valor)-(aloc[m._row]||0))}</td><td><button class="btn ghost sm" onclick="pxPagModal('','${m._row}')">Alocar</button></td></tr>`).join("")}</tbody></table>`:`<div class="empty">Tudo alocado.</div>`}</div>`,String(livres.length),!livres.length)}`);}
+function pxPagModal(comp,movId){const abertas=PX.comps.filter(c=>pxN(c.saldo)>0.004).sort((a,b)=>a.competencia.localeCompare(b.competencia));
+  comp=comp||(abertas[0]||{}).competencia||pxUlt();const c=pxC(comp),movs=pxMovsDaniel(),m=movs.find(x=>x._row===movId);
+  modal({title:"Registrar pagamento do Daniel",fields:[
+    {name:"comp",label:"Competência",type:"select",options:PX.comps.slice().reverse().map(x=>({v:x.competencia,l:`${x.rotulo} · saldo ${fmtBRL(x.saldo)}`})),default:comp},
+    {name:"valor",label:"Valor alocado nesta competência",type:"number",default:m?Math.min(pxN(m.valor),pxN(c.saldo)).toFixed(2):pxN(c.saldo).toFixed(2)},
+    {name:"data",label:"Data",type:"date",default:m?m.data:todayISO()},
+    {name:"mov",label:"Pix no extrato (conciliação)",type:"select",options:[{v:"",l:"— sem Pix no extrato —"}].concat(movs.map(x=>({v:x._row,l:`${fmtDate(x.data)} · ${fmtBRL(x.valor)} · ${String(x.descricao).slice(0,40)}`}))),default:movId||""},
+    {name:"obs",label:"Observação",type:"textarea"}],saveLabel:"Registrar",onSave:async v=>{
+    const valor=pxR2(pxNum(v.valor));if(!(valor>0)){toast("Valor maior que zero");return false;}
+    const row={competencia:v.comp,valor,data:v.data||null,movimento_id:v.mov||null,obs:v.obs||null};
+    if(MODE!=="live"){PX.pags.push({...row,id:"d"+Date.now()});const x=pxC(v.comp);x.pago=pxN(x.pago)+valor;x.saldo=pxN(x.saldo)-valor;pxReceber();return;}
+    const{error}=await sb.from("pipex_pagamentos").insert(row);if(error)throw new Error(/pipex_pag_ident|duplicate/.test(error.message)?"já existe um pagamento com essa data e valor nessa competência":error.message);
+    await pxLoad();await pxSyncPrevisto(v.comp,v.mov);pxRender();toast("Pagamento registrado");}});}
+/* quitou a competência → o previsto dela vira recebido (e ganha o vínculo com o Pix, se só um Pix pagou) */
+async function pxSyncPrevisto(comp,movId){const c=pxC(comp);if(!c.previsto_id||MODE!=="live")return;
+  const quit=Math.abs(pxN(c.saldo))<0.005,st=quit?"recebido":"aberto";if(c.previsto_status===st)return;
+  const upd={status:st};const pix=PX.pags.filter(p=>p.competencia===comp&&p.movimento_id);if(quit&&pix.length&&pix.every(p=>p.movimento_id===pix[0].movimento_id))upd.movimento_id_realizado=pix[0].movimento_id;
+  try{await sbUpd("previstos",c.previsto_id,upd);DB=await loadData();await pxLoad();}catch(e){toast("A Receber não atualizou: "+e.message);}}
+function pxPagDel(id){const p=PX.pags.find(x=>x.id===id);if(!p)return;
+  confirmDel(`Remover o pagamento de ${fmtBRL(p.valor)} (${pxRot(p.competencia)})?`,async()=>{
+    if(MODE==="live"){const{error}=await sb.from("pipex_pagamentos").delete().eq("id",id);if(error){toast("Erro: "+error.message);return;}await pxLoad();await pxSyncPrevisto(p.competencia);}
+    else{PX.pags=PX.pags.filter(x=>x.id!==id);const x=pxC(p.competencia);x.pago=pxN(x.pago)-pxN(p.valor);x.saldo=pxN(x.saldo)+pxN(p.valor);}
+    pxRender();});}
+
+/* 5) Prestação de contas — documento pronto pro Daniel (PDF = imprimir) */
+function pxPrestacao(){const c=pxC(PX.comp);if(!c.competencia){pxBody(`<div class="panel"><div class="empty">Nenhuma competência.</div></div>`);return;}
+  const rs=pxApDe(c.competencia),rat=rs.filter(r=>r.situacao==="rateio").sort((a,b)=>a.segurado.localeCompare(b.segurado)),zero=rs.filter(r=>r.situacao==="fora_rateio"),nc=rs.filter(r=>r.situacao==="nao_compensou");
+  const hist=PX.comps.filter(x=>x.competencia<=c.competencia),H=k=>pxR2(hist.reduce((s,x)=>s+pxN(x[k]),0));
+  pxBody(`<div class="panel no-print"><div class="px-tool">${pxCompSel("PX.comp=this.value;pxPrestacao()")}<span style="flex:1"></span><button class="btn sm" onclick="pxImprimir()">🖨 Exportar PDF</button></div><div class="sub" style="margin:0">No diálogo de impressão, escolha <b>Salvar como PDF</b>.</div></div>
+  <div class="panel px-doc" id="pxDoc">
+    <div class="px-doc-h"><div><div class="px-doc-t">Pipe X · Prestação de contas</div><div class="sub" style="margin:0">Parceria de comissões — carteira repassada ao Life Planner Daniel</div></div><div class="px-doc-r"><b>${esc(c.rotulo)}</b><br><span class="sub" style="margin:0">${fmtDate(c.periodo_ini)} → ${fmtDate(c.periodo_fim)}</span></div></div>
+    <div class="px-doc-box"><b>Regra:</b> parte Pipe X = comissão do Daniel × % do cliente × (1 − 6% Simples), arredondada por apólice. Parcelas atrasadas que compensam juntas entram cheias. Cliente que não aparece no extrato não cancelou — entra no próximo ciclo.</div>
+    <h3>Clientes no rateio</h3>
+    <table><thead><tr><th>Cliente</th><th>Apólice</th><th>Parcela(s)</th><th class="num">Comissão</th><th class="num">%</th><th class="num">Parte Pipe X</th></tr></thead><tbody>
+    ${rat.map(r=>`<tr><td>${esc(r.segurado)}</td><td>${esc(r.apolice)}</td><td>${esc((r.parcelas||"").split(",").sort((a,b)=>a-b).join(", "))}</td><td class="num">${fmtBRL(r.comissao)}</td><td class="num">${pxPct(r.pct)}</td><td class="num">${fmtBRL(r.parte)}</td></tr>`).join("")}</tbody></table>
+    <table class="px-doc-tot"><tbody>
+      <tr><td>Comissão nos clientes do acordo</td><td class="num">${fmtBRL(c.comissao_acordo)}</td></tr>
+      <tr><td>Bruto do rateio (comissão × %)</td><td class="num">${fmtBRL(c.bruto_rateio)}</td></tr>
+      <tr><td>(−) Simples 6%</td><td class="num">${fmtBRL(-pxN(c.simples))}</td></tr>
+      <tr class="px-doc-grand"><td>Valor a pagar à Pipe X · vence ${fmtDate(c.vencimento)}</td><td class="num">${fmtBRL(c.devido)}</td></tr></tbody></table>
+    ${zero.length?`<h3>No acordo, fora do rateio (0%)</h3><div>${zero.map(r=>`${esc(r.segurado)} (${esc(r.apolice)}) · ${fmtBRL(r.comissao)}`).join(" · ")}</div>`:""}
+    ${nc.length?`<h3>Não compensaram neste extrato</h3><div>${nc.map(r=>`${esc(r.segurado)} (${esc(r.apolice)})`).join(" · ")}</div>`:""}
+    <h3>Histórico da parceria</h3>
+    <table><thead><tr><th>Competência</th><th>Vencimento</th><th class="num">Devido</th><th class="num">Pago</th><th class="num">Saldo</th></tr></thead><tbody>
+    ${hist.map(x=>`<tr><td>${esc(x.rotulo)}</td><td>${fmtDate(x.vencimento)}</td><td class="num">${fmtBRL(x.devido)}</td><td class="num">${fmtBRL(x.pago)}</td><td class="num">${fmtBRL(x.saldo)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num"><b>${fmtBRL(H("devido"))}</b></td><td class="num"><b>${fmtBRL(H("pago"))}</b></td><td class="num"><b>${fmtBRL(H("saldo"))}</b></td></tr></tfoot></table>
+    <div class="sub px-doc-f">Gerado em ${fmtDate(todayISO())} pela Central Financeira · valores do extrato de comissão direta da Prudential.</div>
+  </div>`);}
+function pxImprimir(){document.body.classList.add("px-printing");const fim=()=>{document.body.classList.remove("px-printing");window.removeEventListener("afterprint",fim);};window.addEventListener("afterprint",fim);window.print();setTimeout(fim,60000);}
+
+/* 6) Projeção & negociação — cenário por cliente, fluxo mês a mês (números do banco: pipex_projecao) */
+async function pxProjecao(){if(!PX.proj){pxBody(`<div class="panel"><div class="sub">Calculando projeção…</div></div>`);await pxProjLoad();}
+  const P=PX.proj||[],byM={},byA={};
+  P.forEach(r=>{const m=byM[r.mes]||(byM[r.mes]={com:0,parte:0});m.com+=pxN(r.comissao);m.parte+=pxN(r.parte);
+    const a=byA[r.apolice]||(byA[r.apolice]={fyc:0,ren:0,parte:0,pct:r.pct});a[r.tipo==="fyc"?"fyc":"ren"]+=pxN(r.comissao);a.parte+=pxN(r.parte);a.pct=r.pct;});
+  const tc=P.reduce((s,r)=>s+pxN(r.comissao),0),tp=P.reduce((s,r)=>s+pxN(r.parte),0),meses=Object.keys(byM).sort(),m1=byM[PX.projIni]||{parte:0};
+  const cen=ap=>{const v=PX.cen[ap];return v==null?"acordo":v===0?"d":v===100?"c":"v";};
+  const ult=pxUlt(),ativos=PX.acordo.filter(k=>k.ativo!==false).sort((a,b)=>a.segurado.localeCompare(b.segurado));
+  pxBody(`<div class="kpis"><div class="kpi"><div class="lbl">Comissão a gerar</div><div class="val">${fmtBRL(tc)}</div><div class="hint">${esc(pxRot(PX.projIni))} em diante · FYC restante + renovação 13ª–24ª</div></div>
+    <div class="kpi"><div class="lbl">Sua parte</div><div class="val in">${fmtBRL(tp)}</div></div>
+    <div class="kpi"><div class="lbl">Fica com o Daniel</div><div class="val">${fmtBRL(tc-tp)}</div></div>
+    <div class="kpi"><div class="lbl">Sua parte em ${esc(pxRot(PX.projIni))}</div><div class="val">${fmtBRL(pxR2(m1.parte))}</div><div class="hint">premissa: todos pagam em dia</div></div></div>
+  <div class="panel"><h2>🤝 Cenário por cliente</h2><div class="sub"><b>Daniel</b> = fica tudo com ele (0%) · <b>Divide</b> = você recebe o % · <b>Cheio</b> = 100% seu. Base: última parcela vista em ${esc(pxRot(ult))}. ${Object.keys(PX.cen).length?`<span class="link" onclick="PX.cen={};PX.proj=null;pxProjecao()">↺ voltar ao acordo atual</span>`:""}</div>
+  <div style="overflow-x:auto"><table><thead><tr><th>Cliente</th><th>Apólice</th><th class="num">Parcela</th><th>Cenário</th><th class="num">FYC restante</th><th class="num">Renovação</th><th class="num">Sua parte</th></tr></thead><tbody>
+  ${ativos.map(k=>{const a=byA[k.apolice]||{fyc:0,ren:0,parte:0},cv=cen(k.apolice),pa=pxPctVig(k,PX.projIni),pv=PX.cen[k.apolice]??pa;
+    return`<tr${PX.cen[k.apolice]!=null?' class="px-mud"':""}><td>${esc(k.segurado)}</td><td><span class="chip">${esc(k.apolice)}</span></td><td class="num">${k.ult_parcela??"—"}</td>
+    <td><div class="seg px-seg"><button class="${cv==="d"||(cv==="acordo"&&pa===0)?"on":""}" onclick="pxCen('${k.apolice}',0)">Daniel</button><button class="${cv==="v"||(cv==="acordo"&&pa>0&&pa<100)?"on":""}" onclick="pxCen('${k.apolice}',${pa>0&&pa<100?pa:50})">Divide</button><button class="${cv==="c"||(cv==="acordo"&&pa===100)?"on":""}" onclick="pxCen('${k.apolice}',100)">Cheio</button></div>${pv>0&&pv<100?` <input class="px-pctin" type="number" min="0" max="100" value="${pxN(pv)}" onchange="pxCen('${k.apolice}',pxNum(this.value))" aria-label="% dividido">%`:""}</td>
+    <td class="num">${fmtBRL(a.fyc)}</td><td class="num">${fmtBRL(a.ren)}</td><td class="num"><b>${fmtBRL(a.parte)}</b></td></tr>`;}).join("")}
+  </tbody></table></div></div>
+  <div class="panel"><h2>📈 Fluxo mês a mês</h2>${pxBars([{nome:"Comissão do Daniel (acordo)",cor:"var(--proj)",vals:meses.map(m=>byM[m].com)},{nome:"Sua parte",cor:"var(--primary)",vals:meses.map(m=>byM[m].parte)}],meses.map(pxRot),pxK)}
+  <div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>Mês</th><th class="num">Comissão</th><th class="num">Sua parte</th><th class="num">Fica com o Daniel</th></tr></thead><tbody>
+  ${meses.map(m=>`<tr><td>${esc(pxRot(m))}</td><td class="num">${fmtBRL(byM[m].com)}</td><td class="num in">${fmtBRL(pxR2(byM[m].parte))}</td><td class="num">${fmtBRL(byM[m].com-byM[m].parte)}</td></tr>`).join("")}</tbody></table></div></div>`);}
+async function pxCen(ap,pct){const k=PX.acordo.find(x=>x.apolice===ap),pa=k?pxPctVig(k,PX.projIni):null;
+  if(pct===pa)delete PX.cen[ap];else PX.cen[ap]=Math.max(0,Math.min(100,pxN(pct)));PX.proj=null;await pxProjecao();}
+
+/* ---- DEMO (?demo=1) — FICTÍCIO (repo público): nomes/apólices/valores inventados.
+   pxDemoRpc imita as RPCs só pra demo funcionar sem banco; em produção quem calcula é o SQL. */
+function pxDemo(){
+  const K=(apolice,segurado,pcts,p,cm,pm)=>({apolice,segurado,ativo:true,ult_parcela:p,comissao_mensal:cm,premio_mensal:pm,pipex_acordo_pct:pcts.map(([desde,pct])=>({desde,pct}))});
+  const acordo=[K("2100101","CLIENTE DEMO ALFA",[["2026-07",50]],6,180,450),K("2100102","CLIENTE DEMO BETA",[["2026-07",50]],4,120,300),K("2100103","CLIENTE DEMO GAMA",[["2026-07",20]],4,90,240),K("2100104","CLIENTE DEMO DELTA",[["2026-07",0]],3,300,800),K("2100105","CLIENTE DEMO ÉPSILON",[["2026-07",50]],5,75,200)];
+  const R=(c,ap,seg,com,pct,parc,sit)=>({competencia:c,apolice:ap,segurado:seg,no_acordo:sit!=="fora_carteira",pct,comissao:com,n_linhas:com?1:0,parcelas:parc,bruto:com*(pct||0)/100,parte:sit==="rateio"?pxR2(com*pct/100*0.94):0,situacao:sit});
+  const ap=[];const lin={"2026-07":[180,120,90,300,75],"2026-08":[180,0,90,300,75],"2026-09":[360,120,90,300,0]},parc={"2026-07":["4","2","2","1","3"],"2026-08":["5","","3","2","4"],"2026-09":["6,5","4","4","3",""]};
+  Object.keys(lin).forEach(c=>{acordo.forEach((k,i)=>{const com=lin[c][i],pct=k.pipex_acordo_pct[0].pct;ap.push(R(c,k.apolice,k.segurado,com,pct,parc[c][i]||null,!com?"nao_compensou":pct>0?"rateio":"fora_rateio"));});ap.push(R(c,"2100199","OUTRO CLIENTE DEMO",210,null,"7","fora_carteira"));});
+  const rot=c=>pxRot(c),comps=Object.keys(lin).map((c,i)=>{const rs=ap.filter(r=>r.competencia===c),dev=pxR2(rs.reduce((s,r)=>s+r.parte,0)),acc=rs.filter(r=>r.no_acordo),br=pxR2(acc.reduce((s,r)=>s+r.bruto,0)),pago=i<2?dev:0;
+    return{competencia:c,rotulo:rot(c),periodo_ini:pxNext(c,-1)+"-21",periodo_fim:c+"-20",vencimento:pxNext(c)+"-05",total_extrato:rs.reduce((s,r)=>s+r.comissao,0)+1200,n_linhas:rs.filter(r=>r.comissao).length+6,fonte:"extrato",status:"fechada",comissao_acordo:acc.reduce((s,r)=>s+r.comissao,0),bruto_rateio:br,simples:pxR2(br-dev),devido_calc:dev,devido:dev,pago,saldo:pxR2(dev-pago),previsto_status:pago?"recebido":"aberto",previsto_id:"prev-demo-"+i};});
+  const pags=comps.filter(c=>c.pago).map((c,i)=>({id:"pg-demo-"+i,competencia:c.competencia,valor:c.pago,data:pxNext(c.competencia)+"-04",movimento_id:"mv-demo-"+i,obs:"Pix (exemplo)"}));
+  const movs=pags.map((p,i)=>({_row:"mv-demo-"+i,data:p.data,descricao:"Pix recebido — parceiro (demo)",valor:p.valor,sentido:"Entrada"})).concat([{_row:"mv-demo-x",data:"2026-10-04",descricao:"Pix recebido — parceiro (demo)",valor:comps[2].devido,sentido:"Entrada"}]);
+  return{comps,ap,acordo,pags,movs};}
+function pxDemoRpc(fn,a){if(fn!=="pipex_projecao")return{};const out=[];
+  PX.acordo.filter(k=>k.ativo!==false&&k.ult_parcela!=null&&k.ult_parcela<24).forEach(k=>{const pct=a.p_cenario[k.apolice]??pxPctVig(k,a.p_inicio)??0;
+    for(let i=1;i<=24-k.ult_parcela;i++){const p=k.ult_parcela+i,com=p<=12?pxN(k.comissao_mensal):0.08*pxN(k.premio_mensal);
+      out.push({mes:pxNext(a.p_inicio,i-1),apolice:k.apolice,segurado:k.segurado,parcela:p,tipo:p<=12?"fyc":"renovacao",comissao:com,pct,parte:com*pct/100*0.94});}});
+  return out;}
 
 /* ===== AT (acompanhamento terapêutico) — guias, lotes, repasses =====
    REPO PÚBLICO: nomes (beneficiário, prestadora, plano) vêm da GUIA no banco
@@ -3631,8 +3748,6 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(isInterVisao({descricao:"Pix recebido de MARIA BETANIA ALMEIDA"}))f.push("isInterVisao pegando terceiro (esconderia receita real)");
   if(typeof selFatura!=="function"||typeof reguaRestaura!=="function")f.push("regua de faturas sem preservacao de scroll (fatura selecionada some da tela no mobile)");
   if(!/esta tela não escreve mais/.test(String(lpPrevRecorrente)))f.push("lpPrevRecorrente voltou a escrever previsto — colide com o módulo Pipe X e duplica a receita da PIPEX");
-  {const _px={tax:0.06,rows:[{cells:{"X":{com:1000,pct:50,entra:true}}},{cells:{"X":{com:9999,pct:50,entra:false}}},{cells:{"X":{com:500,pct:0,entra:true}}}]};
-   if(pxDevido(_px,"X")!==470)f.push("régua do Pipe X errada (devido do mês) — era 470, deu "+pxDevido(_px,"X"));}
   {const _c=[{apolice:"A",acordo:true,no_fluxo:true},{apolice:"B",acordo:true,no_fluxo:false}];
    if(_c.filter(x=>x.acordo&&x.no_fluxo).length!==1)f.push("previsão LP projetando sobre o acordo em vez do fluxo (infla a receita do Pipe X)");}
   /* 2.0 — entrada personalizada: padrão liberada vence; padrão NÃO liberada cai na primeira; admin sem padrão vai pra Central */
@@ -3658,16 +3773,16 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
   if(!/movimento_id_realizado/.test(String(ctBaixa))||!/p\.movId/.test(String(concPares)))f.push("Conciliação sem gravar/ler o vínculo previsto↔movimento (par repetido)");
   if(!/from\("links"\)/.test(String(loadData))||!/DB\.links/.test(String(linksLoad)))f.push("Módulos & Links sem ler a tabela links");
   if(ROUTES.atalhos!==viewAtalhos||!NAV_CAT.atalhos||Object.values(NAV_CAT).some(x=>/^ti-/.test(x.ico))||navIco("ti-folder")!=="📁"||navIco("ti-qualquer")!=="🔗")f.push("ícones: menu voltou pra ícone de linha, ou link antigo do banco (ti-*) sem virar emoji");
-  /* Pipe X = fechamento editável: marcações aplicadas, arredondamento POR CÉLULA (igual ao artefato) e gravação no banco */
-  {const _p={tax:0.06,periodos:[{id:"M"}],pago_default:{M:10},
-     rows:[{id:"A|1",seg:"A",apolice:"1",base_pct:50,cells:{M:{com:100.33,pct:50,entra:true}}},{id:"B|2",seg:"B",apolice:"2",base_pct:50,cells:{M:{com:200,pct:50,entra:true}}}],
-     state:{row:{"B|2":{on:true,cells:{M:{entra:false}}}},pago:{M:20},extra:[{id:"C|3",seg:"C",apolice:"3",base_pct:50,cells:{M:{com:50,pct:20,entra:true}}}]}};
-   if(pxDevido(_p,"M")!==56.56)f.push("Pipe X não aplica abono/cliente extra ou arredonda diferente do artefato (esperado 56,56, deu "+pxDevido(_p,"M")+")");
-   if(pxPago(_p,"M")!==20)f.push("Pipe X: pago editado não vence o pago padrão do extrato");
-   _p.state.row["A|1"]={on:false,cells:{}};if(pxDevido(_p,"M")!==9.4)f.push("Pipe X: cliente fora da parceria continua sendo cobrado");}
+  /* Pipe X (v8.4): importador lê o .xls do portal; a REGRA mora no banco — a tela não recalcula parte/Simples */
+  {const td=a=>"<tr>"+a.map(x=>"<td>"+x+"</td>").join("")+"</tr>",L=(ap,cob,parc,ger,com)=>td(["Set/26 (Mensal)","21/08/2026","18/09/2026","","","FYC","",ap,cob,"CLIENTE &amp; CIA","","","",ger,parc,"100,00","40,000","","100,00",com,"05/02/2026"]);
+   const r=pxParseXls("<table>"+td(["Mês / Ano","Início","Fim","","","","","Apólice","Cobertura","Segurado","","","","Data Geração","Mês Pago Até","Prêmio","%","","%","Comissão Direta","Dt.Emissão"])+L("002100001","1","4","09/09/2026","1.234,56")+L("002100001","1","5","10/09/2026","-0,57")+"</table>");
+   if(r.linhas.length!==2||r.total!==1233.99||r.comp!=="2026-09"||r.ini!=="2026-08-21"||r.linhas[0].apolice!=="2100001"||r.linhas[1].parcela!==5||r.linhas[0].dt_geracao!=="2026-09-09"||r.linhas[0].segurado!=="CLIENTE & CIA"||r.erros.length)f.push("importador do Pipe X leu errado o .xls (linhas/total/competência/colunas)");}
+  if(pxComp("Set/26 (Mensal)")!=="2026-09"||pxRot("2026-10")!=="Out/26"||pxNext("2026-12")!=="2027-01"||pxNext("2026-01",-1)!=="2025-12")f.push("Pipe X: competência/rótulo errados");
+  {const k={pipex_acordo_pct:[{desde:"2026-04",pct:50},{desde:"2026-05",pct:0},{desde:"2026-06",pct:50}]};if(pxPctVig(k,"2026-05")!==0||pxPctVig(k,"2026-09")!==50||pxPctVig(k,"2026-03")!==null)f.push("Pipe X: % vigente por competência errado");}
+  if(/0\.94|0\.06/.test(String(pxApuracao)+String(pxPainel)+String(pxPrestacao)+String(pxProjecao)+String(pxReceber)))f.push("Pipe X: tela recalculando a regra (a fonte única é o banco — pipex_v_apuracao/pipex_projecao)");
+  if(ROUTES.pipex!==viewPipeX||NAV_CAT.comissoes.vis())f.push("Pipe X fora das rotas, ou Comissões LP (legado) de volta no menu");
   if(!pxNorm("JOÃO CONCEIÇÃO").includes("joao conceicao"))f.push("busca do Pipe X sensível a acento (\"joão\" não acha \"JOAO\")");
   if(pxNum("157.92")!==157.92||pxNum("157,92")!==157.92||pxNum("1.234,56")!==1234.56||pxNum("")!==0)f.push("Pipe X lê errado o valor digitado (157.92 virava 15.792 — bug de 24/09)");
-  if(!/pipex_state/.test(String(pxSaveNow))||!/state:pxSt\(px\)/.test(String(pxSaveNow)))f.push("Pipe X não grava as marcações no banco (voltariam a morar só no navegador)");
   if(typeof primeirosPassos!=="function"||!/primeirosPassos\(\)/.test(String(viewDashFamilia))||!/primeirosPassos\(\)/.test(String(viewDashboard)))f.push("visão vazia sem 'Primeiros passos' (tela de zeros pra quem entra pela 1ª vez)");
   if(!/dobr\("cd-todos"/.test(String(viewCartoes)))f.push("Cartões sem o painel 'Todos os cartões' dobrável");
   if(!/class="panel ct-grp dobr closed"/.test(dobr("__u",'<div class="panel ct-grp"><h2>T</h2><p>x</p></div>',"",true)))f.push("dobr() não embrulha painel com classe extra (Contas do mês)");

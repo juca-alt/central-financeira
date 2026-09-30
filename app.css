@@ -590,6 +590,7 @@ tbody tr{transition:background .1s}
 @media(max-width:460px){#pxBody .kpis{grid-template-columns:1fr 1fr}#pxBody .kpi{padding:12px}#pxBody .kpi .val{font-size:17px}.px-tabs .btn{flex:1 1 auto}}
 @media(max-width:920px){.px-k5{grid-template-columns:repeat(2,1fr)}.px-tool .btn,.px-tool select,.px-tool input{min-height:42px}.px-doc{padding:16px}}
 @media print{.no-print{display:none!important}
+  html:has(body.px-printing),body.px-printing{background:#fff!important}
   body.px-printing *{visibility:hidden}
   body.px-printing #pxDoc,body.px-printing #pxDoc *{visibility:visible}
   body.px-printing #pxDoc{position:absolute;left:0;top:0;width:100%;max-width:none;border:0;box-shadow:none;margin:0;padding:0}}

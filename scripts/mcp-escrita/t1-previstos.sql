@@ -258,7 +258,8 @@ begin
     end if;
     n.status := v_st::public.status_previsto;
   end if;
-  if n.recorrencia is not null and n.status in ('pago', 'recebido') then
+  -- (legado: ha previstos pagos ainda marcados mensal; so barra quem TENTA tornar quitado recorrente)
+  if c ? 'recorrencia' and n.recorrencia is not null and n.status in ('pago', 'recebido') then
     raise exception 'previsto quitado nao pode virar recorrente';
   end if;
   if c ? 'observacao' then

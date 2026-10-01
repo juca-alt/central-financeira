@@ -198,5 +198,18 @@ begin
   insert into _t values (11, 'lancar_conta_a_receber: cria receber + audit; sem escrita recusa');
 end $$;
 
+-- legado: previsto pago ainda marcado mensal aceita editar observacao; recusa tornar recorrente de novo
+do $$ begin
+  update public.previstos set recorrencia = 'mensal' where id = '00000000-0000-4000-8000-000000000004';
+  perform public.cf_editar_previsto('dono', '{"previsto_id":"00000000-0000-4000-8000-000000000004","campos":{"observacao":"nota"}}');
+  assert (select observacao from public.previstos where id = '00000000-0000-4000-8000-000000000004') like '| __/__: nota', 'legado obs';
+  begin
+    perform public.cf_editar_previsto('dono', '{"previsto_id":"00000000-0000-4000-8000-000000000004","campos":{"recorrencia":"anual"}}');
+    raise exception 'FALHOU: legado rec';
+  exception when others then if sqlerrm like 'FALHOU%' then raise; end if;
+    assert sqlerrm like 'previsto quitado nao pode virar recorrente%', sqlerrm; end;
+  insert into _t values (12, 'legado pago+mensal: edita obs; nao vira recorrente');
+end $$;
+
 select n, 'PASS' as resultado, ok as teste from _t order by n;
 rollback;

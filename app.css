@@ -605,3 +605,17 @@ tbody tr{transition:background .1s}
   .px-so{min-height:42px}.px-so input{width:20px;height:20px}
 }
 @media(max-width:460px){#pxKpis{grid-template-columns:1fr 1fr}#pxKpis .kpi{padding:12px}#pxKpis .kpi .val{font-size:17px}}
+
+/* ===== Espelho do conector (01/10/2026): puxar-pra-atualizar + Alterações pelo Claude ===== */
+@media(max-width:920px){html,body{overscroll-behavior-y:contain}}
+#ptr{position:fixed;left:50%;top:calc(60px + env(safe-area-inset-top));transform:translate(-50%,-140%);z-index:60;background:var(--card,#fff);color:var(--fg,#1c2430);border:1px solid var(--border,#e4e7ec);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.08);transition:transform .15s,opacity .15s;opacity:0;pointer-events:none}
+#ptr.show{transform:translate(-50%,0);opacity:1}
+#ptr.pronto{color:var(--primary,#639922);border-color:var(--primary,#639922)}
+.cl-dias{min-height:40px;border-radius:10px;padding:0 10px}
+.cl-grp{padding:14px 16px}
+.cl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.cl-head .btn{flex:none;min-height:40px}
+.cl-it{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.cl-it li{font-size:13px;line-height:1.4;padding:7px 10px;border-radius:8px;background:var(--bg,#f5f6f8);overflow-wrap:anywhere}
+.cl-it li span{color:var(--muted,#667085)}
+.cl-off{opacity:.55}

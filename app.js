@@ -125,6 +125,7 @@ const NAV_CAT={
   at:        {ico:"🩺", label:"AT", vis:()=>VISAO==="FAMILIA", desc:"Guias, lotes e repasses do acompanhamento terapêutico: quanto já veio e o que falta acertar."},
   cartoes:   {ico:"💳", label:"Cartões", desc:"Faturas, dívida real e lançamentos por cartão."},
   importar:  {ico:"📥", label:"Importar", vis:()=>!isAll(), desc:"OFX, CSV ou PDF do banco — com leitura por IA."},
+  claude:    {ico:"🤖", label:"Alterações pelo Claude", desc:"O que o Claude mudou pelo conector: antes → depois, com Desfazer."},
   atalhos:   {ico:"🧩", label:"Módulos & Links", desc:"Tudo num lugar: módulos do app e links do Drive, Notion e bancos."},
   config:    {ico:"⚙️", label:"Configurações", desc:"Contas, cartões, categorias, tags, pessoas e acessos."},
 };
@@ -157,7 +158,7 @@ const NAV_FORA=new Set(["central"]);   /* rotas que existem mas não entram no m
 const navDefault=()=>[
   {titulo:"",             itens:["financeiro","dashboard","fluxo","orcamento","dre"]},   /* 04/09: "Central" saiu do menu — o seletor de visão no topo já leva a Todas */
   {titulo:"Lançamentos",  itens:["movimentos","conciliacao","contas","pagar","receber","comissoes","at","cartoes","importar"]},
-  {titulo:"Sistema",      itens:["atalhos","config"]},
+  {titulo:"Sistema",      itens:["claude","atalhos","config"]},
 ];
 let NAVLAY=null, NAV_HIDE=new Set(), NAV_EDIT=false;
 
@@ -174,7 +175,8 @@ function navLoad(){
   const vistos=new Set(NAVLAY.flatMap(g=>g.itens));
   const faltando=Object.keys(NAV_CAT).filter(r=>!vistos.has(r)&&!NAV_FORA.has(r));
   /* rota nova entra logo depois de "movimentos" quando existe (Conciliação ao lado dos lançamentos), senão no fim */
-  faltando.forEach(r=>{if(r==="atalhos"){const g=NAVLAY.find(g=>g.itens.includes("config"));if(g){g.itens.splice(g.itens.indexOf("config"),0,r);return;}}
+  faltando.forEach(r=>{if(r==="claude"){const g=NAVLAY.find(g=>g.itens.includes("atalhos")||g.itens.includes("config"));if(g){const i=g.itens.indexOf("atalhos");g.itens.splice(i>=0?i:g.itens.indexOf("config"),0,r);return;}}
+    if(r==="atalhos"){const g=NAVLAY.find(g=>g.itens.includes("config"));if(g){g.itens.splice(g.itens.indexOf("config"),0,r);return;}}
     const g=NAVLAY.find(g=>g.itens.includes("movimentos"));if(g)g.itens.splice(g.itens.indexOf("movimentos")+1,0,r);else NAVLAY[NAVLAY.length-1].itens.push(r);});
 }
 function navSave(){try{localStorage.setItem(NAV_KEY,JSON.stringify({grupos:NAVLAY,ocultos:[...NAV_HIDE]}));}catch(e){}}
@@ -507,6 +509,79 @@ function confirmDel(msg,onYes){modal({title:"Confirmar",extraHTML:`<div class="s
 
 /* ===== reload após gravar (bug: totais recalculam) ===== */
 async function afterWrite(){ if(MODE==="live"){ try{DB=await loadData();}catch(e){toast("Reload: "+e.message);} } SEL.clear(); try{FP.dados=null;}catch(e){} /* Modo Financeiro relê previstos */ (ROUTES[CURRENT]||viewDashboard)(); }
+/* ===== ESPELHO (01/10/2026): o Claude grava pelo conector (RPCs cf_*) e o app relê sozinho
+   ao voltar pro foco (visibilitychange/pageshow) e no puxar-pra-atualizar do celular.
+   Não re-renderiza por cima de modal aberto nem de seleção em massa (só troca os dados). */
+let _lastLoad=Date.now(),_reloading=false;
+async function recarregar(motivo){
+  if(MODE!=="live"||!DB||_reloading)return;
+  _reloading=true;
+  try{
+    DB=await loadData();try{FP.dados=null;}catch(e){}
+    if(isAll()){try{CENTRAL=await loadCentral();}catch(e){}}
+    _lastLoad=Date.now();
+    if(!document.querySelector(".modal-bg")&&!SELMODE&&!SEL.size)(ROUTES[CURRENT]||viewDashboard)();
+    if(motivo==="pull")toast("Atualizado ✓");
+  }catch(e){if(motivo==="pull")toast("Atualizar: "+e.message);}
+  finally{_reloading=false;}
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&Date.now()-_lastLoad>20000)recarregar("foco");});
+window.addEventListener("pageshow",e=>{if(e.persisted)recarregar("foco");});
+/* puxar-pra-atualizar (celular): no topo da página, arrasta pra baixo > 80px e solta */
+(function(){
+  if(!("ontouchstart" in window))return;
+  const ind=document.createElement("div");ind.id="ptr";document.body.appendChild(ind);
+  let y0=null,dy=0;const LIM=80;
+  const reset=()=>{y0=null;dy=0;ind.className="";};
+  document.addEventListener("touchstart",e=>{
+    y0=(window.scrollY<=0&&e.touches.length===1&&!document.querySelector(".modal-bg")&&!e.target.closest("#sideNav,input,textarea,select,.dobr-drag"))?e.touches[0].clientY:null;dy=0;},{passive:true});
+  document.addEventListener("touchmove",e=>{if(y0==null)return;dy=e.touches[0].clientY-y0;
+    if(dy<=0||window.scrollY>0){reset();return;}
+    ind.className=dy>LIM?"show pronto":(dy>24?"show":"");ind.textContent=dy>LIM?"↻ solte pra atualizar":"↓ puxe pra atualizar";},{passive:true});
+  document.addEventListener("touchend",()=>{const ir=y0!=null&&dy>LIM;reset();if(ir){ind.className="show pronto";ind.textContent="Atualizando…";recarregar("pull").finally(()=>{ind.className="";});}},{passive:true});
+})();
+
+/* ===== Alterações pelo Claude (01/10/2026): lê a auditoria do conector (RPC cf_historico_alteracoes)
+   e desfaz pela MESMA RPC do conector (cf_desfazer). Identidade = login; só aparecem as visões que a pessoa lê. ===== */
+let CL_DIAS=30;
+const CL_TOOL={editar_previsto:"editou",cancelar_previsto:"cancelou",lancar_conta_a_receber:"lançou a receber",dar_baixa:"deu baixa",adiar_ocorrencia:"adiou",pular_ocorrencia:"pulou ocorrência",conciliar:"conciliou",desconciliar:"desconciliou",editar_movimento:"editou movimento",aplicar_tag:"aplicou tag",remover_tag:"removeu tag",desfazer:"desfez"};
+const CL_DEMO=()=>{const h=new Date(),iso=m=>new Date(h-m*60000).toISOString();return[
+  {id:3,criado_em:iso(30),usuario:"dono",tool:"dar_baixa",lote_id:"demo-1",tabela:"previstos",visao:"FAMILIA",rotulo:"Condomínio",resumo:"criado: 2026-11-10 R$ 1.740,00",revertido_em:null},
+  {id:2,criado_em:iso(30),usuario:"dono",tool:"dar_baixa",lote_id:"demo-1",tabela:"previstos",visao:"FAMILIA",rotulo:"Condomínio",resumo:"recorrencia: mensal -> vazio; status: aberto -> pago; valor: 1740.00 -> 1636.91",revertido_em:null},
+  {id:1,criado_em:iso(95),usuario:"dono",tool:"editar_previsto",lote_id:null,tabela:"previstos",visao:"FAMILIA",rotulo:"Formatura Gael (parcela)",resumo:"vencimento: 2026-09-30 -> 2026-10-30",revertido_em:iso(60)}];};
+async function viewClaude(){
+  const visArg=(!isAll()&&["PJ","PIPEX","RC","FAMILIA","JUCA"].includes(VISAO))?VISAO:null;
+  $("#view").innerHTML=`<div class="row"><div><h1>Alterações pelo Claude</h1><div class="sub">${esc(VISAO_LABEL)} · o que o conector mudou · antes → depois</div></div>
+    <select class="cl-dias" onchange="CL_DIAS=+this.value;viewClaude()">${[7,30,90].map(d=>`<option value="${d}"${d===CL_DIAS?" selected":""}>${d} dias</option>`).join("")}</select></div>
+    <div id="clList"><div class="panel"><div class="empty">Carregando…</div></div></div>`;
+  let itens=[];
+  if(MODE==="live"){
+    const{data,error}=await sb.rpc("cf_historico_alteracoes",{p_usuario:null,p_args:{dias:CL_DIAS,visao:visArg,limite:300},p_lote:null});
+    if(CURRENT!=="claude")return;
+    if(error){$("#clList").innerHTML=`<div class="panel"><div class="empty">${/cf_historico|function/i.test(error.message)?"O conector de escrita v2 ainda não foi instalado no banco.":"Erro: "+esc(error.message)}</div></div>`;return;}
+    itens=(data&&data.itens)||[];
+  }else itens=CL_DEMO();
+  if(!itens.length){$("#clList").innerHTML=`<div class="panel"><div class="empty">Nenhuma alteração pelo Claude nos últimos ${CL_DIAS} dias.</div></div>`;return;}
+  /* agrupa por lote (o que foi feito junto se desfaz junto); sem lote = 1 alteração */
+  const grupos=[],idx={};
+  itens.forEach(x=>{const k=x.lote_id?"L"+x.lote_id:"A"+x.id;if(!idx[k]){idx[k]={k,lote:x.lote_id,aid:x.id,itens:[]};grupos.push(idx[k]);}idx[k].itens.push(x);});
+  const quando=t=>{const d=new Date(t);return fmtDate(d.toISOString().slice(0,10))+" "+pad2(d.getHours())+":"+pad2(d.getMinutes());};
+  const quem=u=>u==="dono"?"Claude do Gustavo":(u||"").split("@")[0];
+  const legivel=t=>String(t||"").replace(/(\d{4})-(\d{2})-(\d{2})/g,"$3/$2/$1").replace(/ -> /g," → ").replace(/\b(\d+)\.(\d{2})\b/g,(m,a,b)=>fmtBRL(+(a+"."+b)));
+  $("#clList").innerHTML=grupos.map(g=>{const x0=g.itens[0],desfeito=g.itens.every(x=>x.revertido_em),tools=[...new Set(g.itens.map(x=>CL_TOOL[x.tool]||x.tool))].join(", ");
+    return`<div class="panel cl-grp${desfeito?" cl-off":""}"><div class="cl-head"><div><b>${esc(tools)}</b>${desfeito?` <span class="chip">desfeito</span>`:""}<div class="sub" style="margin:2px 0 0">${quando(x0.criado_em)} · ${esc(quem(x0.usuario))}${isAll()&&x0.visao?" · "+esc(x0.visao):""}${g.itens.length>1?` · ${g.itens.length} registros`:""}</div></div>
+      ${!desfeito?`<button class="btn ghost sm" onclick="claudeDesfazer('${g.k}')">↶ Desfazer</button>`:""}</div>
+      <ul class="cl-it">${g.itens.map(x=>`<li${x.revertido_em?' class="cl-off"':""}><b>${esc(x.rotulo||"")}</b> <span>${esc(legivel(x.resumo))}</span></li>`).join("")}</ul></div>`;}).join("");
+  window._CL_GRUPOS=idx;
+}
+function claudeDesfazer(k){const g=(window._CL_GRUPOS||{})[k];if(!g)return;
+  modal({title:"Desfazer esta alteração?",saveLabel:"Desfazer",extraHTML:`<div class="sub">Volta ${g.itens.length>1?`os ${g.itens.length} registros`:"o registro"} ao que era antes. O que tinha sido criado fica <b>cancelado</b> — nada é apagado. Se alguém mexeu depois, o Desfazer recusa sem mudar nada.</div>`,
+    onSave:async()=>{
+      if(MODE!=="live"){toast("Na demo não grava");return;}
+      const{data,error}=await sb.rpc("cf_desfazer",{p_usuario:null,p_args:g.lote?{lote_id:g.lote}:{audit_id:g.aid},p_lote:null});
+      if(error){toast(error.message);return false;}
+      toast((data&&data.msg)||"Desfeito");await afterWrite();}});}
+
 /* Botão ⚡ Atualizar bancos: Edge Function sync-agora → refresh Pluggy + workflow_dispatch dos syncs */
 async function syncBancos(){const btn=()=>document.getElementById("btnSyncBancos");
   if(MODE!=="live"){toast("Sync só no modo live (logado)");return;}
@@ -3428,7 +3503,7 @@ async function fpAfterWrite(visao){
   viewFinanceiro();
 }
 
-const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,atalhos:viewAtalhos,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,at:viewAT,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
+const ROUTES={central:viewCentral,financeiro:viewFinanceiro,dashboard:viewDashboard,fluxo:viewFluxo,dre:viewDRE,orcamento:viewOrcamento,movimentos:viewMovimentos,conciliacao:viewConciliacao,atalhos:viewAtalhos,claude:viewClaude,contas:viewContas,pagar:viewPagar,receber:viewReceber,pipex:viewPipeX,comissoes:viewComissoesLP,at:viewAT,cartoes:viewCartoes,importar:viewImportar,config:viewConfig};
 document.getElementById("nav").addEventListener("click",e=>{const a=e.target.closest("a");if(a&&!NAV_EDIT){route(a.dataset.route);closeDrawer();}});
 /* cruzou o breakpoint mobile↔desktop (rotação/resize)? re-renderiza a view atual */
 try{const _bp=window.matchMedia("(max-width:920px)");(_bp.addEventListener?_bp.addEventListener("change",()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}):_bp.addListener(()=>{if(DB)(ROUTES[CURRENT]||viewDashboard)();}));}catch(e){}
@@ -3683,5 +3758,9 @@ document.getElementById("pwBtn").addEventListener("click",()=>{
    if(c.pagas!==10||c.aguardando!==5||Math.round(c.restantes)!==48)f.push("atCalc contagem de sessões (pagas/aguardando/restantes)");
    if(c.devido!==1200||c.vencido!==600||c.aReceberFut!==600||c.totalGuia!==7560)f.push("atCalc conta do dono (devido/vencido/a receber/total)");
    AT=_at;}
+  /* espelho do conector (01/10/2026): tela lê/desfaz pelas MESMAS RPCs do conector; foco/puxar relê o banco */
+  if(ROUTES.claude!==viewClaude||!NAV_CAT.claude)f.push("Alterações pelo Claude fora das rotas/menu");
+  if(!/cf_historico_alteracoes/.test(String(viewClaude))||!/cf_desfazer/.test(String(claudeDesfazer)))f.push("Alterações pelo Claude sem usar as RPCs do conector (fonte única quebrada)");
+  if(typeof recarregar!=="function"||!/loadData\(\)/.test(String(recarregar)))f.push("recarregar ao focar/puxar não relê o banco (cache velho)");
   if(f.length)console.error("⚠ Central Financeira — self-check FALHOU:",f.join(" · "));
 }catch(e){console.error("⚠ self-check erro:",e.message);}})();

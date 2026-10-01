@@ -1,6 +1,13 @@
 // =====================================================================
-// Edge Function: mcp-financeiro  --  v2.0 (Central 2.0, 2026-09-02)
+// Edge Function: mcp-financeiro  --  v2.1 (conector de escrita, 2026-10-01)
 // Conector MCP CURADO da Central Financeira, agora POR PESSOA.
+//
+// O QUE MUDOU NA 2.1 (conector de escrita, T1)
+//  - Tools novas: editar_previsto, cancelar_previsto, lancar_conta_a_receber.
+//  - FONTE UNICA: a regra dessas tools mora no banco (RPCs cf_*, SECURITY
+//    DEFINER, scripts/mcp-escrita/*.sql). Aqui so valida entrada e chama a
+//    RPC; o banco checa permissao de escrita na visao e grava a auditoria
+//    (cf_mcp_audit, antes/depois). Nunca DELETE: apagar = 'cancelado'.
 //
 // O QUE MUDOU NA 2.0
 //  - Token por pessoa (tabela mcp_tokens). O token resolve o e-mail e o
@@ -30,7 +37,7 @@ const MCP_TOKEN = (Deno.env.toObject()["MCP_TOKEN"] || "").trim();
 const VISOES = ["PJ", "PIPEX", "RC", "FAMILIA", "JUCA"];
 const VISAO_LABEL: Record<string, string> = { PJ: "Prudential Franquia", PIPEX: "Pipe X", RC: "R.C", FAMILIA: "Familia", JUCA: "Juca" };
 const RECORR = ["mensal", "semanal", "quinzenal", "bimestral", "trimestral", "semestral", "anual"];
-const SERVER = { name: "central-financeira", version: "2.0.0" };
+const SERVER = { name: "central-financeira", version: "2.1.0" };
 
 const cors: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -53,6 +60,20 @@ async function rest(path: string, init: RequestInit = {}): Promise<any> {
   let data: any = null;
   try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = txt; }
   if (!r.ok) throw new Error("db " + r.status + ": " + String(txt).slice(0, 300));
+  return data;
+}
+
+// ---- RPC de regra de negocio (cf_*): erro do banco vira mensagem limpa --
+async function rpc(fn: string, sc: Scope, args: any, lote: string | null = null): Promise<any> {
+  const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/" + fn, {
+    method: "POST",
+    headers: { apikey: SRK, Authorization: "Bearer " + SRK, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_usuario: sc.dono ? "dono" : sc.email, p_args: args || {}, p_lote: lote }),
+  });
+  const txt = await r.text();
+  let data: any = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = txt; }
+  if (!r.ok) throw new Error((data && data.message) ? String(data.message) : "db " + r.status + ": " + String(txt).slice(0, 300));
   return data;
 }
 
@@ -480,6 +501,34 @@ async function atualizar_saldo_conta(a: any, sc: Scope): Promise<string> {
   return "Saldo de " + conta.nome + " (" + VISAO_LABEL[visao] + ") atualizado para " + brl(saldo) + " em " + quando.slice(0, 10) + ".";
 }
 
+// ======================= ESCRITA v2.1 (regra nas RPCs cf_*) ========
+async function editar_previsto(a: any, sc: Scope): Promise<string> {
+  const id = String(a.previsto_id || "").trim();
+  if (!id) throw new Error("previsto_id obrigatorio");
+  if (!a.campos || typeof a.campos !== "object" || Array.isArray(a.campos) || !Object.keys(a.campos).length) throw new Error("campos obrigatorio (objeto com o que mudar)");
+  const r = await rpc("cf_editar_previsto", sc, { previsto_id: id, campos: a.campos, observacao_modo: a.observacao_modo });
+  return String(r.msg);
+}
+
+async function cancelar_previsto(a: any, sc: Scope): Promise<string> {
+  const id = String(a.previsto_id || "").trim();
+  const motivo = String(a.motivo || "").trim();
+  if (!id) throw new Error("previsto_id obrigatorio");
+  if (!motivo) throw new Error("motivo obrigatorio");
+  const r = await rpc("cf_cancelar_previsto", sc, { previsto_id: id, motivo });
+  return String(r.msg);
+}
+
+async function lancar_conta_a_receber(a: any, sc: Scope): Promise<string> {
+  const visao = visaoDe(a, sc);
+  exigeEscrever(sc, visao);
+  if (!String(a.descricao || "").trim()) throw new Error("descricao obrigatoria");
+  if (!(Number(a.valor) > 0)) throw new Error("valor deve ser > 0");
+  if (!isDate(String(a.vencimento || ""))) throw new Error("vencimento deve ser YYYY-MM-DD");
+  const r = await rpc("cf_lancar_conta_a_receber", sc, { ...a, visao, via: sc.nome });
+  return String(r.msg);
+}
+
 // ------------------------- catalogo MCP ------------------------------
 const S = (t: string, d?: string) => (d ? { type: t, description: d } : { type: t });
 const VIS = { type: "string", enum: VISOES, description: "PJ=Prudential Franquia, PIPEX=Pipe X, RC=R.C, FAMILIA=Familia, JUCA=Juca. Se voce so tem uma visao, pode omitir." };
@@ -550,12 +599,57 @@ const TOOLS = [
     description: "Grava o saldo conferido de uma conta (saldo_atual + data da leitura).",
     inputSchema: { type: "object", properties: { conta: S("string"), visao: VIS, saldo: S("number"), data_do_saldo: S("string", "YYYY-MM-DD (opcional, default hoje)") }, required: ["conta", "saldo"] },
   },
+  {
+    name: "editar_previsto",
+    description: "Edita um compromisso (previsto) existente. So os campos informados mudam; o resto fica. Exige escrita na visao de origem e na de destino (se mudar a visao). Status so aberto/cancelado (pago/recebido so via dar_baixa). Grava auditoria antes/depois.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        previsto_id: S("string"),
+        campos: {
+          type: "object",
+          description: "o que mudar",
+          properties: {
+            descricao: S("string"), valor: S("number"), vencimento: S("string", "YYYY-MM-DD"),
+            categoria: S("string", "nome da categoria (veja listar_categorias); null = sem categoria"),
+            conta: S("string", "nome da conta; null = sem conta"), visao: VIS,
+            observacao: S("string", "texto; por padrao e ANEXADO como '| dd/mm: texto'"),
+            recorrencia: { type: ["string", "null"], enum: [...RECORR, null], description: "null = vira avulsa" },
+            competencia: S("string", "YYYY-MM (mes a que a conta se refere)"), entidade_id: S("string"),
+            status: { type: "string", enum: ["aberto", "cancelado"] },
+          },
+          additionalProperties: false,
+        },
+        observacao_modo: { type: "string", enum: ["anexar", "substituir"], description: "padrao: anexar" },
+      },
+      required: ["previsto_id", "campos"],
+    },
+  },
+  {
+    name: "cancelar_previsto",
+    description: "Cancela um compromisso (status 'cancelado' + motivo na observacao). Nada e apagado. Num recorrente, encerra a serie (pra pular so um periodo, use pular_ocorrencia).",
+    inputSchema: { type: "object", properties: { previsto_id: S("string"), motivo: S("string") }, required: ["previsto_id", "motivo"] },
+  },
+  {
+    name: "lancar_conta_a_receber",
+    description: "Lanca uma conta a RECEBER (entrada prevista com data) na visao. Espelho do lancar_conta_a_pagar. Categoria e conta por nome (erro se nao existir). Grava auditoria.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        descricao: S("string"), valor: S("number"), vencimento: S("string", "YYYY-MM-DD (data prevista)"), visao: VIS,
+        categoria: S("string"), conta: S("string", "conta destino"), recorrencia: { type: "string", enum: RECORR },
+        observacao: S("string"), competencia: S("string", "YYYY-MM"),
+      },
+      required: ["descricao", "valor", "vencimento"],
+    },
+  },
 ];
 
 const HANDLERS: Record<string, (a: any, sc: Scope) => Promise<string>> = {
   quem_sou_eu, saldos, resumo_do_mes, listar_movimentos, listar_categorias,
   lancar_conta_a_pagar, dar_baixa, categorizar_movimento, listar_contas_a_pagar,
   importar_movimentos, corrigir_data_movimento, atualizar_saldo_conta,
+  editar_previsto, cancelar_previsto, lancar_conta_a_receber,
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------

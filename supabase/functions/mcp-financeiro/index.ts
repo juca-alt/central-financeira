@@ -6,6 +6,7 @@
 //  - Tools novas: editar_previsto, cancelar_previsto, lancar_conta_a_receber,
 //    adiar_ocorrencia, pular_ocorrencia. dar_baixa ACEITA recorrente
 //    (atual vira avulsa quitada + nasce a proxima ocorrencia).
+//    conciliar, desconciliar, editar_movimento, aplicar_tag, remover_tag.
 //  - FONTE UNICA: a regra dessas tools mora no banco (RPCs cf_*, SECURITY
 //    DEFINER, scripts/mcp-escrita/*.sql). Aqui so valida entrada e chama a
 //    RPC; o banco checa permissao de escrita na visao e grava a auditoria
@@ -533,6 +534,18 @@ async function pular_ocorrencia(a: any, sc: Scope): Promise<string> {
   return String(r.msg);
 }
 
+// tools que so repassam pra RPC: checa os obrigatorios e devolve a msg do banco
+function viaRpc(fn: string, obrig: string[]): (a: any, sc: Scope) => Promise<string> {
+  return async (a: any, sc: Scope) => {
+    for (const k of obrig) {
+      const v = a[k];
+      if (v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && !v.length)) throw new Error(k + " obrigatorio");
+    }
+    const r = await rpc(fn, sc, a);
+    return String(r.msg);
+  };
+}
+
 // ------------------------- catalogo MCP ------------------------------
 const S = (t: string, d?: string) => (d ? { type: t, description: d } : { type: t });
 const VIS = { type: "string", enum: VISOES, description: "PJ=Prudential Franquia, PIPEX=Pipe X, RC=R.C, FAMILIA=Familia, JUCA=Juca. Se voce so tem uma visao, pode omitir." };
@@ -645,6 +658,39 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { previsto_id: S("string"), motivo: S("string") }, required: ["previsto_id"] },
   },
   {
+    name: "conciliar",
+    description: "Vincula um previsto a um movimento do extrato (previsto.movimento_id_realizado + movimento.conciliado_previsto_id). Nao muda status: pra quitar use dar_baixa com movimento_id.",
+    inputSchema: { type: "object", properties: { previsto_id: S("string"), movimento_id: S("string") }, required: ["previsto_id", "movimento_id"] },
+  },
+  {
+    name: "desconciliar",
+    description: "Desfaz o vinculo previsto <-> movimento nos dois lados. Status nao muda.",
+    inputSchema: { type: "object", properties: { previsto_id: S("string") }, required: ["previsto_id"] },
+  },
+  {
+    name: "editar_movimento",
+    description: "Edita observacao, visao ou categoria (por nome) de um movimento. Valor/data/hash nao (data: corrigir_data_movimento). Troca de visao exige escrita nas duas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        movimento_id: S("string"),
+        campos: { type: "object", properties: { observacao: S("string", "por padrao ANEXADA como '| dd/mm: texto'"), visao: VIS, categoria: S("string", "nome; null = sem categoria") }, additionalProperties: false },
+        observacao_modo: { type: "string", enum: ["anexar", "substituir"] },
+      },
+      required: ["movimento_id", "campos"],
+    },
+  },
+  {
+    name: "aplicar_tag",
+    description: "Aplica uma tag existente (por nome: PJ, PF, GUSTAVO, CAMILA...) a varios movimentos. Idempotente: quem ja tem fica como esta.",
+    inputSchema: { type: "object", properties: { movimento_ids: { type: "array", items: { type: "string" }, description: "ate 500" }, tag: S("string") }, required: ["movimento_ids", "tag"] },
+  },
+  {
+    name: "remover_tag",
+    description: "Remove uma tag (por nome) de varios movimentos. Idempotente.",
+    inputSchema: { type: "object", properties: { movimento_ids: { type: "array", items: { type: "string" } }, tag: S("string") }, required: ["movimento_ids", "tag"] },
+  },
+  {
     name: "lancar_conta_a_receber",
     description: "Lanca uma conta a RECEBER (entrada prevista com data) na visao. Espelho do lancar_conta_a_pagar. Categoria e conta por nome (erro se nao existir). Grava auditoria.",
     inputSchema: {
@@ -664,6 +710,11 @@ const HANDLERS: Record<string, (a: any, sc: Scope) => Promise<string>> = {
   lancar_conta_a_pagar, dar_baixa, categorizar_movimento, listar_contas_a_pagar,
   importar_movimentos, corrigir_data_movimento, atualizar_saldo_conta,
   editar_previsto, cancelar_previsto, lancar_conta_a_receber, adiar_ocorrencia, pular_ocorrencia,
+  conciliar: viaRpc("cf_conciliar", ["previsto_id", "movimento_id"]),
+  desconciliar: viaRpc("cf_desconciliar", ["previsto_id"]),
+  editar_movimento: viaRpc("cf_editar_movimento", ["movimento_id", "campos"]),
+  aplicar_tag: viaRpc("cf_aplicar_tag", ["movimento_ids", "tag"]),
+  remover_tag: viaRpc("cf_remover_tag", ["movimento_ids", "tag"]),
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------

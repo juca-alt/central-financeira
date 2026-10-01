@@ -62,6 +62,23 @@ ok(!r.err && /proxima em 2026-11-05/.test(r.text), "pular_ocorrencia pelo conect
 r = await call(DONO, "dar_baixa", { descricao: "Zz Escola", visao: "FAMILIA" });
 ok(!r.err && /Zz Escola teste/.test(r.text) && /Proxima ocorrencia/.test(r.text), "dar_baixa por descricao (busca na Edge, regra na RPC)", r.text);
 
+// ---- T3
+for (const t of ["conciliar", "desconciliar", "editar_movimento", "aplicar_tag", "remover_tag"]) ok(tools.includes(t), "tools/list tem " + t);
+r = await call(ESCREVE, "conciliar", { previsto_id: "00000000-0000-4000-8000-000000000021", movimento_id: "00000000-0000-4000-8000-0000000000e4" });
+ok(!r.err && /^Conciliado/.test(r.text), "conciliar pelo conector", r.text);
+r = await call(ESCREVE, "desconciliar", { previsto_id: "00000000-0000-4000-8000-000000000021" });
+ok(!r.err && /Vinculo desfeito/.test(r.text), "desconciliar pelo conector", r.text);
+r = await call(ESCREVE, "editar_movimento", { movimento_id: "00000000-0000-4000-8000-0000000000e4", campos: { observacao: "conta de set", categoria: "Zz Educacao" } });
+ok(!r.err && /atualizado/.test(r.text), "editar_movimento pelo conector", r.text);
+r = await call(DONO, "aplicar_tag", { movimento_ids: ["00000000-0000-4000-8000-0000000000e4", "00000000-0000-4000-8000-0000000000e5"], tag: "ZZPJ" });
+ok(!r.err && /aplicada em 2/.test(r.text), "aplicar_tag pelo conector", r.text);
+r = await call(DONO, "aplicar_tag", { movimento_ids: ["00000000-0000-4000-8000-0000000000e4", "00000000-0000-4000-8000-0000000000e5"], tag: "ZZPJ" });
+ok(!r.err && /aplicada em 0.*2 ja estava/.test(r.text), "aplicar_tag de novo = idempotente", r.text);
+r = await call(DONO, "remover_tag", { movimento_ids: ["00000000-0000-4000-8000-0000000000e5"], tag: "ZZPJ" });
+ok(!r.err && /removida de 1/.test(r.text), "remover_tag pelo conector", r.text);
+r = await call(DONO, "aplicar_tag", { movimento_ids: [], tag: "ZZPJ" });
+ok(r.err && /movimento_ids obrigatorio/.test(r.text), "lista vazia barrada na Edge", r.text);
+
 // regressao: tools antigas seguem respondendo
 r = await call(DONO, "listar_contas_a_pagar", { visao: "FAMILIA", mes: "2026-10" });
 ok(!r.err && /Zz Formatura teste/.test(r.text), "regressao listar_contas_a_pagar", r.text);

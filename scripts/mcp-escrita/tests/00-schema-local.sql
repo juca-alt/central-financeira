@@ -94,6 +94,8 @@ $$ select lower(coalesce(auth.jwt() ->> 'email', '')) $$;
 create or replace function public.app_is_admin() returns boolean language sql stable security definer
 set search_path to 'public' as
 $$ select exists (select 1 from public.app_usuarios u where u.email = public.app_email() and u.admin) $$;
+create or replace function public.visao_segura(p text) returns public.visao language plpgsql immutable as $$
+begin return p::public.visao; exception when others then return null; end $$;
 create or replace function public.set_updated_at() returns trigger language plpgsql as
 $$ begin new.updated_at = now(); return new; end; $$;
 create or replace function public.fn_audit() returns trigger language plpgsql security definer

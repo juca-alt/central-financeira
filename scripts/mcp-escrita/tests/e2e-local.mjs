@@ -79,6 +79,34 @@ ok(!r.err && /removida de 1/.test(r.text), "remover_tag pelo conector", r.text);
 r = await call(DONO, "aplicar_tag", { movimento_ids: [], tag: "ZZPJ" });
 ok(r.err && /movimento_ids obrigatorio/.test(r.text), "lista vazia barrada na Edge", r.text);
 
+// ---- T4
+for (const t of ["aplicar_lote", "desfazer", "historico_alteracoes"]) ok(tools.includes(t), "tools/list tem " + t);
+const OPS = [
+  { tool: "editar_previsto", args: { previsto_id: "00000000-0000-4000-8000-000000000042", campos: { valor: 310 } } },
+  { tool: "pular_ocorrencia", args: { previsto_id: "00000000-0000-4000-8000-000000000041" } },
+];
+r = await call(DONO, "aplicar_lote", { operacoes: OPS });
+ok(!r.err && /^SIMULACAO \(nada gravado\)/.test(r.text) && /valor 300 -> 310/.test(r.text), "aplicar_lote dry_run por padrao mostra diff", r.text);
+r = await call(DONO, "listar_contas_a_pagar", { visao: "FAMILIA", mes: "2026-10" });
+ok(/Zz Seguro teste  R\$ 300,00/.test(r.text), "dry_run nao gravou", r.text);
+r = await call(DONO, "aplicar_lote", { operacoes: [...OPS, { tool: "cancelar_previsto", args: { previsto_id: "00000000-0000-4000-8000-0000000000ff", motivo: "x" } }], dry_run: false });
+ok(r.err && /operacao 3 .*Nada foi gravado/.test(r.text), "lote com 1 invalida: erro e nada gravado", r.text);
+r = await call(DONO, "aplicar_lote", { operacoes: [{ tool: "desfazer", args: {} }] });
+ok(r.err && /nao permitida no lote/.test(r.text), "lote recusa tool fora da lista", r.text);
+r = await call(DONO, "aplicar_lote", { operacoes: OPS, dry_run: false });
+const lote = (r.text.match(/lote_id ([0-9a-f-]{36})/) || [])[1];
+ok(!r.err && !!lote, "aplicar_lote dry_run=false grava com lote_id", r.text);
+r = await call(ESCREVE, "historico_alteracoes", { dias: 1 });
+ok(!r.err && /pular_ocorrencia/.test(r.text) && /audit_id/.test(r.text), "historico_alteracoes", r.text);
+r = await call(ESCREVE, "desfazer", { lote_id: lote });
+ok(!r.err && /Desfeito: 2/.test(r.text), "desfazer lote pelo conector", r.text);
+r = await call(DONO, "listar_contas_a_pagar", { visao: "FAMILIA", mes: "2026-10" });
+ok(/Zz Seguro teste  R\$ 300,00/.test(r.text) && /2026-10-15  Zz Internet teste/.test(r.text), "desfazer voltou os valores", r.text);
+r = await call(ESCREVE, "desfazer", { lote_id: lote });
+ok(r.err && /ja foi desfeito/.test(r.text), "desfazer 2x recusa", r.text);
+r = await call(ESCREVE, "quem_sou_eu", {});
+ok(!r.err && /Ferramentas de ESCRITA/.test(r.text) && /aplicar_lote/.test(r.text) && /LANCAR\/ALTERAR: FAMILIA/.test(r.text), "quem_sou_eu lista tools e visoes de escrita", r.text);
+
 // regressao: tools antigas seguem respondendo
 r = await call(DONO, "listar_contas_a_pagar", { visao: "FAMILIA", mes: "2026-10" });
 ok(!r.err && /Zz Formatura teste/.test(r.text), "regressao listar_contas_a_pagar", r.text);

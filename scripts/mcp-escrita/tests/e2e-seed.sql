@@ -27,3 +27,7 @@ insert into public.previstos (id, descricao, valor, vencimento, tipo, status, vi
 insert into public.movimentos (id, conta_id, data, descricao_original, valor, sinal, visao, hash) values
   ('00000000-0000-4000-8000-0000000000e4', '00000000-0000-4000-8000-0000000000a1', '2026-10-10', 'DEBITO LUZ', 300, -1, 'FAMILIA', 'zz-hash-e4'),
   ('00000000-0000-4000-8000-0000000000e5', '00000000-0000-4000-8000-0000000000a1', '2026-10-11', 'MERCADO', 80, -1, 'FAMILIA', 'zz-hash-e5');
+-- T4
+insert into public.previstos (id, descricao, valor, vencimento, tipo, status, visao, recorrencia) values
+  ('00000000-0000-4000-8000-000000000041', 'Zz Internet teste', 120, '2026-10-15', 'pagar', 'aberto', 'FAMILIA', 'mensal'),
+  ('00000000-0000-4000-8000-000000000042', 'Zz Seguro teste', 300, '2026-10-20', 'pagar', 'aberto', 'FAMILIA', null);

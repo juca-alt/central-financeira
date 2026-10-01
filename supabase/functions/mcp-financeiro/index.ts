@@ -6,7 +6,9 @@
 //  - Tools novas: editar_previsto, cancelar_previsto, lancar_conta_a_receber,
 //    adiar_ocorrencia, pular_ocorrencia. dar_baixa ACEITA recorrente
 //    (atual vira avulsa quitada + nasce a proxima ocorrencia).
-//    conciliar, desconciliar, editar_movimento, aplicar_tag, remover_tag.
+//    conciliar, desconciliar, editar_movimento, aplicar_tag, remover_tag,
+//    aplicar_lote (dry_run padrao; tudo ou nada), desfazer (lote_id|audit_id),
+//    historico_alteracoes. quem_sou_eu lista as tools de escrita e as regras.
 //  - FONTE UNICA: a regra dessas tools mora no banco (RPCs cf_*, SECURITY
 //    DEFINER, scripts/mcp-escrita/*.sql). Aqui so valida entrada e chama a
 //    RPC; o banco checa permissao de escrita na visao e grava a auditoria
@@ -172,6 +174,9 @@ async function quem_sou_eu(_a: any, sc: Scope): Promise<string> {
     const cs: any[] = await rest("contas?select=nome,tipo,saldo_atual,ativo&visao=eq." + enc(v) + "&ativo=eq.true&order=ordem.asc,nome.asc");
     linhas.push("Contas de " + VISAO_LABEL[v] + ": " + ((cs || []).map((c) => c.nome + " (" + c.tipo + ")").join(", ") || "nenhuma"));
   }
+  linhas.push("Ferramentas de ESCRITA (valem nas visoes acima em que voce pode lancar/alterar): " + TOOLS_ESCRITA.join(", ") + ".");
+  linhas.push("Regras: nada e apagado (apagar = cancelar_previsto); toda escrita fica auditada e pode ser revertida com desfazer; " +
+    "dar_baixa em recorrente quita a ocorrencia e cria a proxima; varias correcoes = aplicar_lote (simula por padrao, dry_run=false grava tudo-ou-nada).");
   linhas.push("Dica: comece por resumo_do_mes ou saldos. Datas em YYYY-MM-DD, meses em YYYY-MM.");
   return linhas.join("\n");
 }
@@ -534,6 +539,48 @@ async function pular_ocorrencia(a: any, sc: Scope): Promise<string> {
   return String(r.msg);
 }
 
+const TOOLS_ESCRITA = ["lancar_conta_a_pagar", "lancar_conta_a_receber", "editar_previsto", "cancelar_previsto", "dar_baixa",
+  "adiar_ocorrencia", "pular_ocorrencia", "conciliar", "desconciliar", "editar_movimento", "categorizar_movimento",
+  "corrigir_data_movimento", "aplicar_tag", "remover_tag", "importar_movimentos", "atualizar_saldo_conta",
+  "aplicar_lote", "desfazer"];
+const TOOLS_LOTE = ["editar_previsto", "cancelar_previsto", "lancar_conta_a_receber", "dar_baixa", "adiar_ocorrencia",
+  "pular_ocorrencia", "conciliar", "desconciliar", "editar_movimento", "aplicar_tag", "remover_tag"];
+
+async function aplicar_lote(a: any, sc: Scope): Promise<string> {
+  const ops = a.operacoes;
+  if (!Array.isArray(ops) || !ops.length) throw new Error("operacoes deve ser uma lista com pelo menos 1 item");
+  ops.forEach((o: any, i: number) => {
+    if (!o || !TOOLS_LOTE.includes(String(o.tool))) throw new Error("operacao " + (i + 1) + ": tool '" + (o && o.tool) + "' nao permitida no lote (use: " + TOOLS_LOTE.join(", ") + ")");
+  });
+  const dry = a.dry_run === false || String(a.dry_run).toLowerCase() === "false" ? false : true;
+  const r = await rpc("cf_aplicar_lote", sc, { operacoes: ops, dry_run: dry });
+  const L: string[] = [String(r.msg)];
+  (r.resultados || []).forEach((x: any) => L.push(x.i + ". [" + x.tool + "] " + x.msg));
+  const mud: any[] = r.mudancas || [];
+  if (mud.length) {
+    L.push("Mudancas (antes -> depois):");
+    mud.slice(0, 150).forEach((m: any) => {
+      const campos = Object.entries(m.diff || {}).filter(([k]) => m.acao !== "criado" || ["descricao", "valor", "vencimento", "status", "recorrencia", "ligado"].includes(k));
+      L.push("- " + m.tabela + " " + m.registro_id + " " + m.acao + ": " +
+        campos.map(([k, v]: [string, any]) => k + " " + JSON.stringify(v.de) + " -> " + JSON.stringify(v.para)).join("; "));
+    });
+    if (mud.length > 150) L.push("... +" + (mud.length - 150) + " registro(s)");
+  }
+  return L.join("\n");
+}
+
+async function historico_alteracoes(a: any, sc: Scope): Promise<string> {
+  const args: any = { dias: a.dias, limite: a.limite };
+  if (a.visao) { const v = visaoDe(a, sc); exigeLer(sc, v); args.visao = v; }
+  const r = await rpc("cf_historico_alteracoes", sc, args);
+  const itens: any[] = r.itens || [];
+  if (!itens.length) return "Nenhuma alteracao pelo conector nesse periodo.";
+  return String(r.msg) + " (mais nova primeiro; desfazer aceita lote_id ou audit_id):\n" + itens.map((x) =>
+    "- " + String(x.criado_em).slice(0, 16).replace("T", " ") + " [" + x.tool + " | " + (x.visao || "?") + " | " + x.usuario + "] " +
+    x.rotulo + ": " + x.resumo + (x.revertido_em ? " (DESFEITO)" : "") +
+    " | audit_id " + x.id + (x.lote_id ? " lote " + x.lote_id : "")).join("\n");
+}
+
 // tools que so repassam pra RPC: checa os obrigatorios e devolve a msg do banco
 function viaRpc(fn: string, obrig: string[]): (a: any, sc: Scope) => Promise<string> {
   return async (a: any, sc: Scope) => {
@@ -691,6 +738,31 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { movimento_ids: { type: "array", items: { type: "string" } }, tag: S("string") }, required: ["movimento_ids", "tag"] },
   },
   {
+    name: "aplicar_lote",
+    description: "Aplica VARIAS operacoes de escrita de uma vez, TUDO OU NADA (se uma falhar, nenhuma grava). dry_run=true (PADRAO) so simula e devolve o diff antes -> depois sem gravar; dry_run=false grava tudo com um lote_id (reversivel com desfazer). Cada operacao = {tool, args} com os mesmos args da tool (no lote, dar_baixa exige previsto_id e lancar_conta_a_receber exige visao).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operacoes: {
+          type: "array", description: "ate 200",
+          items: { type: "object", properties: { tool: { type: "string", enum: TOOLS_LOTE }, args: { type: "object" } }, required: ["tool", "args"] },
+        },
+        dry_run: { type: "boolean", description: "padrao true (simula). false = grava." },
+      },
+      required: ["operacoes"],
+    },
+  },
+  {
+    name: "desfazer",
+    description: "Reverte alteracoes feitas pelo conector, pela auditoria: um lote inteiro (lote_id) ou uma alteracao (audit_id, veja historico_alteracoes). Registros criados viram 'cancelado' (nada e apagado). Se o registro mudou depois, recusa sem reverter nada.",
+    inputSchema: { type: "object", properties: { lote_id: S("string"), audit_id: S("number") } },
+  },
+  {
+    name: "historico_alteracoes",
+    description: "Lista o que o conector mudou (quem, quando, tool, antes -> depois, lote_id/audit_id pra desfazer). So das visoes que voce pode consultar.",
+    inputSchema: { type: "object", properties: { dias: S("number", "padrao 7"), visao: VIS, limite: S("number", "padrao 100, max 500") } },
+  },
+  {
     name: "lancar_conta_a_receber",
     description: "Lanca uma conta a RECEBER (entrada prevista com data) na visao. Espelho do lancar_conta_a_pagar. Categoria e conta por nome (erro se nao existir). Grava auditoria.",
     inputSchema: {
@@ -715,6 +787,11 @@ const HANDLERS: Record<string, (a: any, sc: Scope) => Promise<string>> = {
   editar_movimento: viaRpc("cf_editar_movimento", ["movimento_id", "campos"]),
   aplicar_tag: viaRpc("cf_aplicar_tag", ["movimento_ids", "tag"]),
   remover_tag: viaRpc("cf_remover_tag", ["movimento_ids", "tag"]),
+  aplicar_lote, historico_alteracoes,
+  desfazer: async (a: any, sc: Scope) => {
+    if (!a.lote_id && (a.audit_id === undefined || a.audit_id === null || a.audit_id === "")) throw new Error("informe lote_id ou audit_id");
+    return String((await rpc("cf_desfazer", sc, { lote_id: a.lote_id, audit_id: a.audit_id })).msg);
+  },
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------

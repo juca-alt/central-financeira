@@ -50,11 +50,29 @@ ok(!r.err && /Conta a receber criada em FAMILIA/.test(r.text), "lancar_conta_a_r
 r = await call(ESCREVE, "lancar_conta_a_receber", { descricao: "Zz X", valor: 10, vencimento: "2026-10-15", visao: "PJ" });
 ok(r.err && /so LE a visao PJ/.test(r.text), "receber sem escrita -> barrado ja na Edge", r.text);
 
+// ---- T2
+for (const t of ["adiar_ocorrencia", "pular_ocorrencia"]) ok(tools.includes(t), "tools/list tem " + t);
+r = await call(DONO, "dar_baixa", { previsto_id: "00000000-0000-4000-8000-000000000011", valor_real: 1636.91, movimento_id: "00000000-0000-4000-8000-0000000000e1" });
+ok(!r.err && /R\$ 1\.636,91 marcada como pago/.test(r.text) && /Proxima ocorrencia \(mensal\) criada pra 2026-10-10/.test(r.text), "dar_baixa recorrente pelo conector", r.text);
+const proxId = (r.text.match(/\[id ([0-9a-f-]{36})\]\.$/) || [])[1];
+r = await call(ESCREVE, "adiar_ocorrencia", { previsto_id: proxId, nova_data: "2026-10-30", motivo: "boleto atrasou" });
+ok(!r.err && /segue em 2026-11-10/.test(r.text), "adiar_ocorrencia pelo conector", r.text);
+r = await call(DONO, "pular_ocorrencia", { previsto_id: "00000000-0000-4000-8000-000000000013" });
+ok(!r.err && /proxima em 2026-11-05/.test(r.text), "pular_ocorrencia pelo conector", r.text);
+r = await call(DONO, "dar_baixa", { descricao: "Zz Escola", visao: "FAMILIA" });
+ok(!r.err && /Zz Escola teste/.test(r.text) && /Proxima ocorrencia/.test(r.text), "dar_baixa por descricao (busca na Edge, regra na RPC)", r.text);
+
 // regressao: tools antigas seguem respondendo
 r = await call(DONO, "listar_contas_a_pagar", { visao: "FAMILIA", mes: "2026-10" });
 ok(!r.err && /Zz Formatura teste/.test(r.text), "regressao listar_contas_a_pagar", r.text);
 r = await call(DONO, "lancar_conta_a_pagar", { descricao: "Zz Pagar regressao", valor: 10, vencimento: "2026-10-20", visao: "FAMILIA" });
 ok(!r.err && /Conta a pagar criada/.test(r.text), "regressao lancar_conta_a_pagar", r.text);
+
+const itens = [{ data: "2026-10-01", descricao: "Zz Mercado", valor: 50, sinal: -1 }, { data: "2026-10-01", descricao: "Zz Mercado", valor: 50, sinal: -1 }];
+r = await call(DONO, "importar_movimentos", { conta: "Zz Conta Teste", visao: "FAMILIA", fonte: "zz_e2e", itens });
+ok(!r.err && /inseridos: 2/.test(r.text), "regressao importar_movimentos", r.text);
+r = await call(DONO, "importar_movimentos", { conta: "Zz Conta Teste", visao: "FAMILIA", fonte: "zz_e2e", itens });
+ok(!r.err && /inseridos: 0/.test(r.text) && /ignorados\): 2/.test(r.text), "regressao importar_movimentos dedup por hash", r.text);
 
 console.log(falhas ? "\n" + falhas + " FALHA(S)" : "\nTUDO VERDE");
 process.exit(falhas ? 1 : 0);

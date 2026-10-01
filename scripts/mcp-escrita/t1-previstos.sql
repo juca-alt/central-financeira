@@ -120,6 +120,12 @@ begin
   return v;
 end $$;
 
+-- R$ 1.234,56 (independe do locale do servidor; mesmo formato do brl() da Edge)
+create or replace function public.cf_brl(v numeric)
+returns text language sql immutable as $$
+  select 'R$ ' || translate(to_char(coalesce(v, 0), 'FM999,999,999,990.00'), ',.', '.,')
+$$;
+
 create or replace function public.cf_hoje()
 returns date language sql stable as $$ select (now() at time zone 'America/Recife')::date $$;
 
@@ -333,7 +339,7 @@ begin
   returning * into n;
   perform public.cf_audit_add(v_user, 'lancar_conta_a_receber', p_lote, 'previstos', n.id, null, to_jsonb(n));
   return jsonb_build_object('ok', true, 'id', n.id, 'mudou', true,
-    'msg', 'Conta a receber criada em ' || v_vis || ': "' || n.descricao || '" R$ ' || to_char(n.valor, 'FM999G999G990D00')
+    'msg', 'Conta a receber criada em ' || v_vis || ': "' || n.descricao || '" ' || public.cf_brl(n.valor)
            || ' prevista pra ' || n.vencimento || coalesce(' (' || n.recorrencia || ')', '') || ' [id ' || n.id || ']');
 end $$;
 

@@ -3,7 +3,9 @@
 // Conector MCP CURADO da Central Financeira, agora POR PESSOA.
 //
 // O QUE MUDOU NA 2.1 (conector de escrita, T1)
-//  - Tools novas: editar_previsto, cancelar_previsto, lancar_conta_a_receber.
+//  - Tools novas: editar_previsto, cancelar_previsto, lancar_conta_a_receber,
+//    adiar_ocorrencia, pular_ocorrencia. dar_baixa ACEITA recorrente
+//    (atual vira avulsa quitada + nasce a proxima ocorrencia).
 //  - FONTE UNICA: a regra dessas tools mora no banco (RPCs cf_*, SECURITY
 //    DEFINER, scripts/mcp-escrita/*.sql). Aqui so valida entrada e chama a
 //    RPC; o banco checa permissao de escrita na visao e grava a auditoria
@@ -345,22 +347,11 @@ async function dar_baixa(a: any, sc: Scope): Promise<string> {
   }
   if (!prev) throw new Error("previsto nao encontrado");
   exigeEscrever(sc, String(prev.visao));
-  const st = String(prev.status).toLowerCase();
-  if (st === "pago" || st === "recebido") return "Essa conta ja esta como " + st + " (id " + prev.id + ").";
-  if (prev.recorrencia) {
-    throw new Error("essa conta e recorrente (" + prev.recorrencia + "); dar baixa aqui mataria a serie. " +
-      "Use o check no app (Contas do mes / Modo Financeiro), que cria a instancia paga e rola o template.");
-  }
-  // receber quitado = 'recebido', pagar quitado = 'pago' (erro #32 do Livro)
-  const novo = prev.tipo === "receber" ? "recebido" : "pago";
-  await rest("previstos?id=eq." + enc(prev.id), {
-    method: "PATCH", body: JSON.stringify({ status: novo, movimento_id_realizado: a.movimento_id ? String(a.movimento_id) : undefined }),
+  // v2.1: a regra (avulsa ou recorrente, conciliacao, auditoria) mora na RPC cf_dar_baixa
+  const r = await rpc("cf_dar_baixa", sc, {
+    previsto_id: prev.id, movimento_id: a.movimento_id, valor_real: a.valor_real, valor_proxima: a.valor_proxima,
   });
-  if (a.movimento_id) {
-    await rest("movimentos?id=eq." + enc(a.movimento_id), { method: "PATCH", body: JSON.stringify({ conciliado_previsto_id: prev.id }) });
-  }
-  return "Baixa dada: \"" + prev.descricao + "\" " + brl(Number(prev.valor)) + " marcada como " + novo +
-    (a.movimento_id ? " e conciliada ao movimento " + a.movimento_id : "") + " (id " + prev.id + ").";
+  return String(r.msg);
 }
 
 async function categorizar_movimento(a: any, sc: Scope): Promise<string> {
@@ -529,6 +520,19 @@ async function lancar_conta_a_receber(a: any, sc: Scope): Promise<string> {
   return String(r.msg);
 }
 
+async function adiar_ocorrencia(a: any, sc: Scope): Promise<string> {
+  if (!String(a.previsto_id || "").trim()) throw new Error("previsto_id obrigatorio");
+  if (!isDate(String(a.nova_data || ""))) throw new Error("nova_data deve ser YYYY-MM-DD");
+  const r = await rpc("cf_adiar_ocorrencia", sc, { previsto_id: a.previsto_id, nova_data: a.nova_data, motivo: a.motivo });
+  return String(r.msg);
+}
+
+async function pular_ocorrencia(a: any, sc: Scope): Promise<string> {
+  if (!String(a.previsto_id || "").trim()) throw new Error("previsto_id obrigatorio");
+  const r = await rpc("cf_pular_ocorrencia", sc, { previsto_id: a.previsto_id, motivo: a.motivo });
+  return String(r.msg);
+}
+
 // ------------------------- catalogo MCP ------------------------------
 const S = (t: string, d?: string) => (d ? { type: t, description: d } : { type: t });
 const VIS = { type: "string", enum: VISOES, description: "PJ=Prudential Franquia, PIPEX=Pipe X, RC=R.C, FAMILIA=Familia, JUCA=Juca. Se voce so tem uma visao, pode omitir." };
@@ -557,8 +561,8 @@ const TOOLS = [
   },
   {
     name: "dar_baixa",
-    description: "Marca um compromisso como pago (ou recebido) e opcionalmente concilia a um movimento. Recorrentes sao recusadas (use o app).",
-    inputSchema: { type: "object", properties: { previsto_id: S("string"), descricao: S("string"), visao: VIS, movimento_id: S("string") } },
+    description: "Marca um compromisso como pago (ou recebido) e opcionalmente concilia a um movimento (vinculo nos dois lados). RECORRENTE: a ocorrencia atual vira avulsa quitada e nasce a proxima (vencimento + 1 periodo, aberta). valor_real = quanto foi pago de fato; valor_proxima = valor da proxima ocorrencia, se mudou.",
+    inputSchema: { type: "object", properties: { previsto_id: S("string"), descricao: S("string"), visao: VIS, movimento_id: S("string"), valor_real: S("number", "valor efetivamente pago/recebido (opcional)"), valor_proxima: S("number", "so recorrente: valor da proxima ocorrencia (opcional)") } },
   },
   {
     name: "categorizar_movimento",
@@ -631,6 +635,16 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { previsto_id: S("string"), motivo: S("string") }, required: ["previsto_id", "motivo"] },
   },
   {
+    name: "adiar_ocorrencia",
+    description: "Adia um compromisso aberto. RECORRENTE: a ocorrencia atual vira avulsa na nova_data e a serie segue no vencimento original + 1 periodo (nao duplica o mes). AVULSA: so muda o vencimento.",
+    inputSchema: { type: "object", properties: { previsto_id: S("string"), nova_data: S("string", "YYYY-MM-DD"), motivo: S("string") }, required: ["previsto_id", "nova_data"] },
+  },
+  {
+    name: "pular_ocorrencia",
+    description: "Recorrente sem cobranca neste periodo: a serie anda 1 periodo (vencimento + 1), sem criar registro pago.",
+    inputSchema: { type: "object", properties: { previsto_id: S("string"), motivo: S("string") }, required: ["previsto_id"] },
+  },
+  {
     name: "lancar_conta_a_receber",
     description: "Lanca uma conta a RECEBER (entrada prevista com data) na visao. Espelho do lancar_conta_a_pagar. Categoria e conta por nome (erro se nao existir). Grava auditoria.",
     inputSchema: {
@@ -649,7 +663,7 @@ const HANDLERS: Record<string, (a: any, sc: Scope) => Promise<string>> = {
   quem_sou_eu, saldos, resumo_do_mes, listar_movimentos, listar_categorias,
   lancar_conta_a_pagar, dar_baixa, categorizar_movimento, listar_contas_a_pagar,
   importar_movimentos, corrigir_data_movimento, atualizar_saldo_conta,
-  editar_previsto, cancelar_previsto, lancar_conta_a_receber,
+  editar_previsto, cancelar_previsto, lancar_conta_a_receber, adiar_ocorrencia, pular_ocorrencia,
 };
 
 // ------------------------- JSON-RPC MCP ------------------------------

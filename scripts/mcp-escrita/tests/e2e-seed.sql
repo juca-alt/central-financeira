@@ -14,3 +14,9 @@ insert into public.previstos (id, descricao, valor, vencimento, tipo, status, vi
   ('00000000-0000-4000-8000-000000000001', 'Zz Formatura teste', 166, '2026-09-30', 'pagar', 'aberto', 'FAMILIA', 'mensal'),
   ('00000000-0000-4000-8000-000000000003', 'Zz PJ teste', 900, '2026-10-10', 'pagar', 'aberto', 'PJ', null),
   ('00000000-0000-4000-8000-000000000005', 'Zz Avulsa velha', 40, '2026-10-02', 'pagar', 'aberto', 'FAMILIA', null);
+-- T2
+insert into public.previstos (id, descricao, valor, vencimento, tipo, status, visao, recorrencia) values
+  ('00000000-0000-4000-8000-000000000011', 'Zz Condominio teste', 1740, '2026-09-10', 'pagar', 'aberto', 'FAMILIA', 'mensal'),
+  ('00000000-0000-4000-8000-000000000013', 'Zz Escola teste', 800, '2026-10-05', 'pagar', 'aberto', 'FAMILIA', 'mensal');
+insert into public.movimentos (id, conta_id, data, descricao_original, valor, sinal, visao, hash) values
+  ('00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-0000000000a1', '2026-09-10', 'PIX CONDOMINIO', 1636.91, -1, 'FAMILIA', 'zz-hash-e1');

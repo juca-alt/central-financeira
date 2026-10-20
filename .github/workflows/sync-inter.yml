@@ -11,11 +11,13 @@ on:
         description: "Quantos dias pra trás (máx 90)"
         required: false
         default: "30"
+  # Piloto automático DESLIGADO em 20/10 (integração em pausa — dados entram por importação
+  # manual). Pra religar, descomente as 3 linhas abaixo.
   # Piloto automático: roda a cada 3h (extrato + saldo sempre frescos; validado 2026-06-23)
-  schedule:
+  # schedule:
     # A cada 1h (02/08, era 3h): API oficial do Inter entrega dado em tempo real,
     # o dedup por hash impede duplicata e o repo e publico (Actions gratis).
-    - cron: "30 * * * *"   # todo :30 → dado nunca >1h atrasado
+    # - cron: "30 * * * *"   # todo :30 → dado nunca >1h atrasado
 
 # Nunca dois syncs ao mesmo tempo (cron horário + botão ⚡ do app podiam se cruzar).
 concurrency:

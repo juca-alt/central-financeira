@@ -498,6 +498,10 @@ function confirmDel(msg,onYes){modal({title:"Confirmar",extraHTML:`<div class="s
 
 /* ===== reload após gravar (bug: totais recalculam) ===== */
 async function afterWrite(){ if(MODE==="live"){ try{DB=await loadData();}catch(e){toast("Reload: "+e.message);} } SEL.clear(); try{FP.dados=null;}catch(e){} /* Modo Financeiro relê previstos */ (ROUTES[CURRENT]||viewDashboard)(); }
+/* INTEGRAÇÃO BANCÁRIA DESLIGADA (20/10, pedido do Gustavo: "não está funcionando bem").
+   O botão ⚡ saiu da tela e os crons (sync-pluggy / sync-inter) foram desligados nos workflows.
+   Dados entram por importação manual (extrato OFX/CSV/PDF, faturas, MCP). Pra religar: botão de
+   volta no contasPanel + schedule nos .github/workflows/sync-*.yml. Função mantida pra esse dia. */
 /* Botão ⚡ Atualizar bancos: Edge Function sync-agora → refresh Pluggy + workflow_dispatch dos syncs */
 async function syncBancos(){const btn=()=>document.getElementById("btnSyncBancos");
   if(MODE!=="live"){toast("Sync só no modo live (logado)");return;}
@@ -705,7 +709,7 @@ function contasPanel(){const b=contaSaldos();
   const items=[...b.entries()].filter(([n,v])=>!isCartaoConta(n)&&(v!==0||n!=="(sem conta)")).sort((a,b)=>b[1]-a[1]);
   if(!items.length)return'';
   const rows=items.map(([n,v])=>{const tag=frescorTag(meta.get(n));return`<div style="flex:1;min-width:150px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px"><div class="sub" style="font-size:11px">🏦 ${esc(n)}</div><div class="${v>=0?'in':'out'}" style="font-size:17px;font-weight:600">${fmtBRL(v)}</div>${tag}</div>`;}).join("");
-  return`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Saldo por conta <button class="btn ghost sm" id="btnSyncBancos" onclick="syncBancos()" title="Pede refresh no Pluggy e dispara os syncs (Pluggy + Inter PJ) agora">⚡ Atualizar bancos</button></h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
+  return`<div class="panel"><h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">Saldo por conta</h2><div style="display:flex;flex-wrap:wrap;gap:10px">${rows}</div></div>`;}
 /* versões dobráveis, com o total no cabeçalho (usadas nas duas Visões Gerais) */
 function cartoesTotal(){let t=0;contaSaldos().forEach((v,n)=>{if(isCartaoConta(n))t+=v;});return t;}
 function contasPanelD(){return dobr("ov-contas",contasPanel(),fmtBRL(saldoCorrente()));}
@@ -767,7 +771,7 @@ function primeirosPassos(){
   const passo=(n,t,d,act,lbl)=>`<div class="ct-row" style="cursor:default"><div class="dot-day"><b>${n}</b></div><div class="ct-main"><b>${t}</b><small>${d}</small></div><button class="btn sm" onclick="${act}">${lbl}</button></div>`;
   return`<div class="panel pp-vazia"><h2>👋 Primeiros passos</h2><div class="sub" style="margin-bottom:4px">${esc(VISAO_LABEL)} ainda está vazia. Três passos e a tela ganha vida:</div>
     ${passo(1,"Cadastre as contas do mês","aluguel, escola, luz… o que é recorrente aparece todo mês sozinho",IS_PESSOAL?"route('contas')":"route('pagar')","Contas")}
-    ${passo(2,"Traga o extrato do banco","importe OFX, CSV ou PDF — ou conecte o banco em Configurações","route('importar')","Importar")}
+    ${passo(2,"Traga o extrato do banco","importe OFX, CSV ou PDF do banco","route('importar')","Importar")}
     ${passo(3,"Ou lance um gasto na mão","um toque e a Visão Geral já muda","addMovimento()","+ Lançar")}
   </div>`;}
 function viewDashboard(){
@@ -787,12 +791,6 @@ function viewDashboard(){
   </div>
   ${ovPeriodBar()}
   ${primeirosPassos()}
-  <div class="kpis">
-    <div class="kpi"><div class="lbl">💰 Saldo total</div><div class="val ${o.saldoTotal>=0?'in':'out'}">${fmtBRL(o.saldoTotal)}</div></div>
-    <div class="kpi" onclick="ovDrill('ent')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📈 Entradas (previsto)</div><div class="val in">${fmtBRL(o.entPrev)}</div></div>
-    <div class="kpi" onclick="ovDrill('sai')" style="cursor:pointer" title="Ver a lista que soma este valor"><div class="lbl">📉 Saídas (previsto)</div><div class="val out">${fmtBRL(o.saiPrev)}</div></div>
-    <div class="kpi"><div class="lbl">🔮 Saldo projetado</div><div class="val ${o.proj>=0?'in':'out'}">${fmtBRL(o.proj)}</div></div>
-  </div>
   ${visoesPanel()}
   ${dobrBar()}
   ${entSaiDetail(o)}
@@ -1334,7 +1332,6 @@ const LINKS_SEED=[
   {n:"Pasta Central Financeira (Drive)",d:"Canônico, snapshots e extratos.",u:"https://drive.google.com/drive/folders/177ft9fjF7onKwIII-irrD4c6czy9s8rw",i:"📁"},
   {n:"Assistente Financeira (Notion)",d:"Protocolo, memória e retomada da assistente.",u:"https://www.notion.so",i:"📓"},
   {n:"Supabase · Central",d:"Banco e Edge Functions do app.",u:"https://supabase.com/dashboard/project/mieqsiojvfiqrhectquc",i:"🗄️"},
-  {n:"Meu Pluggy",d:"Conexões bancárias (Inter PF, C6, Nubank).",u:"https://meu.pluggy.ai",i:"🔌"},
 ];
 function linksLoad(){
   if(MODE==="live")return (DB.links||[]).map(l=>({id:l.id,n:l.nome,u:l.url,d:l.descricao||"",i:l.icone||"🔗",visao:l.visao}));
